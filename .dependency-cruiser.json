@@ -1,0 +1,44 @@
+{
+  "$schema": "https://dependency-cruiser.js.org/schema/configuration.schema.json",
+  "forbidden": [
+    {
+      "name": "no-feature-to-infrastructure",
+      "comment": "Feature UI components must not import directly from infrastructure. Go through hooks or services.",
+      "severity": "error",
+      "from": { "path": "^src/features" },
+      "to":   { "path": "^src/infrastructure" }
+    },
+    {
+      "name": "no-shared-to-feature",
+      "comment": "Shared utilities must not depend on feature-specific code.",
+      "severity": "error",
+      "from": { "path": "^src/shared" },
+      "to":   { "path": "^src/features" }
+    },
+    {
+      "name": "no-circular",
+      "comment": "Circular dependencies are forbidden.",
+      "severity": "error",
+      "from": {},
+      "to": { "circular": true }
+    },
+    {
+      "name": "no-deprecated",
+      "comment": "Do not use deprecated modules.",
+      "severity": "warn",
+      "from": {},
+      "to": { "dependencyTypes": ["deprecated"] }
+    }
+  ],
+  "options": {
+    "doNotFollow": {
+      "path": "node_modules"
+    },
+    "tsPreCompilationDeps": true,
+    "tsConfig": { "fileName": "tsconfig.json" },
+    "reporterOptions": {
+      "dot":  { "collapsePattern": "node_modules/[^/]+" },
+      "archi": { "collapsePattern": "node_modules/[^/]+" }
+    }
+  }
+}

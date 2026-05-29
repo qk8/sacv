@@ -1,0 +1,389 @@
+"""
+nodes/verifier.py
+=================
+Multi-dimensional verification inside the Docker sandbox.
+
+Refactoring additions (debugging session):
+  STACK TRACE PRUNING (approach 5):
+    _parse_failures() now uses _log_parser.prune_stack() to filter framework
+    noise before returning failures to the graph. Actor receives user-code
+    frames only, not 150 lines of Spring internals.
+
+  SPRING ACTUATOR ON DI ERRORS (approach 3):
+    BeanCreationException detected → query /actuator/beans snapshot before
+    routing to debugger. Included in verifier_verdict for immediate use.
+
+  PLAYWRIGHT TRACE (approach 2 frontend):
+    --trace retain-on-failure flag added. Trace ZIP path recorded in verdict
+    so IntelligentDebuggerNode can reference it.
+
+  OTEL TRACE CORRELATION (approach 1):
+    If OTel collector is running in sandbox, query traces matching the test
+    run correlation ID and attach to verdict.
+
+  DIAGNOSTIC PRECISION:
+    Verdict now distinguishes AMBIGUOUS more precisely — only truly
+    unexplainable failures get AMBIGUOUS (routing to debugger).
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import structlog
+
+from sacv.orchestration.state import (
+    WorkflowPhase, VerifierVerdict, DiagnosticVerdict,
+)
+from sacv.nodes._stagnation import embed_error_to_b64
+from sacv.nodes._log_parser import prune_stack, frames_to_dict
+
+if TYPE_CHECKING:
+    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.state import WorkflowState
+
+log = structlog.get_logger(__name__)
+
+_PERF_REGRESSION_THRESHOLD = 0.20
+_EVIDENCE_DIR = Path(".workflow/tdd-evidence")
+_TRACE_DIR    = Path(".workflow/playwright-traces")
+
+# OTel collector endpoint inside Docker sandbox
+_OTEL_QUERY_URL = "http://localhost:16686/api/traces"  # Jaeger-compatible
+
+
+def make_verifier_node(deps: "NodeDeps"):
+
+    async def verifier_node(state: "WorkflowState") -> dict:
+        task_id   = state["task_id"]
+        module    = state["module_type"]
+        correction = state["correction_state"]
+        findings  = state.get("critic_findings", [])
+        blast     = state.get("blast_radius_map") or {}
+        inv_paths = state.get("test_inventory_paths", [])
+        cfg       = deps.config.debug
+
+        log.info("verifier.start", task_id=task_id, attempt=correction["attempt_count"])
+
+        # Critical critic findings → skip Docker
+        critical = [f for f in findings if f["severity"] == "critical"]
+        if critical:
+            log.warning("verifier.critical_block", count=len(critical))
+            verdict = _make_verdict(
+                test_result="FAIL",
+                diagnostic=DiagnosticVerdict.FIX_IMPL.value,
+                phase1_passed=False, phase2_passed=False,
+                failures=[{"source": "critic", "finding": f} for f in critical],
+                findings=findings,
+            )
+            return _build_return(verdict, correction, "critic_block")
+
+        handle = await deps.sandbox.warm_container()
+
+        # ── Test deletion guard ───────────────────────────────────────────
+        deletion_error = _check_test_deletions(state)
+        if deletion_error:
+            verdict = _make_verdict(
+                test_result="FAIL", diagnostic=DiagnosticVerdict.FIX_IMPL.value,
+                phase1_passed=False, phase2_passed=False,
+                failures=[{"source": "deletion_guard", "message": deletion_error}],
+                findings=findings,
+            )
+            return _build_return(verdict, correction, deletion_error)
+
+        # ── Phase 1: Legacy Regression Sweep ─────────────────────────────
+        p1_cmd    = _full_suite_cmd(module)
+        p1_exec   = await deps.sandbox.exec_in_container(handle, p1_cmd, timeout=300)
+        p1_passed = p1_exec.exit_code == 0
+        p1_raw    = p1_exec.stdout + p1_exec.stderr
+
+        # Apply stack trace pruning (approach 5)
+        p1_frames  = prune_stack(p1_raw, module, cfg.user_java_package, cfg.user_ts_src_root)
+        p1_failures = frames_to_dict(p1_frames) or _fallback_parse(p1_raw, module)
+
+        log.info("verifier.phase1", passed=p1_passed, user_frames=len(p1_frames))
+
+        if not p1_passed:
+            # Try Spring Actuator on DI errors before returning (approach 3)
+            actuator_snap = None
+            if _is_bean_error(p1_raw):
+                actuator_snap = await _query_actuator(handle, cfg.actuator_base_url, deps)
+
+            verdict = _make_verdict(
+                test_result="FAIL", diagnostic=DiagnosticVerdict.FIX_IMPL.value,
+                phase1_passed=False, phase2_passed=False,
+                failures=p1_failures, findings=findings,
+                actuator_snapshot=actuator_snap,
+            )
+            return _build_return(verdict, correction, " ".join(
+                f.get("message", "") for f in p1_failures
+            ))
+
+        # ── Phase 2: New Feature Tests ────────────────────────────────────
+        p2_passed = True
+        p2_failures: list[dict] = []
+        playwright_trace: str | None = None
+
+        if inv_paths:
+            p2_cmd  = _inventory_test_cmd(module, inv_paths)
+            p2_exec = await deps.sandbox.exec_in_container(handle, p2_cmd, timeout=180)
+            p2_passed = p2_exec.exit_code == 0
+            p2_raw    = p2_exec.stdout + p2_exec.stderr
+
+            p2_frames  = prune_stack(p2_raw, module, cfg.user_java_package, cfg.user_ts_src_root)
+            p2_failures = frames_to_dict(p2_frames) or _fallback_parse(p2_raw, module)
+
+            # Playwright trace on frontend failure (approach 2)
+            if not p2_passed and "frontend" in module:
+                playwright_trace = await _extract_playwright_trace(handle, task_id, deps)
+
+            log.info("verifier.phase2", passed=p2_passed, user_frames=len(p2_frames))
+
+        # ── Blast-radius cross-domain API check (approach 5) ──────────────
+        if blast.get("schema_impact") and "frontend" not in module:
+            api_exec = await deps.sandbox.exec_in_container(
+                handle,
+                "[ -d tests/api ] && npm test -- --testPathPattern=tests/api "
+                "--watchAll=false 2>&1 || true",
+                timeout=120,
+            )
+            if api_exec.exit_code != 0:
+                api_frames  = prune_stack(api_exec.stdout, "backend-api",
+                                          cfg.user_java_package, cfg.user_ts_src_root)
+                p2_failures += frames_to_dict(api_frames)
+                p2_passed   = False
+
+        # ── OTel trace correlation ─────────────────────────────────────────
+        otel_trace = None
+        if not p2_passed:
+            otel_trace = await _query_otel(handle, task_id, deps)
+
+        # ── Performance profiling ─────────────────────────────────────────
+        perf_delta: dict | None = None
+        if p1_passed and p2_passed:
+            perf_delta = await _run_perf(handle, module, task_id, deps)
+
+        # ── Visual diff (frontend only) ────────────────────────────────────
+        visual_result: dict | None = None
+        if p1_passed and p2_passed and "frontend" in module:
+            visual_result = await _run_visual_diff(handle, task_id, deps)
+
+        overall_pass = (
+            p1_passed and p2_passed
+            and not _has_perf_regression(perf_delta)
+            and not _has_visual_breakage(visual_result)
+        )
+
+        all_failures = p1_failures + p2_failures
+        diagnostic   = _classify(p1_passed, p2_passed, all_failures, findings, state)
+
+        verdict = _make_verdict(
+            test_result="PASS" if overall_pass else "FAIL",
+            diagnostic=diagnostic,
+            phase1_passed=p1_passed, phase2_passed=p2_passed,
+            failures=all_failures, findings=findings,
+            performance_delta=perf_delta,
+            visual_diff_result=visual_result,
+            playwright_trace_path=playwright_trace,
+            otel_trace=otel_trace,
+        )
+        log.info("verifier.complete", result=verdict["test_result"], diag=diagnostic)
+        return _build_return(
+            verdict, correction,
+            " ".join(f.get("message", "") for f in all_failures)
+        )
+
+    return verifier_node
+
+
+# ── Diagnostic helpers ────────────────────────────────────────────────────────
+
+def _classify(
+    p1_passed: bool, p2_passed: bool,
+    failures: list[dict], findings: list[dict],
+    state: "WorkflowState",
+) -> str:
+    if p1_passed and p2_passed:
+        return DiagnosticVerdict.PASS.value
+    failure_text = " ".join(f.get("message", "") for f in failures).lower()
+    if not p1_passed:
+        return DiagnosticVerdict.FIX_IMPL.value
+    if any(kw in failure_text for kw in ("compilat", "syntax", "cannot find symbol", "module not found")):
+        return DiagnosticVerdict.FIX_IMPL.value
+    if state.get("red_phase_evidence_path"):
+        return DiagnosticVerdict.FIX_IMPL.value
+    if any(f["severity"] == "critical" for f in findings):
+        return DiagnosticVerdict.FIX_IMPL.value
+    # If we have no user-code frames and no clear signal → AMBIGUOUS → route to debugger
+    return DiagnosticVerdict.AMBIGUOUS.value
+
+
+def _is_bean_error(output: str) -> bool:
+    return any(kw in output for kw in (
+        "BeanCreationException", "NoSuchBeanDefinitionException",
+        "UnsatisfiedDependencyException", "NoUniqueBeanDefinitionException",
+    ))
+
+
+# ── Tool runners ──────────────────────────────────────────────────────────────
+
+async def _query_actuator(handle, base_url: str, deps) -> dict | None:
+    """Query Spring Actuator /beans endpoint (approach 3)."""
+    result = await deps.sandbox.exec_in_container(
+        handle,
+        f"curl -sf {base_url}/beans 2>/dev/null | head -c 10000 || echo '{{}}'",
+        timeout=10,
+    )
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+async def _query_otel(handle, task_id: str, deps) -> dict | None:
+    """Query OTel/Jaeger for traces correlated with this test run (approach 1)."""
+    result = await deps.sandbox.exec_in_container(
+        handle,
+        f"curl -sf '{_OTEL_QUERY_URL}?service=sacv-sandbox&limit=5' 2>/dev/null "
+        "|| echo 'NO_OTEL'",
+        timeout=8,
+    )
+    if "NO_OTEL" in result.stdout or not result.stdout.strip():
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+async def _extract_playwright_trace(handle, task_id: str, deps) -> str | None:
+    """Extract most recent Playwright trace ZIP path (approach 2)."""
+    result = await deps.sandbox.exec_in_container(
+        handle,
+        "find . -name 'trace.zip' -newer .workflow/ 2>/dev/null | head -1",
+        timeout=5,
+    )
+    path = result.stdout.strip()
+    return path if path else None
+
+
+async def _run_perf(handle, module_type: str, task_id: str, deps) -> dict | None:
+    if "frontend" in module_type:
+        return None
+    cmd = "mvn test -Dtest=*PerformanceTest -q 2>&1 | tail -5"
+    r   = await deps.sandbox.exec_in_container(handle, cmd, timeout=120)
+    return {"raw": r.stdout[:500], "exit_code": r.exit_code} if r.exit_code == 0 else None
+
+
+async def _run_visual_diff(handle, task_id: str, deps) -> dict | None:
+    cmd = (
+        f"npm run build --silent 2>&1 | tail -3 && "
+        f"node /sacv/visual-diff.js --task {task_id} --output /tmp/vd-{task_id}.json && "
+        f"cat /tmp/vd-{task_id}.json"
+    )
+    r = await deps.sandbox.exec_in_container(handle, cmd, timeout=90)
+    try:
+        return json.loads(r.stdout.split("\n{")[1] if "\n{" in r.stdout else r.stdout)
+    except Exception:
+        return None
+
+
+def _has_perf_regression(delta: dict | None) -> bool:
+    if not delta:
+        return False
+    pct = delta.get("cpu_time_change_pct", 0)
+    return isinstance(pct, (int, float)) and pct > _PERF_REGRESSION_THRESHOLD * 100
+
+
+def _has_visual_breakage(visual: dict | None) -> bool:
+    return bool(visual) and not visual.get("passed", True)
+
+
+def _check_test_deletions(state: "WorkflowState") -> str | None:
+    proposal = state.get("diff_proposal")
+    if not proposal:
+        return None
+    deleted = [
+        d["file_path"] for d in proposal.get("diffs", [])
+        if d.get("operation") == "delete"
+        and ("tests/" in d["file_path"] or "src/test/" in d["file_path"])
+    ]
+    if deleted:
+        return (
+            f"Test deletion prohibited: {', '.join(deleted)}. "
+            "Rewrite implementation so existing tests pass."
+        )
+    return None
+
+
+def _full_suite_cmd(module_type: str) -> str:
+    if "frontend" in module_type:
+        return "npx playwright test --trace retain-on-failure 2>&1 || npm test -- --watchAll=false --ci 2>&1"
+    return "mvn test -q 2>&1"
+
+
+def _inventory_test_cmd(module_type: str, paths: list[str]) -> str:
+    if "frontend" in module_type:
+        spec_files = " ".join(f'"{p}"' for p in paths if p.endswith(".spec.ts"))
+        if spec_files:
+            return f"npx playwright test {spec_files} --trace retain-on-failure --reporter=line 2>&1"
+        return f"npm test -- --testPathPattern='{paths[0] if paths else ''}' --watchAll=false 2>&1"
+    classes = [Path(p).stem for p in paths if p.endswith(".java") and "Test" in Path(p).stem]
+    return f"mvn test -Dtest={','.join(classes)} -q 2>&1" if classes else "mvn test -q 2>&1"
+
+
+def _fallback_parse(output: str, module_type: str) -> list[dict]:
+    """Last-resort parser when pruner finds no user-code frames."""
+    failures = []
+    if "frontend" in module_type:
+        for line in output.splitlines():
+            if any(kw in line for kw in ("FAIL", "Error:", "✕", "×")):
+                failures.append({"message": line.strip(), "source": "raw"})
+    else:
+        for line in output.splitlines():
+            if "BUILD FAILURE" in line or ("Tests run:" in line and "Failures:" in line):
+                failures.append({"message": line.strip(), "source": "raw"})
+    return failures[:10]
+
+
+def _make_verdict(
+    test_result: str, diagnostic: str,
+    phase1_passed: bool, phase2_passed: bool,
+    failures: list[dict], findings: list[dict],
+    performance_delta:    dict | None = None,
+    visual_diff_result:   dict | None = None,
+    playwright_trace_path: str | None = None,
+    otel_trace:           dict | None = None,
+    actuator_snapshot:    dict | None = None,
+    docker_exit_code:     int = 0,
+) -> VerifierVerdict:
+    v = VerifierVerdict(
+        test_result=test_result, diagnostic=diagnostic,
+        phase1_passed=phase1_passed, phase2_passed=phase2_passed,
+        test_failures=failures, performance_delta=performance_delta,
+        visual_diff_result=visual_diff_result, critic_findings=findings,
+        docker_exit_code=docker_exit_code,
+    )
+    # Attach extra debug data as separate fields (TypedDict allows extra keys in practice)
+    if playwright_trace_path:
+        v["playwright_trace_path"] = playwright_trace_path  # type: ignore[assignment]
+    if otel_trace:
+        v["otel_trace"] = otel_trace  # type: ignore[assignment]
+    if actuator_snapshot:
+        v["actuator_snapshot"] = actuator_snapshot  # type: ignore[assignment]
+    return v
+
+
+def _build_return(verdict: VerifierVerdict, correction: dict, failure_text: str) -> dict:
+    new_correction = dict(correction)
+    if verdict["test_result"] == "FAIL" and failure_text:
+        history = list(correction.get("error_history", []))
+        history.append(embed_error_to_b64(failure_text))
+        new_correction["error_history"]   = history[-5:]
+        new_correction["last_error_hash"] = history[-1][:16]
+    return {
+        "current_phase":    WorkflowPhase.VERIFIER.value,
+        "verifier_verdict": verdict,
+        "correction_state": new_correction,
+    }

@@ -1,0 +1,127 @@
+# Dockerfile.sandbox — SACV verification + debugging sandbox
+# ===========================================================
+# Additions from debugging session:
+#   - java-debug server (DAP → JDWP bridge) — approach: JDWP debugging
+#   - JDK JDB built-in (no extra install needed — in JDK already)
+#   - JDWP port 5005 exposed
+#   - Node.js V8 Inspector port 9229 exposed (CDP)
+#   - OpenTelemetry Java Agent for trace correlation
+#   - Jaeger all-in-one (OTel collector + query UI)
+#   - source-map-support for TypeScript source maps
+#   - openapi-typescript for cross-stack type regeneration
+
+FROM eclipse-temurin:21-jdk-jammy AS base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl wget git patch unzip ca-certificates gnupg \
+        python3 python3-pip python3-venv \
+        libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+        libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+        libxrandr2 libgbm1 libasound2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Maven ─────────────────────────────────────────────────────────────────────
+ENV MAVEN_VERSION=3.9.9
+RUN wget -q "https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+        -O /tmp/maven.tar.gz \
+    && tar -xzf /tmp/maven.tar.gz -C /opt \
+    && ln -s "/opt/apache-maven-${MAVEN_VERSION}/bin/mvn" /usr/local/bin/mvn \
+    && rm /tmp/maven.tar.gz
+ENV MAVEN_HOME=/opt/apache-maven-${MAVEN_VERSION}
+
+# ── Node.js 22 ────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Global Node packages ──────────────────────────────────────────────────────
+RUN npm install -g \
+        dependency-cruiser@16 \
+        typescript \
+        typescript-language-server \
+        pyright \
+        pixelmatch \
+        pngjs \
+        source-map-support \
+        openapi-typescript \
+    && npm cache clean --force
+
+# ── Python dependencies ────────────────────────────────────────────────────────
+COPY requirements.sandbox.txt /tmp/
+RUN pip3 install --no-cache-dir -r /tmp/requirements.sandbox.txt \
+    && playwright install chromium --with-deps
+
+# ── OWASP Dependency Check ────────────────────────────────────────────────────
+ENV OWASP_DC_VERSION=10.0.4
+RUN wget -q "https://github.com/jeremylong/DependencyCheck/releases/download/v${OWASP_DC_VERSION}/dependency-check-${OWASP_DC_VERSION}-release.zip" \
+        -O /tmp/dc.zip \
+    && unzip -q /tmp/dc.zip -d /opt \
+    && ln -s /opt/dependency-check/bin/dependency-check.sh /usr/local/bin/dependency-check \
+    && rm /tmp/dc.zip
+
+# ── java-debug server (DAP → JDWP bridge) ─────────────────────────────────────
+# Enables DAP-compliant debuggers to connect to JVM via JDWP.
+# JDB (JDK built-in) is used by our JdwpClient via subprocess — no extra install.
+ENV JAVA_DEBUG_VERSION=0.53.0
+RUN mkdir -p /opt/java-debug && \
+    wget -q "https://github.com/microsoft/java-debug/releases/download/${JAVA_DEBUG_VERSION}/com.microsoft.java.debug.plugin-${JAVA_DEBUG_VERSION}.jar" \
+        -O /opt/java-debug/server.jar || \
+    echo "WARNING: java-debug JAR download failed — JDB fallback will be used"
+
+# ── OpenTelemetry Java Agent ──────────────────────────────────────────────────
+# Auto-instruments Spring Boot apps for distributed tracing.
+ENV OTEL_AGENT_VERSION=2.8.0
+RUN wget -q "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar" \
+        -O /opt/opentelemetry-javaagent.jar || \
+    echo "WARNING: OTel agent download failed — tracing disabled"
+
+# ── Jaeger all-in-one (OTel collector + trace query) ─────────────────────────
+# Lightweight single-binary that receives OTLP traces and exposes HTTP query API.
+ENV JAEGER_VERSION=1.61.0
+RUN wget -q "https://github.com/jaegertracing/jaeger/releases/download/v${JAEGER_VERSION}/jaeger-${JAEGER_VERSION}-linux-amd64.tar.gz" \
+        -O /tmp/jaeger.tar.gz \
+    && tar -xzf /tmp/jaeger.tar.gz -C /opt \
+    && ln -s /opt/jaeger-${JAEGER_VERSION}-linux-amd64/jaeger-all-in-one /usr/local/bin/jaeger \
+    && rm /tmp/jaeger.tar.gz || \
+    echo "WARNING: Jaeger download failed — OTel trace correlation disabled"
+
+# ── Visual diff helper ────────────────────────────────────────────────────────
+COPY src/sacv/docker/visual-diff.js /sacv/visual-diff.js
+
+# ── ArchUnit + Spring Boot Maven warm-up ──────────────────────────────────────
+RUN mkdir -p /tmp/archunit-warmup && \
+    printf '<?xml version="1.0"?><project><modelVersion>4.0.0</modelVersion>\
+<groupId>sacv</groupId><artifactId>archunit-warmup</artifactId><version>1</version>\
+<dependencies><dependency><groupId>com.tngtech.archunit</groupId>\
+<artifactId>archunit-junit5</artifactId><version>1.3.0</version><scope>test</scope>\
+</dependency></dependencies></project>' \
+    > /tmp/archunit-warmup/pom.xml && \
+    mvn -f /tmp/archunit-warmup/pom.xml dependency:resolve -q || true && \
+    rm -rf /tmp/archunit-warmup
+
+RUN mkdir -p /tmp/pom-warmup && \
+    printf '<?xml version="1.0"?><project><modelVersion>4.0.0</modelVersion>\
+<groupId>sacv</groupId><artifactId>warmup</artifactId><version>1</version>\
+<parent><groupId>org.springframework.boot</groupId>\
+<artifactId>spring-boot-starter-parent</artifactId>\
+<version>3.3.4</version></parent></project>' \
+    > /tmp/pom-warmup/pom.xml && \
+    mvn -f /tmp/pom-warmup/pom.xml dependency:resolve -q || true && \
+    rm -rf /tmp/pom-warmup
+
+# ── Sandbox startup script ────────────────────────────────────────────────────
+COPY src/sacv/docker/sandbox-start.sh /sacv/sandbox-start.sh
+RUN chmod +x /sacv/sandbox-start.sh
+
+WORKDIR /workspace
+
+# Expose ports:
+#   5005 — JDWP (Java debug)
+#   9229 — CDP  (Node.js debug)
+#   8080 — Spring Boot app
+#   16686 — Jaeger query UI
+#   4317  — OTel GRPC collector
+#   4318  — OTel HTTP collector
+EXPOSE 5005 9229 8080 16686 4317 4318
+
+CMD ["/sacv/sandbox-start.sh"]

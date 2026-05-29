@@ -1,0 +1,26 @@
+version: "3.9"
+services:
+  sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+    image: sacv-sandbox:latest
+    container_name: sacv-sandbox
+    volumes:
+      - .:/workspace
+    ports:
+      - "5005:5005"    # JDWP — Java step-through debugging
+      - "9229:9229"    # CDP  — Node.js/TypeScript debugging
+      - "8080:8080"    # Spring Boot app
+      - "16686:16686"  # Jaeger query UI
+      - "4317:4317"    # OTel GRPC collector
+      - "4318:4318"    # OTel HTTP collector
+    networks:
+      - sacv-internal
+    restart: "no"
+    command: /sacv/sandbox-start.sh
+
+networks:
+  sacv-internal:
+    driver: bridge
+    internal: false   # Allow OTel + Jaeger HTTP; restrict at firewall level
