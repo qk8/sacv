@@ -80,7 +80,7 @@ Tests committed by the workflow live under:
 | Type | Location | Framework |
 |---|---|---|
 | Backend unit | `src/test/java/` | JUnit 5 + AssertJ |
-| Backend API (sequence) | `tests/api/routes/` | Jest + Supertest |
+| Backend API (sequence) | `tests/api/routes/` | Vitest + Supertest |
 | Frontend E2E | `tests/e2e/features/` | Playwright |
 | Architecture | `src/test/java/…/ArchitectureTest.java` | ArchUnit |
 
