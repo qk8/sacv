@@ -83,7 +83,6 @@ def _initial_state(task_id: str = "task-e2e-001") -> dict:
         "task_id":       task_id,
         "project_mode":  "greenfield",
         "module_type":   "backend-domain",
-        "check_profile": "standard",
         "current_phase": WorkflowPhase.BOOTSTRAP.value,
         "task_description": "Add findById method to UserService",
         "context_skeleton":       None,

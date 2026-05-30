@@ -25,7 +25,6 @@ def _s(verdict_result, replan_count=0, active=None, exhausted=None):
     return {
         "session_id":"t","task_id":"t","task_description":"",
         "project_mode":"greenfield","module_type":"backend-domain",
-        "check_profile":"standard","current_phase":"speculative_branch",
         "context_skeleton":None,"blast_radius_map":None,"agents_md_context":None,
         "strategy_candidates":[],"selected_strategy":None,"pruned_strategies":[],
         "red_phase_evidence_path":None,"test_inventory_paths":[],
