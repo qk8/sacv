@@ -176,7 +176,10 @@ def make_verifier_node(deps: "NodeDeps"):
             )
 
             all_failures = p1_failures + p2_failures
-            diagnostic   = _classify(p1_passed, p2_passed, all_failures, findings, state)
+            diagnostic   = _classify(
+                p1_passed, p2_passed, all_failures, findings, state,
+                overall_pass=overall_pass,
+            )
 
             verdict = _make_verdict(
                 test_result="PASS" if overall_pass else "FAIL",
@@ -202,11 +205,15 @@ def make_verifier_node(deps: "NodeDeps"):
 # ── Diagnostic helpers ────────────────────────────────────────────────────────
 
 def _classify(
-    p1_passed: bool, p2_passed: bool,
-    failures: list[dict], findings: list[dict],
-    state: "WorkflowState",
+    p1_passed:    bool, p2_passed: bool,
+    failures:     list[dict], findings: list[dict],
+    state:        "WorkflowState",
+    overall_pass: bool = True,
 ) -> str:
     if p1_passed and p2_passed:
+        if not overall_pass:
+            # Tests pass but perf/visual broke — Actor needs to optimise
+            return DiagnosticVerdict.FIX_IMPL.value
         return DiagnosticVerdict.PASS.value
     failure_text = " ".join(f.get("message", "") for f in failures).lower()
     if not p1_passed:
