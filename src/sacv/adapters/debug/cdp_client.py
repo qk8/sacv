@@ -149,7 +149,7 @@ class CdpClient:
         return await self.wait_for_paused()
 
     async def wait_for_paused(self, timeout: float = 30.0) -> PausedEvent | None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         self._paused_future = loop.create_future()
         try:
             result = await asyncio.wait_for(
@@ -237,7 +237,7 @@ class CdpClient:
         self._id += 1
         msg_id  = self._id
         message = {"id": msg_id, "method": method, "params": params or {}}
-        loop    = asyncio.get_event_loop()
+        loop    = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
         self._pending[msg_id] = future
 
