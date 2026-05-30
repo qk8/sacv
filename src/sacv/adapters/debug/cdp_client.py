@@ -171,8 +171,9 @@ class CdpClient:
         Get all variables in scope for a given call frame.
         Returns {name: {value, type, description}} dict.
         """
-        frame_result = await self._send("Debugger.getProperties", {
-            "objectId": call_frame_id,
+        frame_result = await self._send("Runtime.getProperties", {
+            "objectId":      call_frame_id,
+            "ownProperties": True,
         })
         variables = {}
         for scope in frame_result.get("result", []):
