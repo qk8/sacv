@@ -29,7 +29,11 @@ def _cfg(config: object) -> "WorkflowConfig":
 
 def route_after_preflight(state: WorkflowState) -> str | list[Send]:
     result = state.get("preflight_result") or {}
-    if result.get("lsp_errors") or result.get("arch_violations"):
+    if (
+        result.get("lsp_errors")
+        or result.get("arch_violations")
+        or result.get("cross_stack_errors")
+    ):
         return "actor"
     return [
         Send("security_critic",    state),
