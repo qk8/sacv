@@ -197,6 +197,10 @@ class StubGitProvider(GitProvider):
         self._branch = name
         return name
 
+    def commit(self, message: str, add_all: bool = True) -> str:
+        self._rec("commit", message)
+        return "deadbeef00000000"
+
     def checkout(self, branch_name: str) -> None:
         self._rec("checkout", branch_name)
         self._branch = branch_name

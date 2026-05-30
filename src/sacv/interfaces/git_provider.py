@@ -4,6 +4,12 @@ from abc import ABC, abstractmethod
 class GitProvider(ABC):
     @abstractmethod
     def create_branch(self, name: str, from_ref: str = "HEAD") -> str: ...
+
+    @abstractmethod
+    def commit(self, message: str, add_all: bool = True) -> str:
+        """Stage all changes (if add_all) and create a commit. Returns the new SHA."""
+        ...
+
     @abstractmethod
     def checkout(self, branch_name: str) -> None: ...
     @abstractmethod
