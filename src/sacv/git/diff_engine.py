@@ -28,8 +28,8 @@ log = structlog.get_logger(__name__)
 MAX_OVERWRITE_RATIO = 0.90
 
 # Regex to count hunk lines
-_ADDED_RE   = re.compile(r"^\+(?!\+\+)")
-_REMOVED_RE = re.compile(r"^-(?!--)")
+_ADDED_RE   = re.compile(r"^\+(?!\+\+)", re.MULTILINE)
+_REMOVED_RE = re.compile(r"^-(?!--)", re.MULTILINE)
 
 
 class DiffEngine(DiffProvider):

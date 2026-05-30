@@ -75,7 +75,8 @@ _JAVA_CLASSIFICATION: list[tuple[list[str], ErrorType]] = [
       "UnsatisfiedDependencyException", "NoUniqueBeanDefinitionException"],
                                                          ErrorType.BEAN_CREATION_ERROR),
     (["ConstraintViolationException", "MethodArgumentNotValidException",
-      "BindException", "400 Bad Request"],               ErrorType.VALIDATION_ERROR),
+      "BindException", "Validation failed", "must not be blank"],
+                                                         ErrorType.VALIDATION_ERROR),
     (["ClassCastException"],                             ErrorType.CLASS_CAST),
     (["StackOverflowError"],                             ErrorType.STACK_OVERFLOW),
     (["OutOfMemoryError"],                               ErrorType.OUT_OF_MEMORY),
@@ -91,7 +92,7 @@ _TS_CLASSIFICATION: list[tuple[list[str], ErrorType]] = [
                                                          ErrorType.ASYNC_RACE_CONDITION),
     (["Cannot update a component", "Warning: Can't perform", "Invariant failed"],
                                                          ErrorType.REACT_STATE_MISMATCH),
-    (["400", "422", "Validation failed", "must not be blank", "must not be null"],
+    (["422", "Validation failed", "must not be blank", "must not be null"],
                                                          ErrorType.VALIDATION_ERROR),
 ]
 
@@ -216,18 +217,22 @@ def classify_error(raw_output: str, module_type: str) -> ErrorType:
     """
     Pure function. Classify a raw error string into an ErrorType.
     Checks both Java and TypeScript patterns based on module_type.
+
+    HTTP status codes are checked first so that messages like
+    "400 Bad Request: Validation failed" are classified as HTTP_400
+    rather than VALIDATION_ERROR.
     """
+    # HTTP status code detection (works for both — highest priority)
+    if " 400 " in raw_output or "Bad Request" in raw_output:
+        return ErrorType.HTTP_400
+    if " 500 " in raw_output or "Internal Server Error" in raw_output:
+        return ErrorType.LOGIC_ERROR
+
     rules = _TS_CLASSIFICATION if "frontend" in module_type else _JAVA_CLASSIFICATION
 
     for keywords, error_type in rules:
         if any(kw in raw_output for kw in keywords):
             return error_type
-
-    # HTTP status code detection (works for both)
-    if " 400 " in raw_output or "Bad Request" in raw_output:
-        return ErrorType.HTTP_400
-    if " 500 " in raw_output or "Internal Server Error" in raw_output:
-        return ErrorType.LOGIC_ERROR
 
     return ErrorType.UNKNOWN
 

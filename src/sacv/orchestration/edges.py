@@ -10,12 +10,10 @@ Refactoring additions (debugging session):
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from langgraph.types import Send
 
-if TYPE_CHECKING:
-    from sacv.orchestration.state import WorkflowState
-    from sacv.orchestration.config import WorkflowConfig
+from sacv.orchestration.state import WorkflowState
+from sacv.orchestration.config import WorkflowConfig
 
 _SENTINEL = object()
 
@@ -29,7 +27,7 @@ def _cfg(config: object) -> "WorkflowConfig":
 
 # ── Preflight routing ─────────────────────────────────────────────────────────
 
-def route_after_preflight(state: "WorkflowState") -> str | list[Send]:
+def route_after_preflight(state: WorkflowState) -> str | list[Send]:
     result = state.get("preflight_result") or {}
     if result.get("lsp_errors") or result.get("arch_violations"):
         return "actor"
@@ -43,7 +41,7 @@ def route_after_preflight(state: "WorkflowState") -> str | list[Send]:
 # ── Confidence score ──────────────────────────────────────────────────────────
 
 def compute_confidence_score(
-    state:  "WorkflowState",
+    state:  WorkflowState,
     config: object = _SENTINEL,
 ) -> float:
     """Pure function. No I/O."""
@@ -64,16 +62,16 @@ def compute_confidence_score(
 
 # ── Main routing functions ────────────────────────────────────────────────────
 
-def route_after_value_node(state: "WorkflowState") -> str:
+def route_after_value_node(state: WorkflowState) -> str:
     return "hitl_escalation" if not state.get("strategy_candidates") else "tdd_gate"
 
 
-def route_after_tdd_gate(state: "WorkflowState") -> str:
+def route_after_tdd_gate(state: WorkflowState) -> str:
     return "tdd_gate" if not state.get("red_phase_evidence_path") else "actor"
 
 
 def route_after_verifier(
-    state:  "WorkflowState",
+    state:  WorkflowState,
     config: object = _SENTINEL,
 ) -> str:
     """
@@ -115,7 +113,7 @@ def route_after_verifier(
 
 
 def route_after_speculative_branch(
-    state:  "WorkflowState",
+    state:  WorkflowState,
     config: object = _SENTINEL,
 ) -> str:
     cfg     = _cfg(config)

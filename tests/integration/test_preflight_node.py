@@ -13,7 +13,7 @@ Validates:
 """
 from __future__ import annotations
 import pytest
-from sacv.nodes.preflight_node import make_preflight_node, _parse_lsp_errors, _parse_arch_violations
+from sacv.nodes.preflight_node import make_preflight_node, _parse_lsp, _parse_arch
 from sacv.orchestration.state import WorkflowPhase, DiffProposal, UnifiedDiffPayload
 from sacv.testing.stub_providers import (
     StubAgentProvider, StubMemoryProvider, StubCodeGraphProvider,
@@ -81,7 +81,7 @@ class TestPreflightNode:
             "src/ui/UserForm.tsx(20,3): error TS2345: "
             "Argument of type 'null' is not assignable.\n"
         )
-        errors = _parse_lsp_errors(tsc_out, "frontend-feature")
+        errors = _parse_lsp(tsc_out, "frontend-feature")
         assert len(errors) == 2
         assert errors[0]["file"] == "src/ui/UserForm.tsx"
         assert errors[0]["line"] == 12
@@ -89,7 +89,7 @@ class TestPreflightNode:
 
     async def test_java_compile_errors_parsed(self):
         mvn_out = "[ERROR] src/main/java/UserService.java:[42,8] cannot find symbol\n"
-        errors  = _parse_lsp_errors(mvn_out, "backend-domain")
+        errors  = _parse_lsp(mvn_out, "backend-domain")
         assert len(errors) == 1
         assert errors[0]["line"] == 42
         assert errors[0]["code"] == "CE"
@@ -152,20 +152,20 @@ class TestPreflightParsers:
             "src/A.ts(1,1): error TS1001: msg1",
             "src/B.tsx(99,5): error TS2022: msg2",
         ])
-        errors = _parse_lsp_errors(output, "frontend-feature")
+        errors = _parse_lsp(output, "frontend-feature")
         assert len(errors) == 2
         assert errors[1]["line"] == 99
 
     def test_parse_empty_output_returns_empty(self):
-        assert _parse_lsp_errors("", "backend-domain") == []
-        assert _parse_arch_violations("", "backend-domain") == []
+        assert _parse_lsp("", "backend-domain") == []
+        assert _parse_arch("", "backend-domain") == []
 
     def test_parse_no_arch_test_skips(self):
-        assert _parse_arch_violations("NO_ARCH_TEST", "backend-domain") == []
+        assert _parse_arch("NO_ARCH_TEST", "backend-domain") == []
 
     def test_parse_depcruiser_json(self):
         import json
-        violations = _parse_arch_violations(
+        violations = _parse_arch(
             json.dumps([{
                 "source": "src/ui/A.ts",
                 "violations": [{

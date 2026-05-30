@@ -62,7 +62,7 @@ class TestPruneJavaStack:
     def test_extracts_exception_message(self):
         frames = prune_java_stack(_JAVA_NPE, "com.example")
         assert frames[0].message == \
-            "NullPointerException: Cannot invoke \"com.example.User.getId()\""
+            "java.lang.NullPointerException: Cannot invoke \"com.example.User.getId()\""
 
     def test_extracts_correct_line_numbers(self):
         frames = prune_java_stack(_JAVA_NPE, "com.example")

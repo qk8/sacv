@@ -6,6 +6,7 @@ Uses stubs — no Docker, no live JVM, no network.
 """
 from __future__ import annotations
 import json
+from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from sacv.nodes.intelligent_debugger import make_intelligent_debugger_node
 from sacv.orchestration.config import WorkflowConfig, DebugConfig
@@ -16,6 +17,41 @@ from sacv.testing.stub_providers import (
     StubSandboxProvider, make_json_agent_result,
 )
 from sacv.interfaces.sandbox_provider import ExecResult
+
+
+def _mock_jdwp():
+    """Create a mock JdwpClient that simulates a breakpoint hit."""
+    mock_hit = MagicMock()
+    mock_hit.file = "UserService.java"
+    mock_hit.line = 42
+    mock_hit.method_name = "findById"
+    mock_hit.class_name = "com.example.service.UserService"
+    mock_hit.thread_name = "main"
+
+    # Use plain objects with attributes for JSON serialization compatibility
+    class _Var:
+        def __init__(self, name, value, type_):
+            self.name = name
+            self.value = value
+            self.type = type_
+
+    mock_vars = [
+        _Var("user", "null", "User"),
+        _Var("id", "1", "Long"),
+    ]
+
+    mock_client = AsyncMock()
+    mock_client.set_breakpoint_at_line = AsyncMock()
+    mock_client.run = AsyncMock()
+    mock_client.wait_for_breakpoint_hit = AsyncMock(return_value=mock_hit)
+    mock_client.get_local_variables = AsyncMock(return_value=mock_vars)
+    mock_client.get_call_stack = AsyncMock(return_value=[
+        "com.example.service.UserService.findById(UserService.java:42)",
+    ])
+    mock_client.step_over = AsyncMock(return_value=None)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    return mock_client
 
 
 def _deps(sandbox=None, agent=None, config=None):
@@ -37,7 +73,14 @@ def _deps(sandbox=None, agent=None, config=None):
     )
 
 
-def _state(module="backend-domain", failure_msg="NullPointerException at UserService.java:42"):
+def _state(
+    module="backend-domain",
+    failure_msg=(
+        "java.lang.NullPointerException: Cannot invoke "
+        '"com.example.User.getId()"\n'
+        "\tat com.example.service.UserService.findById(UserService.java:42)"
+    ),
+):
     verdict: VerifierVerdict = {
         "test_result": "FAIL",
         "diagnostic": DiagnosticVerdict.AMBIGUOUS.value,
@@ -109,7 +152,12 @@ class TestIntelligentDebugger:
                 return ExecResult(0, '{"contexts": {"beans": []}}', "", 10)
 
         deps = _deps(sandbox=_TrackedSandbox())
-        state = _state(failure_msg="BeanCreationException: Error creating bean 'paymentService'")
+        failure = (
+            "org.springframework.beans.factory.BeanCreationException: "
+            "Error creating bean 'paymentService'\n"
+            "\tat com.example.payment.PaymentService.<init>(PaymentService.java:18)"
+        )
+        state = _state(failure_msg=failure)
         await make_intelligent_debugger_node(deps)(state)
 
         actuator_calls = [c for c in call_log if "actuator" in c.lower()]
@@ -125,7 +173,13 @@ class TestIntelligentDebugger:
                 return ExecResult(1, "validation failed", "", 10)
 
         deps  = _deps(sandbox=_TrackedSandbox())
-        state = _state(failure_msg='ConstraintViolationException: {"email": null, "name": ""}')
+        failure = (
+            'java.lang.ConstraintViolationException: {"email": null, "name": ""}\n'
+            '\tat com.example.service.UserValidator.validate(UserValidator.java:15)'
+        )
+        state = _state(failure_msg=failure)
+        # Include an API endpoint in task_description so _extract_endpoint works
+        state["task_description"] = "Add user via POST /api/v1/users"
         await make_intelligent_debugger_node(deps)(state)
         # At least one curl/test call for delta debug
         assert len(call_log) >= 1
@@ -136,7 +190,11 @@ class TestIntelligentDebugger:
             make_json_agent_result("The user object is null.")
         ])
         deps = _deps(agent=agent)
-        await make_intelligent_debugger_node(deps)(_state())
+        with patch(
+            "sacv.adapters.debug.jdwp_client.JdwpClient",
+            return_value=_mock_jdwp(),
+        ):
+            await make_intelligent_debugger_node(deps)(_state())
         assert len(agent.calls) == 1
         assert agent.calls[0][0] == "debug_analyst"
 
@@ -145,7 +203,11 @@ class TestIntelligentDebugger:
         agent = StubAgentProvider([
             make_json_agent_result("The user is null because lazy loading failed.")
         ])
-        out = await make_intelligent_debugger_node(_deps(agent=agent))(_state())
+        with patch(
+            "sacv.adapters.debug.jdwp_client.JdwpClient",
+            return_value=_mock_jdwp(),
+        ):
+            out = await make_intelligent_debugger_node(_deps(agent=agent))(_state())
         assert "null" in out["debug_observations"]["root_cause"].lower()
 
     async def test_no_proposal_skips_strategy(self):
