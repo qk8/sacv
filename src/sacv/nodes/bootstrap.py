@@ -42,6 +42,7 @@ def make_bootstrap_node(deps: "NodeDeps"):
             "preflight_result":       None,
             "agents_md_context":      None,
             "debug_observations":     None,   # NEW
+            "tdd_gate_attempts":      0,
             "correction_state": {
                 "attempt_count": 0, "branch_name": None,
                 "last_error_hash": None, "error_history": [],

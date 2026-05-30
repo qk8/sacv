@@ -74,7 +74,11 @@ def make_tdd_gate_node(deps: "NodeDeps"):
 
         if strategy is None:
             log.error("tdd_gate.no_strategy")
-            return {"red_phase_evidence_path": None, "test_inventory_paths": []}
+            return {
+                "red_phase_evidence_path": None,
+                "test_inventory_paths":    [],
+                "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
+            }
 
         # ── 1. Generate tests via Test Oracle ─────────────────────────────
         result = await deps.agent.run_task(
@@ -97,7 +101,11 @@ def make_tdd_gate_node(deps: "NodeDeps"):
             test_files: list[dict] = json.loads(result.content)
         except (json.JSONDecodeError, ValueError) as exc:
             log.error("tdd_gate.parse_error", error=str(exc))
-            return {"red_phase_evidence_path": None, "test_inventory_paths": []}
+            return {
+                "red_phase_evidence_path": None,
+                "test_inventory_paths":    [],
+                "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
+            }
 
         # ── 2. Write test files to PERMANENT locations in sandbox ──────────
         handle = await deps.sandbox.warm_container()
@@ -123,7 +131,11 @@ def make_tdd_gate_node(deps: "NodeDeps"):
 
         if run_result.exit_code == 0:
             log.warning("tdd_gate.tests_passed_unexpectedly")
-            return {"red_phase_evidence_path": None, "test_inventory_paths": []}
+            return {
+                "red_phase_evidence_path": None,
+                "test_inventory_paths":    [],
+                "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
+            }
 
         # ── 4. Serialise evidence ──────────────────────────────────────────
         _EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)

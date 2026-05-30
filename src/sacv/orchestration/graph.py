@@ -131,7 +131,7 @@ def build_graph(
     builder.add_conditional_edges(
         "tdd_gate",
         route_after_tdd_gate,
-        {"actor": "actor", "tdd_gate": "tdd_gate"},
+        {"actor": "actor", "tdd_gate": "tdd_gate", "hitl_escalation": "hitl_escalation"},
     )
     builder.add_conditional_edges("preflight_node", route_after_preflight)
 

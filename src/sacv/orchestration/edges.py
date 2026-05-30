@@ -66,8 +66,15 @@ def route_after_value_node(state: WorkflowState) -> str:
     return "hitl_escalation" if not state.get("strategy_candidates") else "tdd_gate"
 
 
+_TDD_GATE_MAX_ATTEMPTS = 3
+
+
 def route_after_tdd_gate(state: WorkflowState) -> str:
-    return "tdd_gate" if not state.get("red_phase_evidence_path") else "actor"
+    if state.get("red_phase_evidence_path"):
+        return "actor"
+    if state.get("tdd_gate_attempts", 0) >= _TDD_GATE_MAX_ATTEMPTS:
+        return "hitl_escalation"
+    return "tdd_gate"
 
 
 def route_after_verifier(
