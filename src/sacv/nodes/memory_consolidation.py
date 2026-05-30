@@ -23,6 +23,7 @@ Refactoring additions (approaches 3, 8, 11):
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -143,13 +144,16 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
 async def _commit_test_inventory(
     paths: list[str], task_id: str, deps: "NodeDeps"
 ) -> list[str]:
-    """Stage and commit permanent test files (approach 8)."""
-    try:
+    """Non-blocking wrapper: all subprocess work runs in a thread pool."""
+
+    def _sync_work() -> list[str]:
         import subprocess
         for p in paths:
             if Path(p).exists():
-                subprocess.run(["git", "add", p], capture_output=True, timeout=10)
-        # Commit only test files (production code committed separately)
+                subprocess.run(
+                    ["git", "add", p],
+                    capture_output=True, timeout=10,
+                )
         result = subprocess.run(
             ["git", "diff", "--cached", "--name-only"],
             capture_output=True, text=True, timeout=10,
@@ -157,14 +161,18 @@ async def _commit_test_inventory(
         staged = [l.strip() for l in result.stdout.splitlines() if l.strip()]
         if staged:
             subprocess.run(
-                ["git", "commit", "-m", f"sacv: add test inventory for {task_id} [tests]"],
+                ["git", "commit", "-m",
+                 f"sacv: add test inventory for {task_id} [tests]"],
                 capture_output=True, timeout=15,
             )
             log.info("memory_consolidation.tests_committed", count=len(staged))
-            return staged
+        return staged
+
+    try:
+        return await asyncio.to_thread(_sync_work)
     except Exception as exc:
         log.warning("memory_consolidation.test_commit_failed", error=str(exc))
-    return []
+        return []
 
 
 def _commit_production_code(task_id: str, deps: "NodeDeps") -> str:
