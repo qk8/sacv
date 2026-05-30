@@ -80,119 +80,121 @@ def make_verifier_node(deps: "NodeDeps"):
             return _build_return(verdict, correction, "critic_block")
 
         handle = await deps.sandbox.warm_container()
+        try:
+            # ── Test deletion guard ──────────────────────────────────────
+            deletion_error = _check_test_deletions(state)
+            if deletion_error:
+                verdict = _make_verdict(
+                    test_result="FAIL", diagnostic=DiagnosticVerdict.FIX_IMPL.value,
+                    phase1_passed=False, phase2_passed=False,
+                    failures=[{"source": "deletion_guard", "message": deletion_error}],
+                    findings=findings,
+                )
+                return _build_return(verdict, correction, deletion_error)
 
-        # ── Test deletion guard ───────────────────────────────────────────
-        deletion_error = _check_test_deletions(state)
-        if deletion_error:
+            # ── Phase 1: Legacy Regression Sweep ─────────────────────────
+            p1_cmd    = _full_suite_cmd(module)
+            p1_exec   = await deps.sandbox.exec_in_container(handle, p1_cmd, timeout=300)
+            p1_passed = p1_exec.exit_code == 0
+            p1_raw    = p1_exec.stdout + p1_exec.stderr
+
+            # Apply stack trace pruning (approach 5)
+            p1_frames  = prune_stack(p1_raw, module, cfg.user_java_package, cfg.user_ts_src_root)
+            p1_failures = frames_to_dict(p1_frames) or _fallback_parse(p1_raw, module)
+
+            log.info("verifier.phase1", passed=p1_passed, user_frames=len(p1_frames))
+
+            if not p1_passed:
+                # Try Spring Actuator on DI errors before returning (approach 3)
+                actuator_snap = None
+                if _is_bean_error(p1_raw):
+                    actuator_snap = await _query_actuator(handle, cfg.actuator_base_url, deps)
+
+                verdict = _make_verdict(
+                    test_result="FAIL", diagnostic=DiagnosticVerdict.FIX_IMPL.value,
+                    phase1_passed=False, phase2_passed=False,
+                    failures=p1_failures, findings=findings,
+                    actuator_snapshot=actuator_snap,
+                )
+                return _build_return(verdict, correction, " ".join(
+                    f.get("message", "") for f in p1_failures
+                ))
+
+            # ── Phase 2: New Feature Tests ───────────────────────────────
+            p2_passed = True
+            p2_failures: list[dict] = []
+            playwright_trace: str | None = None
+
+            if inv_paths:
+                p2_cmd  = _inventory_test_cmd(module, inv_paths)
+                p2_exec = await deps.sandbox.exec_in_container(handle, p2_cmd, timeout=180)
+                p2_passed = p2_exec.exit_code == 0
+                p2_raw    = p2_exec.stdout + p2_exec.stderr
+
+                p2_frames  = prune_stack(p2_raw, module, cfg.user_java_package, cfg.user_ts_src_root)
+                p2_failures = frames_to_dict(p2_frames) or _fallback_parse(p2_raw, module)
+
+                # Playwright trace on frontend failure (approach 2)
+                if not p2_passed and "frontend" in module:
+                    playwright_trace = await _extract_playwright_trace(handle, task_id, deps)
+
+                log.info("verifier.phase2", passed=p2_passed, user_frames=len(p2_frames))
+
+            # ── Blast-radius cross-domain API check (approach 5) ─────────
+            if blast.get("schema_impact") and "frontend" not in module:
+                api_exec = await deps.sandbox.exec_in_container(
+                    handle,
+                    "[ -d tests/api ] && npm test -- --testPathPattern=tests/api "
+                    "--watchAll=false 2>&1 || true",
+                    timeout=120,
+                )
+                if api_exec.exit_code != 0:
+                    api_frames  = prune_stack(api_exec.stdout, "backend-api",
+                                              cfg.user_java_package, cfg.user_ts_src_root)
+                    p2_failures += frames_to_dict(api_frames)
+                    p2_passed   = False
+
+            # ── OTel trace correlation ───────────────────────────────────
+            otel_trace = None
+            if not p2_passed:
+                otel_trace = await _query_otel(handle, task_id, deps)
+
+            # ── Performance profiling ────────────────────────────────────
+            perf_delta: dict | None = None
+            if p1_passed and p2_passed:
+                perf_delta = await _run_perf(handle, module, task_id, deps)
+
+            # ── Visual diff (frontend only) ──────────────────────────────
+            visual_result: dict | None = None
+            if p1_passed and p2_passed and "frontend" in module:
+                visual_result = await _run_visual_diff(handle, task_id, deps)
+
+            overall_pass = (
+                p1_passed and p2_passed
+                and not _has_perf_regression(perf_delta)
+                and not _has_visual_breakage(visual_result)
+            )
+
+            all_failures = p1_failures + p2_failures
+            diagnostic   = _classify(p1_passed, p2_passed, all_failures, findings, state)
+
             verdict = _make_verdict(
-                test_result="FAIL", diagnostic=DiagnosticVerdict.FIX_IMPL.value,
-                phase1_passed=False, phase2_passed=False,
-                failures=[{"source": "deletion_guard", "message": deletion_error}],
-                findings=findings,
+                test_result="PASS" if overall_pass else "FAIL",
+                diagnostic=diagnostic,
+                phase1_passed=p1_passed, phase2_passed=p2_passed,
+                failures=all_failures, findings=findings,
+                performance_delta=perf_delta,
+                visual_diff_result=visual_result,
+                playwright_trace_path=playwright_trace,
+                otel_trace=otel_trace,
             )
-            return _build_return(verdict, correction, deletion_error)
-
-        # ── Phase 1: Legacy Regression Sweep ─────────────────────────────
-        p1_cmd    = _full_suite_cmd(module)
-        p1_exec   = await deps.sandbox.exec_in_container(handle, p1_cmd, timeout=300)
-        p1_passed = p1_exec.exit_code == 0
-        p1_raw    = p1_exec.stdout + p1_exec.stderr
-
-        # Apply stack trace pruning (approach 5)
-        p1_frames  = prune_stack(p1_raw, module, cfg.user_java_package, cfg.user_ts_src_root)
-        p1_failures = frames_to_dict(p1_frames) or _fallback_parse(p1_raw, module)
-
-        log.info("verifier.phase1", passed=p1_passed, user_frames=len(p1_frames))
-
-        if not p1_passed:
-            # Try Spring Actuator on DI errors before returning (approach 3)
-            actuator_snap = None
-            if _is_bean_error(p1_raw):
-                actuator_snap = await _query_actuator(handle, cfg.actuator_base_url, deps)
-
-            verdict = _make_verdict(
-                test_result="FAIL", diagnostic=DiagnosticVerdict.FIX_IMPL.value,
-                phase1_passed=False, phase2_passed=False,
-                failures=p1_failures, findings=findings,
-                actuator_snapshot=actuator_snap,
+            log.info("verifier.complete", result=verdict["test_result"], diag=diagnostic)
+            return _build_return(
+                verdict, correction,
+                " ".join(f.get("message", "") for f in all_failures)
             )
-            return _build_return(verdict, correction, " ".join(
-                f.get("message", "") for f in p1_failures
-            ))
-
-        # ── Phase 2: New Feature Tests ────────────────────────────────────
-        p2_passed = True
-        p2_failures: list[dict] = []
-        playwright_trace: str | None = None
-
-        if inv_paths:
-            p2_cmd  = _inventory_test_cmd(module, inv_paths)
-            p2_exec = await deps.sandbox.exec_in_container(handle, p2_cmd, timeout=180)
-            p2_passed = p2_exec.exit_code == 0
-            p2_raw    = p2_exec.stdout + p2_exec.stderr
-
-            p2_frames  = prune_stack(p2_raw, module, cfg.user_java_package, cfg.user_ts_src_root)
-            p2_failures = frames_to_dict(p2_frames) or _fallback_parse(p2_raw, module)
-
-            # Playwright trace on frontend failure (approach 2)
-            if not p2_passed and "frontend" in module:
-                playwright_trace = await _extract_playwright_trace(handle, task_id, deps)
-
-            log.info("verifier.phase2", passed=p2_passed, user_frames=len(p2_frames))
-
-        # ── Blast-radius cross-domain API check (approach 5) ──────────────
-        if blast.get("schema_impact") and "frontend" not in module:
-            api_exec = await deps.sandbox.exec_in_container(
-                handle,
-                "[ -d tests/api ] && npm test -- --testPathPattern=tests/api "
-                "--watchAll=false 2>&1 || true",
-                timeout=120,
-            )
-            if api_exec.exit_code != 0:
-                api_frames  = prune_stack(api_exec.stdout, "backend-api",
-                                          cfg.user_java_package, cfg.user_ts_src_root)
-                p2_failures += frames_to_dict(api_frames)
-                p2_passed   = False
-
-        # ── OTel trace correlation ─────────────────────────────────────────
-        otel_trace = None
-        if not p2_passed:
-            otel_trace = await _query_otel(handle, task_id, deps)
-
-        # ── Performance profiling ─────────────────────────────────────────
-        perf_delta: dict | None = None
-        if p1_passed and p2_passed:
-            perf_delta = await _run_perf(handle, module, task_id, deps)
-
-        # ── Visual diff (frontend only) ────────────────────────────────────
-        visual_result: dict | None = None
-        if p1_passed and p2_passed and "frontend" in module:
-            visual_result = await _run_visual_diff(handle, task_id, deps)
-
-        overall_pass = (
-            p1_passed and p2_passed
-            and not _has_perf_regression(perf_delta)
-            and not _has_visual_breakage(visual_result)
-        )
-
-        all_failures = p1_failures + p2_failures
-        diagnostic   = _classify(p1_passed, p2_passed, all_failures, findings, state)
-
-        verdict = _make_verdict(
-            test_result="PASS" if overall_pass else "FAIL",
-            diagnostic=diagnostic,
-            phase1_passed=p1_passed, phase2_passed=p2_passed,
-            failures=all_failures, findings=findings,
-            performance_delta=perf_delta,
-            visual_diff_result=visual_result,
-            playwright_trace_path=playwright_trace,
-            otel_trace=otel_trace,
-        )
-        log.info("verifier.complete", result=verdict["test_result"], diag=diagnostic)
-        return _build_return(
-            verdict, correction,
-            " ".join(f.get("message", "") for f in all_failures)
-        )
+        finally:
+            await deps.sandbox.destroy_container(handle)
 
     return verifier_node
 
