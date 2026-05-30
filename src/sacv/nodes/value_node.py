@@ -53,11 +53,30 @@ def make_value_node(deps: "NodeDeps"):
         log.info("value_node.start", task_id=state["task_id"])
 
         # ── 1. Ask LLM to generate candidate strategies ───────────────────
+        # Build replan context block if this is a retry after failures
+        replan_section = ""
+        if state.get("replan_count", 0) > 0 or state.get("exhausted_branches"):
+            verdict        = state.get("verifier_verdict") or {}
+            exhausted      = list(state.get("exhausted_branches", []))
+            last_failures  = verdict.get("test_failures", [])[:5]
+            last_diagnostic = verdict.get("diagnostic", "unknown")
+            replan_section = (
+                "\n\n## IMPORTANT — Previous Attempts Failed\n"
+                f"The following strategies have already been tried and FAILED. "
+                "Do NOT repeat or closely resemble them:\n"
+                + "\n".join(f"- {sid}" for sid in exhausted)
+                + f"\n\nLast failure diagnostic: {last_diagnostic}\n"
+                f"Last test failures (sample):\n"
+                + "\n".join(f"  - {f.get('message', '')}" for f in last_failures)
+                + "\n\nGenerate strategies that take a fundamentally different approach."
+            )
+
         prompt = (
             f"Task: {description}\n\n"
             f"Context skeleton:\n{json.dumps(skeleton, indent=2)}\n\n"
             f"Procedural constraints:\n" +
             "\n".join(f"- {c}" for c in constraints) +
+            replan_section +
             f"\n\nGenerate {_MAX_STRATEGIES_TO_GENERATE} distinct strategies."
         )
 
