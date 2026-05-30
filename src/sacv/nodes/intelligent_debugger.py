@@ -23,6 +23,8 @@ The node ALWAYS routes to Actor afterwards — even partial observations help.
 from __future__ import annotations
 
 import json
+import re
+import shlex
 from typing import TYPE_CHECKING
 
 import structlog
@@ -191,13 +193,19 @@ async def _test_payload(
     payload: dict, state: "WorkflowState", handle, module_type: str, deps
 ) -> bool:
     """Run a quick test with the given payload. Returns True if error persists."""
-    payload_json = json.dumps(payload).replace("'", '"')
+    payload_json = json.dumps(payload)
     endpoint     = _extract_endpoint(state)
     if not endpoint:
         return False
+    # Sanitise endpoint to prevent shell injection via URL
+    endpoint = endpoint.lstrip()
+    if not endpoint.startswith("/"):
+        endpoint = "/" + endpoint
+    endpoint = re.sub(r"[^a-zA-Z0-9/_\-.]", "", endpoint)
     cmd = (
+        f"echo {shlex.quote(payload_json)} | "
         f"curl -sf -X POST -H 'Content-Type: application/json' "
-        f"-d '{payload_json}' http://localhost:8080{endpoint} 2>&1 | head -5"
+        f"--data-binary @- http://localhost:8080{endpoint} 2>&1 | head -5"
     )
     result = await deps.sandbox.exec_in_container(handle, cmd, timeout=10)
     return result.exit_code != 0 or "error" in result.stdout.lower()
