@@ -44,7 +44,7 @@ def _proposal():
 def _state(mode="greenfield"):
     return {
         "session_id":"t","task_id":"task-001","task_description":"Create user endpoint",
-        "project_mode":mode,"module_type":"backend-domain","check_profile":"standard",
+        "project_mode":mode,"module_type":"backend-domain",
         "current_phase":WorkflowPhase.CRITICS.value,
         "context_skeleton":None,"blast_radius_map":None,"agents_md_context":None,
         "strategy_candidates":[],"selected_strategy":None,"pruned_strategies":[],

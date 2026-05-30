@@ -45,7 +45,7 @@ def _state(module="backend-domain", diff=True, **kw):
     ) if diff else None
     s = {
         "session_id":"t","task_id":"t","task_description":"",
-        "project_mode":"greenfield","module_type":module,"check_profile":"standard",
+        "project_mode":"greenfield","module_type":module,
         "current_phase":WorkflowPhase.ACTOR.value,
         "context_skeleton":None,"blast_radius_map":None,"agents_md_context":None,
         "strategy_candidates":[],"selected_strategy":None,"pruned_strategies":[],

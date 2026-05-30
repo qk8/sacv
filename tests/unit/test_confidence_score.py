@@ -17,7 +17,7 @@ def _s(attempt=0, stagnation="none", risk=0.0, critical_count=0):
     ]
     return {
         "session_id":"t","task_id":"t","task_description":"",
-        "project_mode":"greenfield","module_type":"backend-domain","check_profile":"standard",
+        "project_mode":"greenfield","module_type":"backend-domain",
         "current_phase":"verifier",
         "context_skeleton":None,"blast_radius_map":{"risk_score":risk} if risk else None,
         "agents_md_context":None,

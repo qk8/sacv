@@ -23,11 +23,6 @@ class ProjectMode(str, Enum):
     GREENFIELD = "greenfield"
     BROWNFIELD = "brownfield"
 
-class CheckProfile(str, Enum):
-    MINIMAL  = "minimal"
-    STANDARD = "standard"
-    FULL     = "full"
-
 class ModuleType(str, Enum):
     BACKEND_DOMAIN   = "backend-domain"
     BACKEND_API      = "backend-api"
@@ -179,7 +174,6 @@ class WorkflowState(TypedDict):
     # ── Immutable configuration ────────────────────────────────────────────
     project_mode:  str
     module_type:   str
-    check_profile: str
 
     # ── Phase tracking ────────────────────────────────────────────────────
     current_phase: str
