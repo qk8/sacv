@@ -104,7 +104,8 @@ def route_after_verifier(
     if verdict["test_result"] == "PASS":
         return "memory_consolidation"
 
-    confidence = compute_confidence_score(state, cfg)
+    # Use the value already computed and stored by _inject_confidence
+    confidence = state.get("confidence_score", 1.0)
     if confidence < cfg.confidence_escalation_threshold:
         return "hitl_escalation"
 

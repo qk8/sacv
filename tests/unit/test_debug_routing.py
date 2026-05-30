@@ -76,6 +76,7 @@ class TestAmbiguousRouting:
             confidence_escalation_threshold=0.5,
         )
         s = _s(diagnostic="AMBIGUOUS", attempt=1, stagnation="semantic")
+        s["confidence_score"] = 0.10
         assert route_after_verifier(s, cfg_tight) == "hitl_escalation"
 
     def test_pass_routes_to_memory(self):

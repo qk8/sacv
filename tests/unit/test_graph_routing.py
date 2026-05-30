@@ -90,6 +90,7 @@ class TestRouteAfterVerifier:
             verifier_verdict=_verdict("FAIL", "FIX_IMPL"),
             correction_state=_corr(1, stagnation="semantic"),
         )
+        s["confidence_score"] = 0.10
         assert route_after_verifier(s, cfg_tight) == "hitl_escalation"
 
     def test_custom_max_cycles(self):

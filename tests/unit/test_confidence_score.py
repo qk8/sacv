@@ -85,7 +85,9 @@ class TestComputeConfidenceScore:
             "performance_delta":None,"visual_diff_result":None,
             "critic_findings":[],"docker_exit_code":1,
         }
-        # With attempt=2 and low confidence, should escalate immediately
+        # Simulate what _inject_confidence would have computed
+        state["confidence_score"] = 0.10
+        # With low confidence, should escalate immediately
         cfg_low = WorkflowConfig(
             max_self_correction_cycles=3,
             confidence_escalation_threshold=0.50,
