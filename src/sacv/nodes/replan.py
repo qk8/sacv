@@ -117,8 +117,11 @@ def make_replan_node(deps: "NodeDeps"):
             "active_branches":       [],
             "correction_state": {
                 **state["correction_state"],
-                "attempt_count": 0,           # reset attempt counter
-                "branch_name":   None,
+                "attempt_count":      0,       # reset attempt counter
+                "branch_name":        None,
+                "error_history":      [],      # clear stagnation history for fresh start
+                "last_error_hash":    None,    # clear hash to avoid false stagnation signal
+                "stagnation_pattern": "none",  # reset pattern
             },
             "critic_findings":   [],
             "verifier_verdict":  None,
