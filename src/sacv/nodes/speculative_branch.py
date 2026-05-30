@@ -62,6 +62,8 @@ def make_speculative_branch_node(deps: "NodeDeps"):
                 "verifier_verdict":   VerifierVerdict(
                     test_result="FAIL",
                     diagnostic=DiagnosticVerdict.AMBIGUOUS.value,
+                    phase1_passed=False,
+                    phase2_passed=False,
                     test_failures=[{"message": "All strategies exhausted"}],
                     performance_delta=None,
                     visual_diff_result=None,
@@ -125,6 +127,8 @@ def make_speculative_branch_node(deps: "NodeDeps"):
             "verifier_verdict":   VerifierVerdict(
                 test_result="FAIL",
                 diagnostic=DiagnosticVerdict.AMBIGUOUS.value,
+                phase1_passed=False,
+                phase2_passed=False,
                 test_failures=[{"message": "All evaluated branches failed"}],
                 performance_delta=None,
                 visual_diff_result=None,
