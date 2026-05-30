@@ -10,6 +10,7 @@ are deterministic Python — no LLM call.
 """
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -69,7 +70,7 @@ def make_mode_router_node(deps: "NodeDeps"):
         if provided in (ProjectMode.GREENFIELD.value, ProjectMode.BROWNFIELD.value):
             mode_str = provided
         else:
-            mode = _detect_mode(Path.cwd())
+            mode     = await asyncio.to_thread(_detect_mode, Path.cwd())
             mode_str = mode.value
 
         log.info("mode_router.resolved", mode=mode_str, task_id=state["task_id"])
