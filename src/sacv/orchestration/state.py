@@ -137,6 +137,10 @@ class VerifierVerdict(TypedDict):
     visual_diff_result:   dict | None
     critic_findings:      list[CriticFinding]
     docker_exit_code:     int
+    # Optional debug artefacts — always present in the dict, None when not collected
+    playwright_trace_path: str | None
+    otel_trace:            dict | None
+    actuator_snapshot:     dict | None
 
 class ResolutionHint(TypedDict):
     priority:  int

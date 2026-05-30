@@ -367,21 +367,16 @@ def _make_verdict(
     actuator_snapshot:    dict | None = None,
     docker_exit_code:     int = 0,
 ) -> VerifierVerdict:
-    v = VerifierVerdict(
+    return VerifierVerdict(
         test_result=test_result, diagnostic=diagnostic,
         phase1_passed=phase1_passed, phase2_passed=phase2_passed,
         test_failures=failures, performance_delta=performance_delta,
         visual_diff_result=visual_diff_result, critic_findings=findings,
         docker_exit_code=docker_exit_code,
+        playwright_trace_path=playwright_trace_path,
+        otel_trace=otel_trace,
+        actuator_snapshot=actuator_snapshot,
     )
-    # Attach extra debug data as separate fields (TypedDict allows extra keys in practice)
-    if playwright_trace_path:
-        v["playwright_trace_path"] = playwright_trace_path  # type: ignore[assignment]
-    if otel_trace:
-        v["otel_trace"] = otel_trace  # type: ignore[assignment]
-    if actuator_snapshot:
-        v["actuator_snapshot"] = actuator_snapshot  # type: ignore[assignment]
-    return v
 
 
 def _build_return(verdict: VerifierVerdict, correction: dict, failure_text: str) -> dict:
