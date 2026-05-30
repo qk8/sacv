@@ -225,6 +225,9 @@ class WorkflowState(TypedDict):
     lesson_learned:         LessonLearned | None
     arch_rules_updated:     bool    # whether arch rule files were written (approach 11)
 
+    # ── Debugger output (IntelligentDebuggerNode → ActorNode) ─────────────
+    debug_observations:     DebugObservations | None
+
 
 # ── Debug observation schema (NEW — debugging session) ────────────────────────
 
