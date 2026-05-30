@@ -89,18 +89,38 @@ class WorkflowConfig:
     @classmethod
     def from_json(cls, path: str | Path) -> "WorkflowConfig":
         raw = json.loads(Path(path).read_text())
+        dbg = raw.get("debug", {})
         return cls(
-            max_self_correction_cycles=raw.get("stagnation", {}).get("total_abort_force", 3),
+            max_self_correction_cycles=raw.get(
+                "max_self_correction_cycles",
+                raw.get("stagnation", {}).get("total_abort_force", 3),
+            ),
+            confidence_escalation_threshold=raw.get("confidence_escalation_threshold", 0.25),
+            max_replan_attempts=raw.get("max_replan_attempts", 1),
+            max_parallel_branches=raw.get("max_parallel_branches", 2),
+            max_parallel_critics=raw.get("max_parallel_critics", 2),
+            min_strategy_score=raw.get("min_strategy_score", 0.3),
+            max_strategies=raw.get("max_strategies", 3),
+            max_blast_files=raw.get("max_blast_files", 50),
             monorepo_mode=raw.get("monorepo_mode", False),
             debug=DebugConfig(
-                user_java_package=raw.get("debug", {}).get("user_java_package", "com.example"),
-                user_ts_src_root=raw.get("debug", {}).get("user_ts_src_root", "src"),
+                user_java_package=dbg.get("user_java_package", "com.example"),
+                user_ts_src_root=dbg.get("user_ts_src_root", "src"),
+                jdwp_port=dbg.get("jdwp_port", 5005),
+                cdp_port=dbg.get("cdp_port", 9229),
+                debug_timeout_sec=dbg.get("debug_timeout_sec", 30),
+                max_debug_steps=dbg.get("max_debug_steps", 10),
+                actuator_base_url=dbg.get("actuator_base_url", "http://localhost:8080/actuator"),
+                openapi_spec_path=dbg.get("openapi_spec_path", "contracts/openapi/api.yaml"),
             ),
             iteration_limits=IterationLimits(
                 implement_loop=raw.get("iteration_limits", {}).get("implement_loop", 100),
             ),
             stagnation=StagnationConfig(
                 total_abort_force=raw.get("stagnation", {}).get("total_abort_force", 3),
+                semantic_similarity_threshold=raw.get("stagnation", {}).get(
+                    "semantic_similarity_threshold", 0.85
+                ),
             ),
             token_budget=TokenBudget(
                 cost_per_m_input=raw.get("token_budget", {}).get("cost_per_m_input", 5.0),
