@@ -68,9 +68,14 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
         green_sha      = deps.git.get_last_green_commit()
         uncommitted    = deps.git.uncommitted_files()
 
-        # Reset to last green state
-        deps.git.reset_hard(green_sha)
-        deps.git.checkout("main")
+        # Reset to last green state — errors are captured but never block escalation
+        git_reset_error: str | None = None
+        try:
+            deps.git.reset_hard(green_sha)
+            deps.git.checkout("main")
+        except Exception as exc:
+            git_reset_error = str(exc)
+            log.error("hitl.git_reset_failed", error=git_reset_error, green_sha=green_sha)
 
         git_state = {
             "active_branch":      current_branch,
@@ -78,6 +83,7 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
             "last_green_commit":  green_sha,
             "stashed_branches":   exhausted,
             "uncommitted_files":  uncommitted,
+            "git_reset_failed":   git_reset_error,  # None if git succeeded
         }
 
         # ── 3. Build full escalation payload ──────────────────────────────
