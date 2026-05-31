@@ -170,26 +170,70 @@ async def _run_delta_debug(
     deps,
 ) -> DebugObservations:
     """
-    Binary search the request payload to find the minimal failing input.
-    Returns the smallest subset of fields that still reproduces the error.
+    Binary delta-debug: find minimal failing subset of request payload.
+    Tries both halves at each bisection step.
     """
     fields = list(payload.items())
     if not fields:
         return obs
 
-    # Bisection: try half the fields, see if error persists
-    minimal = dict(fields)
-    for _ in range(6):  # max 6 bisections = 64x reduction
-        half = dict(list(minimal.items())[:len(minimal) // 2])
-        if not half:
-            break
-        result = await _test_payload(half, state, handle, module_type, deps)
-        if result:   # error still present with half the fields
-            minimal = half
-
-    obs["minimal_payload"] = minimal
+    minimal = await _delta_minimize(
+        fields, state, handle, module_type, deps, depth=0,
+    )
+    obs["minimal_payload"] = dict(minimal)
     log.info("debugger.delta_debug", original=len(fields), minimal=len(minimal))
     return obs
+
+
+async def _delta_minimize(
+    fields: list,
+    state: "WorkflowState",
+    handle,
+    module_type: str,
+    deps,
+    depth: int,
+) -> list:
+    """Recursive delta-debug. Returns smallest failing subset."""
+    if depth > 6 or len(fields) <= 1:
+        return fields
+
+    mid = len(fields) // 2
+    first_half  = fields[:mid]
+    second_half = fields[mid:]
+
+    # Try first half
+    if first_half:
+        result = await _test_payload(
+            dict(first_half), state, handle, module_type, deps,
+        )
+        if result:
+            return await _delta_minimize(
+                first_half, state, handle, module_type, deps, depth + 1,
+            )
+
+    # Try second half
+    if second_half:
+        result = await _test_payload(
+            dict(second_half), state, handle, module_type, deps,
+        )
+        if result:
+            return await _delta_minimize(
+                second_half, state, handle, module_type, deps, depth + 1,
+            )
+
+    # Error only with both halves together — try adding one field at a time
+    for i, field in enumerate(fields):
+        candidate = [field]
+        rest = fields[:i] + fields[i + 1:]
+        # Try candidate + each remaining field
+        for other in rest:
+            test_set = dict([field, other])
+            if await _test_payload(test_set, state, handle, module_type, deps):
+                return [field, other]
+        if await _test_payload(dict(candidate), state, handle, module_type, deps):
+            return candidate
+
+    return fields  # fallback: can't reduce further
 
 
 async def _test_payload(
