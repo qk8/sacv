@@ -313,12 +313,20 @@ async def _run_cdp_session(
     import asyncio
 
     # Start Node in inspect-brk mode
+    # Use a safe shell pattern: capture glob result, check for empty,
+    # and run node with the full path (not dist/dist/...).
     start_cmd = (
+        f"ENTRY=$(ls dist/*.js 2>/dev/null | head -1); "
+        f"[ -z \"$ENTRY\" ] && echo 'NO_DIST_JS' && exit 1; "
         f"node --inspect-brk=0.0.0.0:{cfg.cdp_port} "
-        f"dist/$(ls dist/*.js | head -1) 2>&1 &"
+        f"\"$ENTRY\" 2>&1 &"
     )
-    await deps.sandbox.exec_in_container(handle, start_cmd, timeout=5)
-    await asyncio.sleep(1)
+    result = await deps.sandbox.exec_in_container(handle, start_cmd, timeout=5)
+    if "NO_DIST_JS" in result.stdout:
+        log.warning("debugger.cdp_no_bundle")
+        return obs
+
+    await asyncio.sleep(2)
 
     try:
         async with CdpClient(host="localhost", port=cfg.cdp_port) as cdp:
