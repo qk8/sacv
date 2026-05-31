@@ -131,12 +131,14 @@ def route_after_verifier(
     if attempt >= cfg.max_self_correction_cycles:
         return "hitl_escalation"
 
-    # AMBIGUOUS: don't blindly retry — debug first to find the real cause
-    if diagnostic == "AMBIGUOUS":
+    # Debug on first AMBIGUOUS encounter; speculate on repeat AMBIGUOUS
+    # (prevents AMBIGUOUS from starving speculative_branch — ARCH-004)
+    if diagnostic == "AMBIGUOUS" and attempt <= 1:
         return "intelligent_debugger"
 
     if attempt >= 2:
         return "speculative_branch"
+
     return "actor"
 
 
