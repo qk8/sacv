@@ -72,10 +72,10 @@ class TestRouteAfterVerifier:
         s = _s(verifier_verdict=_verdict("FAIL", "AMBIGUOUS"), correction_state=_corr(1))
         assert route_after_verifier(s, cfg3) == "intelligent_debugger"
 
-    def test_ambiguous_attempt_2_still_debugger(self):
-        """AMBIGUOUS preferred over speculative_branch."""
+    def test_ambiguous_attempt_2_routes_to_speculative(self):
+        """After first debug, AMBIGUOUS falls through to speculative_branch (ARCH-004)."""
         s = _s(verifier_verdict=_verdict("FAIL", "AMBIGUOUS"), correction_state=_corr(2))
-        assert route_after_verifier(s, cfg3) == "intelligent_debugger"
+        assert route_after_verifier(s, cfg3) == "speculative_branch"
 
     def test_ambiguous_at_max_hitl(self):
         s = _s(verifier_verdict=_verdict("FAIL", "AMBIGUOUS"), correction_state=_corr(3))
@@ -121,3 +121,12 @@ class TestRouteAfterTddGate:
 
     def test_with_evidence_proceeds(self):
         assert route_after_tdd_gate(_s(red_phase_evidence_path="/p/e.json")) == "actor"
+
+    def test_max_attempts_routes_to_hitl(self):
+        """tdd_gate_attempts >= 3 → hitl_escalation (BUG-004 context)."""
+        s = _s(red_phase_evidence_path=None, tdd_gate_attempts=3)
+        assert route_after_tdd_gate(s) == "hitl_escalation"
+
+    def test_one_below_max_still_retries(self):
+        s = _s(red_phase_evidence_path=None, tdd_gate_attempts=2)
+        assert route_after_tdd_gate(s) == "tdd_gate"
