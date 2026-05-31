@@ -167,23 +167,19 @@ class CdpClient:
         self, call_frame_id: str
     ) -> dict[str, Any]:
         """
-        Get all variables in scope for a given call frame.
-        Returns {name: {value, type, description}} dict.
+        Get variables in scope for a call frame.
+
+        NOTE: call_frame_id is NOT an objectId — Runtime.getProperties
+        requires an object ID from Runtime.evaluate or Runtime.callFunctionOn.
+        This method is a best-effort fallback; callers should prefer
+        get_scope_variables_from_paused() which has access to the full
+        scope chain from the paused event.
         """
-        frame_result = await self._send("Runtime.getProperties", {
-            "objectId":      call_frame_id,
-            "ownProperties": True,
-        })
-        variables = {}
-        for scope in frame_result.get("result", []):
-            name = scope.get("name", "?")
-            val  = scope.get("value", {})
-            variables[name] = {
-                "value":       val.get("value", val.get("description", "?")),
-                "type":        val.get("type", "unknown"),
-                "description": val.get("description", ""),
-            }
-        return variables
+        log.warning(
+            "cdp.get_scope_variables_deprecated",
+            hint="use get_scope_variables_from_paused instead",
+        )
+        return {}
 
     async def get_scope_variables_from_paused(
         self, paused: PausedEvent
