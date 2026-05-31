@@ -101,6 +101,7 @@ def make_preflight_node(deps: "NodeDeps"):
             return {
                 "current_phase":    WorkflowPhase.PREFLIGHT.value,
                 "preflight_result": result,
+                # _merge_lists reducer appends [] to existing findings → no-op
                 "critic_findings":  [],
             }
         finally:
