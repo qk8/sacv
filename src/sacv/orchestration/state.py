@@ -244,8 +244,9 @@ class WorkflowState(TypedDict):
     replan_count: int
 
     # ── Speculative branching ─────────────────────────────────────────────
-    active_branches:    list[str]
-    exhausted_branches: list[str]
+    active_branches:        list[str]
+    exhausted_branches:     list[str]
+    speculative_stash_ref:  str | None  # stash ref for restoring pre-speculation state (BUG-013)
 
     # ── HITL ──────────────────────────────────────────────────────────────
     escalation_payload: EscalationPayload | None

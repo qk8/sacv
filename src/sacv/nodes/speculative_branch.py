@@ -47,6 +47,7 @@ def make_speculative_branch_node(deps: "NodeDeps"):
             deps.git.stash, f"sacv-speculative-stash-{task_id}"
         )
         exhausted.append(current_branch)
+        # Persist stash_ref so downstream nodes (HITL) can restore pre-spec state
 
         # Sort remaining candidates by composite_score (highest priority first)
         strategies_to_try = [
@@ -58,9 +59,10 @@ def make_speculative_branch_node(deps: "NodeDeps"):
         if not strategies_to_try:
             log.warning("speculative_branch.no_strategies_left")
             return {
-                "active_branches":    [],
-                "exhausted_branches": exhausted,
-                "verifier_verdict":   VerifierVerdict(
+                "active_branches":        [],
+                "exhausted_branches":     exhausted,
+                "speculative_stash_ref":  stash_ref,  # for HITL restoration
+                "verifier_verdict":       VerifierVerdict(
                     test_result="FAIL",
                     diagnostic=DiagnosticVerdict.AMBIGUOUS.value,
                     phase1_passed=False,
@@ -110,6 +112,7 @@ def make_speculative_branch_node(deps: "NodeDeps"):
                 "current_phase":      WorkflowPhase.MEMORY_CONSOLIDATION.value,
                 "active_branches":    [winning_branch],
                 "exhausted_branches": new_exhausted,
+                "speculative_stash_ref": stash_ref,  # preserve for HITL
                 "verifier_verdict":   winning_verdict,
             }
 
@@ -126,9 +129,10 @@ def make_speculative_branch_node(deps: "NodeDeps"):
         )
 
         return {
-            "active_branches":    queued_names,
-            "exhausted_branches": new_exhausted,
-            "verifier_verdict":   VerifierVerdict(
+            "active_branches":        queued_names,
+            "exhausted_branches":     new_exhausted,
+            "speculative_stash_ref":  stash_ref,  # for HITL restoration
+            "verifier_verdict":       VerifierVerdict(
                 test_result="FAIL",
                 diagnostic=DiagnosticVerdict.AMBIGUOUS.value,
                 phase1_passed=False,
