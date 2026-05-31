@@ -41,12 +41,24 @@ def make_bootstrap_node(deps: "NodeDeps"):
             "arch_rules_updated":     False,
             "preflight_result":       None,
             "agents_md_context":      None,
-            "debug_observations":     None,   # NEW
+            "debug_observations":     None,
             "tdd_gate_attempts":      0,
             "correction_state": {
                 "attempt_count": 0, "branch_name": None,
                 "last_error_hash": None, "error_history": [],
                 "stagnation_pattern": "none",
             },
+            # ── Fields that bootstrap must also initialise ────────────────────
+            "context_skeleton":        None,   # set by Scout
+            "blast_radius_map":        None,   # set by Scout (brownfield only)
+            "strategy_candidates":     [],     # set by ValueNode
+            "selected_strategy":       None,   # set by ValueNode
+            "pruned_strategies":       [],     # set by ValueNode
+            "red_phase_evidence_path": None,   # set by TDDGate
+            "diff_proposal":           None,   # set by Actor
+            "verifier_verdict":        None,   # set by Verifier
+            "speculative_stash_ref":   None,   # set by SpeculativeBranch
+            "escalation_payload":      None,   # set by HITL
+            "lesson_learned":          None,   # set by MemoryConsolidation
         }
     return bootstrap_node
