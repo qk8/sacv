@@ -205,6 +205,15 @@ async def _test_payload(
     if not endpoint.startswith("/"):
         endpoint = "/" + endpoint
     endpoint = re.sub(r"[^a-zA-Z0-9/_\-.]", "", endpoint)
+
+    # Health-check: if no server is running, skip delta debug entirely
+    # (BUG-009: fresh debug container has no Spring Boot app running)
+    health_cmd = "curl -sf http://localhost:8080/actuator/health 2>/dev/null || echo NOSERVER"
+    health = await deps.sandbox.exec_in_container(handle, health_cmd, timeout=5)
+    if "NOSERVER" in health.stdout or health.exit_code != 0:
+        log.warning("debugger.delta_debug_no_server")
+        return False  # can't test; don't assert error present
+
     cmd = (
         f"echo {shlex.quote(payload_json)} | "
         f"curl -sf -X POST -H 'Content-Type: application/json' "
