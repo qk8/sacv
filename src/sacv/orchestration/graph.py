@@ -24,6 +24,7 @@ from sacv.orchestration.edges import (
     route_after_verifier,
     route_after_speculative_branch,
     route_after_preflight,
+    route_after_actor,
     compute_confidence_score,
 )
 from sacv.interfaces.agent_provider      import AgentProvider
@@ -125,7 +126,11 @@ def build_graph(
     builder.add_edge("bootstrap",            "mode_router")
     builder.add_edge("mode_router",          "scout")
     builder.add_edge("scout",                "value_node")
-    builder.add_edge("actor",                "preflight_node")
+    builder.add_conditional_edges(
+        "actor",
+        route_after_actor,
+        {"preflight_node": "preflight_node", "hitl_escalation": "hitl_escalation"},
+    )
     builder.add_edge("security_critic",      "aggregate_critics")
     builder.add_edge("style_critic",         "aggregate_critics")
     builder.add_edge("consistency_critic",   "aggregate_critics")

@@ -64,6 +64,22 @@ def compute_confidence_score(
     return max(0.0, 1.0 - attempt_penalty - stagnation_penalty - blast_penalty - critic_penalty)
 
 
+# ── Actor routing ─────────────────────────────────────────────────────────────
+
+def route_after_actor(state: WorkflowState) -> str:
+    """
+    Route after Actor node.
+
+    If stagnation was detected during actor execution, skip preflight/critics
+    and go directly to HITL escalation to avoid wasting LLM calls and Docker
+    cycles on a known-stagnated path.
+    """
+    correction = state["correction_state"]
+    if correction.get("stagnation_pattern", "none") != "none":
+        return "hitl_escalation"
+    return "preflight_node"
+
+
 # ── Main routing functions ────────────────────────────────────────────────────
 
 def route_after_value_node(state: WorkflowState) -> str:
