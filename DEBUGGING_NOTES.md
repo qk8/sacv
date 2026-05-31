@@ -16,14 +16,15 @@ explained from logs alone. Previously, AMBIGUOUS caused a blind Actor retry.
 
 Updated routing table:
 
-| Verdict | Attempt | Route (before) | Route (after) |
+| Verdict   | Attempt | Route (before)         | Route (after)               |
 |---|---|---|---|
-| PASS | any | memory_consolidation | memory_consolidation |
-| FIX_IMPL | 1 | actor | actor |
-| FIX_IMPL | 2 | speculative_branch | speculative_branch |
-| **AMBIGUOUS** | **any** | **actor (blind)** | **intelligent_debugger** |
-| FIX_IMPL | ≥ MAX | hitl_escalation | hitl_escalation |
-| any | low confidence | hitl_escalation | hitl_escalation |
+| PASS      | any     | memory_consolidation   | memory_consolidation        |
+| FIX_IMPL  | 1       | actor                  | actor                       |
+| FIX_IMPL  | 2       | speculative_branch     | speculative_branch          |
+| AMBIGUOUS | **≤ 1** | **actor (blind)**      | **intelligent_debugger**    |
+| AMBIGUOUS | **≥ 2** | **speculative_branch** | **speculative_branch** (ARCH-004) |
+| FIX_IMPL  | ≥ MAX   | hitl_escalation        | hitl_escalation             |
+| any       | low confidence | hitl_escalation   | hitl_escalation             |
 
 ### What the debugger does
 

@@ -38,10 +38,11 @@ class WorkflowPhase(str, Enum):
     VALUE_NODE            = "value_node"
     TDD_GATE              = "tdd_gate"
     ACTOR                 = "actor"
-    PREFLIGHT             = "preflight"        # NEW: LSP + StructuralCheck
+    PREFLIGHT             = "preflight"        # LSP + StructuralCheck
     CRITICS               = "critics"
     VERIFIER              = "verifier"
-    REPLAN                = "replan"           # NEW: replanning before HITL
+    INTELLIGENT_DEBUGGER  = "intelligent_debugger"
+    REPLAN                = "replan"           # replanning before HITL
     SPECULATIVE_BRANCH    = "speculative_branch"
     HITL_ESCALATION       = "hitl_escalation"
     MEMORY_CONSOLIDATION  = "memory_consolidation"

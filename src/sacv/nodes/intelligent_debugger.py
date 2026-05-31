@@ -131,7 +131,7 @@ def make_intelligent_debugger_node(deps: "NodeDeps"):
                      hypothesis=hypothesis[:80])
 
             return {
-                "current_phase":    WorkflowPhase.ACTOR.value,
+                "current_phase":      WorkflowPhase.INTELLIGENT_DEBUGGER.value,
                 "debug_observations": observations,
             }
         finally:
