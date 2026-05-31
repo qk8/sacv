@@ -140,6 +140,7 @@ class AgentMemoryAdapter(MemoryProvider):
             negative_constraints=[],
             blast_radius_learned={},
             correction_type="consolidated",
+            session_duration_ms=0,    # MCP server doesn't report duration; node computes it
         )
 
     async def purge_noise(self, session_id: str) -> None:
