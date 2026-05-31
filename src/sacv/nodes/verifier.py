@@ -66,7 +66,18 @@ def make_verifier_node(deps: "NodeDeps"):
 
         log.info("verifier.start", task_id=task_id, attempt=correction["attempt_count"])
 
-        # Critical critic findings → skip Docker
+        # ── Test deletion guard (pure function — no I/O) ───────────────────
+        deletion_error = _check_test_deletions(state)
+        if deletion_error:
+            verdict = _make_verdict(
+                test_result="FAIL", diagnostic=DiagnosticVerdict.FIX_IMPL.value,
+                phase1_passed=False, phase2_passed=False,
+                failures=[{"source": "deletion_guard", "message": deletion_error}],
+                findings=findings, docker_exit_code=-1,
+            )
+            return _build_return(verdict, correction, deletion_error)
+
+        # ── Critical critic findings → skip Docker ────────────────────────
         critical = [f for f in findings if f["severity"] == "critical"]
         if critical:
             log.warning("verifier.critical_block", count=len(critical))
@@ -75,22 +86,13 @@ def make_verifier_node(deps: "NodeDeps"):
                 diagnostic=DiagnosticVerdict.FIX_IMPL.value,
                 phase1_passed=False, phase2_passed=False,
                 failures=[{"source": "critic", "finding": f} for f in critical],
-                findings=findings,
+                findings=findings, docker_exit_code=-1,
             )
             return _build_return(verdict, correction, "critic_block")
 
+        # NOW warm the container (after all zero-cost checks pass)
         handle = await deps.sandbox.warm_container()
         try:
-            # ── Test deletion guard ──────────────────────────────────────
-            deletion_error = _check_test_deletions(state)
-            if deletion_error:
-                verdict = _make_verdict(
-                    test_result="FAIL", diagnostic=DiagnosticVerdict.FIX_IMPL.value,
-                    phase1_passed=False, phase2_passed=False,
-                    failures=[{"source": "deletion_guard", "message": deletion_error}],
-                    findings=findings,
-                )
-                return _build_return(verdict, correction, deletion_error)
 
             # ── Phase 1: Legacy Regression Sweep ─────────────────────────
             p1_cmd    = _full_suite_cmd(module)
