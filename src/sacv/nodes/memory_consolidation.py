@@ -205,21 +205,6 @@ async def _commit_test_inventory(
         return []
 
 
-async def _commit_production_code(task_id: str, deps: "NodeDeps") -> str:
-    """Commit production code and record green SHA (non-blocking)."""
-    def _sync_work() -> str:
-        try:
-            sha = deps.git.commit(
-                f"sacv: implement {task_id}", add_all=True
-            )
-            deps.git.record_green_commit(sha)
-            return sha
-        except Exception as exc:
-            log.warning("memory_consolidation.commit_failed", error=str(exc))
-            return ""
-    return await asyncio.to_thread(_sync_work)
-
-
 def _get_head_sha() -> str:
     """Get the current HEAD commit SHA (non-blocking)."""
     import subprocess
