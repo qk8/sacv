@@ -68,6 +68,9 @@ def make_speculative_branch_node(deps: "NodeDeps"):
                     visual_diff_result=None,
                     critic_findings=[],
                     docker_exit_code=-1,
+                    playwright_trace_path=None,
+                    otel_trace=None,
+                    actuator_snapshot=None,
                 ),
             }
 
@@ -133,6 +136,9 @@ def make_speculative_branch_node(deps: "NodeDeps"):
                 visual_diff_result=None,
                 critic_findings=[],
                 docker_exit_code=-1,
+                playwright_trace_path=None,
+                otel_trace=None,
+                actuator_snapshot=None,
             ),
         }
 
