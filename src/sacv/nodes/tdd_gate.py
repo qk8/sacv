@@ -15,8 +15,10 @@ Refactoring changes (approaches 6, 7, 8):
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -120,10 +122,20 @@ def make_tdd_gate_node(deps: "NodeDeps"):
                     continue
                 # Enforce permanent directory convention (approach 8)
                 file_path = _canonicalise_test_path(file_path, module, task_id)
+                # Sanitize file path to prevent shell injection; encode content
+                # as base64 to avoid heredoc injection via test content.
+                safe_path = shlex.quote(file_path)
+                safe_dir = shlex.quote(str(Path(file_path).parent))
+                encoded_content = base64.b64encode(content.encode()).decode("ascii")
+
                 await deps.sandbox.exec_in_container(
                     handle,
-                    f"mkdir -p $(dirname '{file_path}') && "
-                    f"cat > '{file_path}' << 'SACV_TEST_EOF'\n{content}\nSACV_TEST_EOF",
+                    f"mkdir -p {safe_dir}",
+                    timeout=10,
+                )
+                await deps.sandbox.exec_in_container(
+                    handle,
+                    f"echo {shlex.quote(encoded_content)} | base64 -d > {safe_path}",
                     timeout=30,
                 )
                 permanent_paths.append(file_path)
