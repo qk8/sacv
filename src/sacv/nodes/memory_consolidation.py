@@ -265,6 +265,18 @@ async def _update_arch_rules(
         elif new_rule:
             _inject_archunit_rule(config_file, new_rule)
 
+        # Commit the updated rule file so it survives HITL reset_hard
+        def _commit_rule():
+            import subprocess
+            subprocess.run(["git", "add", str(config_file)],
+                           capture_output=True, timeout=10)
+            subprocess.run(
+                ["git", "commit", "-m",
+                 f"sacv: add arch rule for {module_type} violations [skip ci]"],
+                capture_output=True, timeout=15,
+            )
+        await asyncio.to_thread(_commit_rule)
+
         log.info("memory_consolidation.arch_rule_added", module=module_type)
         return True
     except Exception as exc:
