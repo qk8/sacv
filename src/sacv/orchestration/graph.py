@@ -50,15 +50,29 @@ class NodeDeps:
     config:       WorkflowConfig = field(default_factory=WorkflowConfig)
 
 
-def _inject_confidence(deps: NodeDeps):
-    from sacv.nodes.verifier import make_verifier_node
-    _inner = make_verifier_node(deps)
+async def _run_verifier_with_confidence(
+    state: WorkflowState,
+    deps:  NodeDeps,
+) -> dict:
+    """
+    Run the verifier node and compute confidence_score in state.
 
+    This is the shared helper used by both the graph node wrapper
+    (_inject_confidence) and speculative branch evaluation
+    (speculative_branch._evaluate_branch).
+    """
+    from sacv.nodes.verifier import make_verifier_node
+
+    _inner = make_verifier_node(deps)
+    out    = await _inner(state)
+    merged = {**state, **out}
+    score  = compute_confidence_score(merged, deps.config)
+    return {**out, "confidence_score": score}
+
+
+def _inject_confidence(deps: NodeDeps):
     async def verifier_with_confidence(state: WorkflowState) -> dict:
-        out    = await _inner(state)
-        merged = {**state, **out}
-        score  = compute_confidence_score(merged, deps.config)
-        return {**out, "confidence_score": score}
+        return await _run_verifier_with_confidence(state, deps)
 
     return verifier_with_confidence
 

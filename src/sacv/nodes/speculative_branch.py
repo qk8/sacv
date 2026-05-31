@@ -168,7 +168,7 @@ async def _evaluate_branch(
         # max_parallel_branches >= 2 (see BUG-001 fix).
         from sacv.nodes.actor       import make_actor_node
         from sacv.nodes.preflight_node import make_preflight_node
-        from sacv.nodes.verifier   import make_verifier_node
+        from sacv.orchestration.graph import _run_verifier_with_confidence
         from sacv.nodes.critics.security    import make_security_critic_node
         from sacv.nodes.critics.style       import make_style_critic_node
         from sacv.nodes.critics.consistency import make_consistency_critic_node
@@ -215,7 +215,7 @@ async def _evaluate_branch(
             ),
         }
 
-        ver_out = await make_verifier_node(deps)(branch_state)
+        ver_out = await _run_verifier_with_confidence(branch_state, deps)
         return branch_name, ver_out.get("verifier_verdict")
 
     except Exception as exc:
