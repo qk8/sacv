@@ -352,20 +352,48 @@ async def _update_arch_rules(
 
 
 def _inject_depcruiser_rule(config_file: Path, new_rule: str) -> None:
+    """Inject a dep-cruiser rule with validation (ARCH-003 fix)."""
     try:
-        config = json.loads(config_file.read_text()) if config_file.exists() else {"forbidden": []}
-        rule   = json.loads(new_rule)
-        config.setdefault("forbidden", []).append(rule)
-        config_file.write_text(json.dumps(config, indent=2))
-    except Exception:
-        config_file.write_text(new_rule)   # fallback: write raw
+        rule = json.loads(new_rule)
+    except json.JSONDecodeError as exc:
+        log.error("memory_consolidation.invalid_depcruiser_rule", error=str(exc),
+                  content=new_rule[:200])
+        return   # Do not write a broken rule
+
+    # Validate required fields before appending
+    required = {"name", "from", "to"}
+    if not required.issubset(rule.keys()):
+        log.warning("memory_consolidation.depcruiser_rule_missing_fields",
+                    missing=required - rule.keys())
+        return
+
+    config_text = config_file.read_text() if config_file.exists() else '{"forbidden":[]}'
+    try:
+        config = json.loads(config_text)
+    except json.JSONDecodeError:
+        config = {"forbidden": []}
+
+    config.setdefault("forbidden", []).append(rule)
+    config_file.write_text(json.dumps(config, indent=2))
 
 
 def _inject_archunit_rule(config_file: Path, new_rule: str) -> None:
+    """Inject an ArchUnit rule with validation (ARCH-003 fix)."""
+    # Validate: must be a syntactically plausible @ArchTest method
+    if "@ArchTest" not in new_rule:
+        log.warning("memory_consolidation.archunit_rule_no_annotation",
+                    content=new_rule[:200])
+        return
+    # Count braces — unbalanced braces would break the class
+    if new_rule.count("{") != new_rule.count("}"):
+        log.warning("memory_consolidation.archunit_rule_unbalanced_braces")
+        return
+
     if not config_file.exists():
         config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text(_default_archunit_class(new_rule))
         return
+
     content = config_file.read_text()
     # Insert before the last closing brace
     content = content.rstrip()
