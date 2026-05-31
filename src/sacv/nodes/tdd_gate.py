@@ -109,55 +109,62 @@ def make_tdd_gate_node(deps: "NodeDeps"):
 
         # ── 2. Write test files to PERMANENT locations in sandbox ──────────
         handle = await deps.sandbox.warm_container()
-        permanent_paths: list[str] = []
 
-        for tf in test_files:
-            file_path = tf.get("file_path", "")
-            content   = tf.get("content", "")
-            if not file_path or not content:
-                continue
-            # Enforce permanent directory convention (approach 8)
-            file_path = _canonicalise_test_path(file_path, module, task_id)
-            await deps.sandbox.exec_in_container(
-                handle,
-                f"mkdir -p $(dirname '{file_path}') && "
-                f"cat > '{file_path}' << 'SACV_TEST_EOF'\n{content}\nSACV_TEST_EOF",
+        try:
+            permanent_paths: list[str] = []
+
+            for tf in test_files:
+                file_path = tf.get("file_path", "")
+                content   = tf.get("content", "")
+                if not file_path or not content:
+                    continue
+                # Enforce permanent directory convention (approach 8)
+                file_path = _canonicalise_test_path(file_path, module, task_id)
+                await deps.sandbox.exec_in_container(
+                    handle,
+                    f"mkdir -p $(dirname '{file_path}') && "
+                    f"cat > '{file_path}' << 'SACV_TEST_EOF'\n{content}\nSACV_TEST_EOF",
+                    timeout=30,
+                )
+                permanent_paths.append(file_path)
+
+            # ── 3. Run tests — MUST fail (red phase) ───────────────────────
+            run_cmd = _test_command_for(module)
+            run_result = await deps.sandbox.exec_in_container(
+                handle, run_cmd, timeout=120,
             )
-            permanent_paths.append(file_path)
 
-        # ── 3. Run tests — MUST fail (red phase) ──────────────────────────
-        run_cmd    = _test_command_for(module)
-        run_result = await deps.sandbox.exec_in_container(handle, run_cmd, timeout=120)
+            if run_result.exit_code == 0:
+                log.warning("tdd_gate.tests_passed_unexpectedly")
+                return {
+                    "red_phase_evidence_path": None,
+                    "test_inventory_paths":    [],
+                    "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
+                }
 
-        if run_result.exit_code == 0:
-            log.warning("tdd_gate.tests_passed_unexpectedly")
-            return {
-                "red_phase_evidence_path": None,
-                "test_inventory_paths":    [],
-                "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
+            # ── 4. Serialise evidence ────────────────────────────────────
+            _EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+            evidence_path = _EVIDENCE_DIR / f"{task_id}.json"
+            evidence = {
+                "task_id":          task_id,
+                "permanent_paths":  permanent_paths,
+                "failure_output":   (run_result.stdout + run_result.stderr)[:2000],
             }
+            evidence_path.write_text(json.dumps(evidence, indent=2))
 
-        # ── 4. Serialise evidence ──────────────────────────────────────────
-        _EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-        evidence_path = _EVIDENCE_DIR / f"{task_id}.json"
-        evidence = {
-            "task_id":          task_id,
-            "permanent_paths":  permanent_paths,
-            "failure_output":   (run_result.stdout + run_result.stderr)[:2000],
-        }
-        evidence_path.write_text(json.dumps(evidence, indent=2))
+            log.info(
+                "tdd_gate.red_phase_confirmed",
+                files_written=len(permanent_paths),
+                evidence=str(evidence_path),
+            )
 
-        log.info(
-            "tdd_gate.red_phase_confirmed",
-            files_written=len(permanent_paths),
-            evidence=str(evidence_path),
-        )
-
-        return {
-            "current_phase":          WorkflowPhase.ACTOR.value,
-            "red_phase_evidence_path": str(evidence_path),
-            "test_inventory_paths":   permanent_paths,
-        }
+            return {
+                "current_phase":          WorkflowPhase.ACTOR.value,
+                "red_phase_evidence_path": str(evidence_path),
+                "test_inventory_paths":   permanent_paths,
+            }
+        finally:
+            await deps.sandbox.destroy_container(handle)
 
     return tdd_gate_node
 
