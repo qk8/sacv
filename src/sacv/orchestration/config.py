@@ -90,10 +90,14 @@ class WorkflowConfig:
     def from_json(cls, path: str | Path) -> "WorkflowConfig":
         raw = json.loads(Path(path).read_text())
         dbg = raw.get("debug", {})
+        il = raw.get("iteration_limits", {})
+        cad = raw.get("cadence", {})
+        stg = raw.get("stagnation", {})
+        tok = raw.get("token_budget", {})
         return cls(
             max_self_correction_cycles=raw.get(
                 "max_self_correction_cycles",
-                raw.get("stagnation", {}).get("total_abort_force", 3),
+                stg.get("total_abort_force", 3),
             ),
             confidence_escalation_threshold=raw.get("confidence_escalation_threshold", 0.25),
             max_replan_attempts=raw.get("max_replan_attempts", 1),
@@ -114,18 +118,29 @@ class WorkflowConfig:
                 openapi_spec_path=dbg.get("openapi_spec_path", "contracts/openapi/api.yaml"),
             ),
             iteration_limits=IterationLimits(
-                implement_loop=raw.get("iteration_limits", {}).get("implement_loop", 100),
+                implement_loop=il.get("implement_loop", 100),
+                clarify_round=il.get("clarify_round", 5),
+                spec_audit=il.get("spec_audit", 3),
+                plan_review=il.get("plan_review", 3),
             ),
             stagnation=StagnationConfig(
-                total_abort_force=raw.get("stagnation", {}).get("total_abort_force", 3),
-                semantic_similarity_threshold=raw.get("stagnation", {}).get(
+                total_abort_force=stg.get("total_abort_force", 3),
+                drift_revision_limit=stg.get("drift_revision_limit", 2),
+                semantic_similarity_threshold=stg.get(
                     "semantic_similarity_threshold", 0.85
                 ),
             ),
             token_budget=TokenBudget(
-                cost_per_m_input=raw.get("token_budget", {}).get("cost_per_m_input", 5.0),
-                cost_per_m_output=raw.get("token_budget", {}).get("cost_per_m_output", 30.0),
-                critical_dollar=raw.get("token_budget", {}).get("critical_dollar", 80.0),
-                warning_dollar=raw.get("token_budget", {}).get("warning_dollar", 50.0),
+                cost_per_m_input=tok.get("cost_per_m_input", 5.0),
+                cost_per_m_output=tok.get("cost_per_m_output", 30.0),
+                critical_dollar=tok.get("critical_dollar", 80.0),
+                warning_dollar=tok.get("warning_dollar", 50.0),
+            ),
+            cadence=CadenceConfig(
+                cleanup_interval=cad.get("cleanup_interval", 25),
+                llm_quality_interval=cad.get("llm_quality_interval", 10),
+                drift_check_interval=cad.get(
+                    "drift_check_interval", {"simple": 20, "medium": 15, "complex": 10}
+                ),
             ),
         )
