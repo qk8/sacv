@@ -30,7 +30,7 @@ def make_bootstrap_node(deps: "NodeDeps"):
         ))
         return {
             "session_id":             session_id,
-            "current_phase":          WorkflowPhase.SCOUT.value,
+            "current_phase":          WorkflowPhase.MODE_ROUTER.value,
             "procedural_constraints": [c.description for c in constraints],
             "critic_findings":        [],
             "active_branches":        [],
