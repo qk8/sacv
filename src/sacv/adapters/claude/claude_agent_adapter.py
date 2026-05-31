@@ -35,7 +35,6 @@ try:
         AssistantMessage,
         TextBlock,
         ToolUseBlock,
-        ToolResultBlock,
     )
     _SDK_AVAILABLE = True
 except ImportError:
