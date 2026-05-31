@@ -162,12 +162,13 @@ async def _evaluate_branch(
         deps.git.create_branch(branch_name)
         deps.git.checkout(branch_name)
 
-        # Inline mini-workflow: actor → critics → verifier
+        # Inline mini-workflow: actor → preflight → critics → verifier
         # Note: per-critic semaphore inside _run_critic handles throttling;
         # no outer semaphore here — acquiring it would deadlock with
         # max_parallel_branches >= 2 (see BUG-001 fix).
-        from sacv.nodes.actor   import make_actor_node
-        from sacv.nodes.verifier import make_verifier_node
+        from sacv.nodes.actor       import make_actor_node
+        from sacv.nodes.preflight_node import make_preflight_node
+        from sacv.nodes.verifier   import make_verifier_node
         from sacv.nodes.critics.security    import make_security_critic_node
         from sacv.nodes.critics.style       import make_style_critic_node
         from sacv.nodes.critics.consistency import make_consistency_critic_node
@@ -187,6 +188,19 @@ async def _evaluate_branch(
             return branch_name, None
 
         branch_state = {**branch_state, **actor_out}
+
+        # Run preflight — if it fails, skip this branch (LSP/compile/arch checks)
+        preflight_out = await make_preflight_node(deps)(branch_state)
+        preflight_result = preflight_out.get("preflight_result") or {}
+        if not preflight_result.get("passed", True):
+            log.info(
+                "speculative_branch.preflight_failed",
+                branch=branch_name,
+                lsp_errors=len(preflight_result.get("lsp_errors", [])),
+            )
+            return branch_name, None  # treat as failed branch
+
+        branch_state = {**branch_state, **preflight_out}
 
         sec_out  = await make_security_critic_node(deps)(branch_state)
         sty_out  = await make_style_critic_node(deps)(branch_state)
