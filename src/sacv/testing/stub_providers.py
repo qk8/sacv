@@ -11,8 +11,9 @@ from dataclasses import dataclass, field
 
 from sacv.interfaces.agent_provider      import AgentProvider, AgentConfig, AgentResult
 from sacv.interfaces.memory_provider     import (
-    MemoryProvider, EpisodicEvent, ProceduralConstraint, LessonLearned,
+    MemoryProvider, EpisodicEvent, ProceduralConstraint,
 )
+from sacv.orchestration.state import LessonLearned
 from sacv.interfaces.code_graph_provider import (
     CodeGraphProvider, BlastRadiusMap, CallGraph,
 )
@@ -93,6 +94,7 @@ class StubMemoryProvider(MemoryProvider):
             negative_constraints=[],
             blast_radius_learned={},
             correction_type="stub",
+            session_duration_ms=0,
         )
 
     async def purge_noise(self, session_id: str) -> None:

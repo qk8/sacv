@@ -2,6 +2,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from sacv.orchestration.state import LessonLearned
+
 @dataclass
 class EpisodicEvent:
     session_id: str
@@ -15,14 +17,6 @@ class ProceduralConstraint:
     category: str
     description: str
     weight: float
-
-@dataclass
-class LessonLearned:
-    task_id: str
-    pattern_discovered: str
-    negative_constraints: list[ProceduralConstraint]
-    blast_radius_learned: dict
-    correction_type: str
 
 class MemoryProvider(ABC):
     @abstractmethod
