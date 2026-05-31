@@ -129,6 +129,17 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
         if final_sha:
             await asyncio.to_thread(deps.git.record_green_commit, final_sha)
 
+        # ── 8. Clean up speculative branch stash refs ─────────────────────
+        stash_ref = state.get("speculative_stash_ref")
+        if stash_ref:
+            try:
+                await asyncio.to_thread(deps.git.stash_pop, stash_ref)
+                log.info("memory_consolidation.stash_cleaned", ref=stash_ref)
+            except Exception as exc:
+                # Non-fatal: log and continue (stash may already be gone)
+                log.warning("memory_consolidation.stash_pop_failed",
+                            error=str(exc))
+
         log.info(
             "memory_consolidation.complete",
             correction_type=correction_type,

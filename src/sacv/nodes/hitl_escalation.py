@@ -84,12 +84,18 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
             log.error("hitl.git_reset_failed", error=git_reset_error, green_sha=green_sha)
 
         git_state = {
-            "active_branch":      current_branch,
-            "stash_ref":          stash_ref,
-            "last_green_commit":  green_sha,
-            "stashed_branches":   exhausted,
-            "uncommitted_files":  uncommitted,
-            "git_reset_failed":   git_reset_error,  # None if git succeeded
+            "active_branch":       current_branch,
+            "stash_ref":           stash_ref,
+            "last_green_commit":   green_sha,
+            "stashed_branches":    exhausted,
+            "uncommitted_files":   uncommitted,
+            "git_reset_failed":    git_reset_error,  # None if git succeeded
+            "stash_pop_command":   f"git stash pop {stash_ref}" if stash_ref else None,
+            "stash_note":          (
+                "Run stash_pop_command to restore pre-speculation work. "
+                "If stash_pop fails due to conflicts, use 'git stash list' "
+                "and 'git stash drop' to clean up."
+            ),
         }
 
         # ── 3. Build full escalation payload ──────────────────────────────
