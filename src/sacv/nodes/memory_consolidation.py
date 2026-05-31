@@ -148,25 +148,48 @@ async def _commit_test_inventory(
 
     def _sync_work() -> list[str]:
         import subprocess
+        staged: list[str] = []
         for p in paths:
-            if Path(p).exists():
-                subprocess.run(
-                    ["git", "add", p],
-                    capture_output=True, timeout=10,
+            if not Path(p).exists():
+                log.warning("memory_consolidation.test_file_missing", path=p)
+                continue
+            result = subprocess.run(
+                ["git", "add", p],
+                capture_output=True, timeout=10,
+            )
+            if result.returncode != 0:
+                log.error(
+                    "memory_consolidation.git_add_failed",
+                    path=p, stderr=result.stderr.decode()[:200],
                 )
-        result = subprocess.run(
+            else:
+                staged.append(p)
+
+        if not staged:
+            return []
+
+        diff_result = subprocess.run(
             ["git", "diff", "--cached", "--name-only"],
             capture_output=True, text=True, timeout=10,
         )
-        staged = [l.strip() for l in result.stdout.splitlines() if l.strip()]
-        if staged:
-            subprocess.run(
+        if diff_result.returncode != 0:
+            log.error("memory_consolidation.git_diff_failed",
+                      stderr=diff_result.stderr[:200])
+            return []
+
+        to_commit = [l.strip() for l in diff_result.stdout.splitlines() if l.strip()]
+        if to_commit:
+            commit_result = subprocess.run(
                 ["git", "commit", "-m",
                  f"sacv: add test inventory for {task_id} [tests]"],
                 capture_output=True, timeout=15,
             )
-            log.info("memory_consolidation.tests_committed", count=len(staged))
-        return staged
+            if commit_result.returncode != 0:
+                log.error("memory_consolidation.git_commit_failed",
+                          stderr=commit_result.stderr.decode()[:200])
+                return []
+            log.info("memory_consolidation.tests_committed", count=len(to_commit))
+        return to_commit
 
     try:
         return await asyncio.to_thread(_sync_work)
