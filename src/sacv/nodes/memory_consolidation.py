@@ -81,8 +81,8 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
         if inv_paths:
             committed_tests = await _commit_test_inventory(inv_paths, task_id, deps)
 
-        # ── 2. COMMIT PRODUCTION CODE ─────────────────────────────────────
-        green_sha = await _commit_production_code(task_id, deps)
+        # ── 2. COMMIT PRODUCTION CODE (do NOT record green SHA yet) ──────
+        await _commit_production_code_no_record(task_id, deps)
 
         # ── 3. BUILD LESSON LEARNED ───────────────────────────────────────
         correction_type = "none"
@@ -121,6 +121,13 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
         arch_violations = preflight.get("arch_violations", [])
         if arch_violations:
             arch_rules_updated = await _update_arch_rules(arch_violations, module, deps)
+
+        # ── 7. RECORD GREEN SHA LAST — after all commits are done ─────────
+        # (BUG-011 fix: was recorded at step 2, losing AGENTS.md and arch
+        # rule commits on HITL hard-reset)
+        final_sha = await asyncio.to_thread(_get_head_sha)
+        if final_sha:
+            await asyncio.to_thread(deps.git.record_green_commit, final_sha)
 
         log.info(
             "memory_consolidation.complete",
@@ -207,6 +214,33 @@ async def _commit_production_code(task_id: str, deps: "NodeDeps") -> str:
             )
             deps.git.record_green_commit(sha)
             return sha
+        except Exception as exc:
+            log.warning("memory_consolidation.commit_failed", error=str(exc))
+            return ""
+    return await asyncio.to_thread(_sync_work)
+
+
+def _get_head_sha() -> str:
+    """Get the current HEAD commit SHA (non-blocking)."""
+    import subprocess
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True, text=True, timeout=10,
+    )
+    return result.stdout.strip()
+
+
+async def _commit_production_code_no_record(task_id: str, deps: "NodeDeps") -> str:
+    """Commit production code WITHOUT recording green SHA (non-blocking).
+
+    Used when additional commits (AGENTS.md, arch rules) will follow;
+    green SHA is recorded after all commits are complete (BUG-011 fix).
+    """
+    def _sync_work() -> str:
+        try:
+            return deps.git.commit(
+                f"sacv: implement {task_id}", add_all=True
+            )
         except Exception as exc:
             log.warning("memory_consolidation.commit_failed", error=str(exc))
             return ""
