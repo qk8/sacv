@@ -61,9 +61,25 @@ class StagnationPattern(str, Enum):
 
 # ── State reducers ────────────────────────────────────────────────────────────
 
-def _merge_lists(existing: list, new: list) -> list:
-    """Reducer: append new items — used by critic fan-in."""
-    return (existing or []) + (new or [])
+def _merge_lists(existing: list | None, new: list | None) -> list:
+    """
+    Reducer for critic fan-in.
+
+    - new is None  → preserve existing (node did not touch this field)
+    - new is []    → RESET (actor/bootstrap clearing stale findings)
+    - new is [...]  → APPEND (critics adding new findings)
+
+    IMPORTANT: Any node that wants to RESET (not merge) must return
+    {"critic_findings": None} instead of {"critic_findings": []}.
+    Any node that wants to clear and replace must return None first,
+    then set findings in a subsequent call.
+    """
+    if new is None:
+        return existing or []   # no change
+    # Empty list is an explicit RESET signal
+    if len(new) == 0:
+        return []
+    return (existing or []) + new
 
 
 # ── Sub-state TypedDicts ──────────────────────────────────────────────────────
