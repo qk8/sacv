@@ -128,6 +128,8 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
         final_sha = await asyncio.to_thread(_get_head_sha)
         if final_sha:
             await asyncio.to_thread(deps.git.record_green_commit, final_sha)
+        else:
+            log.warning("memory_consolidation.skipping_green_sha_record")
 
         # ── 8. Clean up speculative branch stash refs ─────────────────────
         stash_ref = state.get("speculative_stash_ref")
@@ -217,13 +219,22 @@ async def _commit_test_inventory(
 
 
 def _get_head_sha() -> str:
-    """Get the current HEAD commit SHA (non-blocking)."""
-    import subprocess
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        capture_output=True, text=True, timeout=10,
-    )
-    return result.stdout.strip()
+    """Get current HEAD SHA. Returns empty string on failure (non-fatal)."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+        sha = result.stdout.strip()
+        if result.returncode != 0 or not sha:
+            log.warning("memory_consolidation.get_head_sha_failed",
+                        stderr=result.stderr[:200])
+            return ""
+        return sha
+    except Exception as exc:
+        log.warning("memory_consolidation.get_head_sha_error", error=str(exc))
+        return ""
 
 
 async def _commit_production_code_no_record(task_id: str, deps: "NodeDeps") -> str:
