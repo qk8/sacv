@@ -182,11 +182,12 @@ class LessonLearned(TypedDict):
 # ── Debug observation schema (must precede WorkflowState) ─────────────────────
 
 class BreakpointHit(TypedDict):
-    file:      str
-    line:      int
-    variables: dict        # {name: {"value": ..., "type": ...}}
-    call_stack: list[str]  # ["ClassName.method(File.java:42)", ...]
-    thread_id:  str | None
+    file:        str
+    line:        int
+    variables:   dict        # {name: {"value": ..., "type": ...}}
+    call_stack:  list[str]  # ["ClassName.method(File.java:42)", ...]
+    thread_id:   str | None
+    extra_evals: dict        # {expression: result} — from strategy.evaluate_expressions
 
 
 class DebugObservations(TypedDict):
