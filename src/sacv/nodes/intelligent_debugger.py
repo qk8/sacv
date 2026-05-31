@@ -89,50 +89,53 @@ def make_intelligent_debugger_node(deps: "NodeDeps"):
 
         # ── 4. Execute strategy ───────────────────────────────────────────
         handle = await deps.sandbox.warm_container()
-        observations = DebugObservations(
-            error_type=error_type.value,
-            root_cause="",
-            breakpoint_hits=[],
-            actuator_beans=None,
-            actuator_env=None,
-            minimal_payload=None,
-            playwright_trace_path=None,
-            otel_trace=None,
-            pruned_stack=pruned_dicts,
-        )
+        try:
+            observations = DebugObservations(
+                error_type=error_type.value,
+                root_cause="",
+                breakpoint_hits=[],
+                actuator_beans=None,
+                actuator_env=None,
+                minimal_payload=None,
+                playwright_trace_path=None,
+                otel_trace=None,
+                pruned_stack=pruned_dicts,
+            )
 
-        if needs_actuator(strategy):
-            observations = await _run_actuator_query(observations, handle, cfg, deps)
+            if needs_actuator(strategy):
+                observations = await _run_actuator_query(observations, handle, cfg, deps)
 
-        elif needs_delta_debug(strategy):
-            payload = _extract_request_payload(state)
-            if payload:
-                observations = await _run_delta_debug(
-                    observations, payload, state, handle, module, deps
+            elif needs_delta_debug(strategy):
+                payload = _extract_request_payload(state)
+                if payload:
+                    observations = await _run_delta_debug(
+                        observations, payload, state, handle, module, deps
+                    )
+
+            elif needs_jdwp(strategy) and pruned:
+                observations = await _run_jdwp_session(
+                    observations, pruned, strategy, handle, cfg, deps
                 )
 
-        elif needs_jdwp(strategy) and pruned:
-            observations = await _run_jdwp_session(
-                observations, pruned, strategy, handle, cfg, deps
-            )
+            elif needs_cdp(strategy) and pruned:
+                observations = await _run_cdp_session(
+                    observations, pruned, strategy, handle, cfg, deps
+                )
 
-        elif needs_cdp(strategy) and pruned:
-            observations = await _run_cdp_session(
-                observations, pruned, strategy, handle, cfg, deps
-            )
+            # ── 5. Synthesise root-cause hypothesis (one LLM call) ────────
+            hypothesis = await _synthesise_hypothesis(observations, state, deps)
+            observations["root_cause"] = hypothesis
 
-        # ── 5. Synthesise root-cause hypothesis (one LLM call) ────────────
-        hypothesis = await _synthesise_hypothesis(observations, state, deps)
-        observations["root_cause"] = hypothesis
+            log.info("debugger.complete",
+                     error_type=error_type.value,
+                     hypothesis=hypothesis[:80])
 
-        log.info("debugger.complete",
-                 error_type=error_type.value,
-                 hypothesis=hypothesis[:80])
-
-        return {
-            "current_phase":    WorkflowPhase.ACTOR.value,
-            "debug_observations": observations,
-        }
+            return {
+                "current_phase":    WorkflowPhase.ACTOR.value,
+                "debug_observations": observations,
+            }
+        finally:
+            await deps.sandbox.destroy_container(handle)
 
     return intelligent_debugger_node
 
