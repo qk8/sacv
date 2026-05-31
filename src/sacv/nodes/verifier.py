@@ -160,9 +160,12 @@ def make_verifier_node(deps: "NodeDeps"):
                 otel_trace = await _query_otel(handle, task_id, deps)
 
             # ── Performance profiling ────────────────────────────────────
+            # TEMPORARILY DISABLED — _run_perf returns {"raw", "exit_code"}
+            # but _has_perf_regression reads "cpu_time_change_pct" (BUG-006).
+            # Re-enable once baseline infrastructure is ready.
             perf_delta: dict | None = None
-            if p1_passed and p2_passed:
-                perf_delta = await _run_perf(handle, module, task_id, deps)
+            # if p1_passed and p2_passed:
+            #     perf_delta = await _run_perf(handle, module, task_id, deps)
 
             # ── Visual diff (frontend only) ──────────────────────────────
             visual_result: dict | None = None
@@ -278,6 +281,12 @@ async def _extract_playwright_trace(handle, task_id: str, deps) -> str | None:
 
 
 async def _run_perf(handle, module_type: str, task_id: str, deps) -> dict | None:
+    """
+    TEMPORARILY DISABLED — BUG-006: returns {"raw", "exit_code"} but
+    _has_perf_regression reads "cpu_time_change_pct" which never exists.
+    Always returned False (no regression detected), silently lying.
+    Re-enable once baseline infrastructure (.workflow/perf-baseline.json) is ready.
+    """
     if "frontend" in module_type:
         return None
     cmd = "mvn test -Dtest=*PerformanceTest -q 2>&1 | tail -5"
