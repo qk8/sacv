@@ -121,10 +121,10 @@ class TestIntelligentDebugger:
         assert "debug_observations" in out
         assert out["debug_observations"] is not None
 
-    async def test_always_routes_to_actor_phase(self):
-        """After debug session, current_phase must be ACTOR."""
+    async def test_reports_intelligent_debugger_phase(self):
+        """During debug session, current_phase must be INTELLIGENT_DEBUGGER."""
         out = await make_intelligent_debugger_node(_deps())(_state())
-        assert out["current_phase"] == WorkflowPhase.ACTOR.value
+        assert out["current_phase"] == WorkflowPhase.INTELLIGENT_DEBUGGER.value
 
     async def test_error_type_classified(self):
         """NPE error text → NULL_REFERENCE classification."""
