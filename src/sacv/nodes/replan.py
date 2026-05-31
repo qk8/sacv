@@ -109,12 +109,12 @@ def make_replan_node(deps: "NodeDeps"):
         log.info("replan.complete", new_candidates=len(new_candidates))
 
         return {
-            "current_phase":         WorkflowPhase.VALUE_NODE.value,
-            "strategy_candidates":   new_candidates,
-            "selected_strategy":     None,    # value_node will select
-            "replan_count":          replan_cnt + 1,
-            "exhausted_branches":    [],      # reset for new replan cycle
-            "active_branches":       [],
+            "current_phase":             WorkflowPhase.VALUE_NODE.value,
+            "strategy_candidates":       new_candidates,
+            "selected_strategy":         None,    # value_node will select
+            "replan_count":              replan_cnt + 1,
+            "exhausted_branches":        [],      # reset for new replan cycle
+            "active_branches":           [],
             "correction_state": {
                 **state["correction_state"],
                 "attempt_count":      0,       # reset attempt counter
@@ -123,10 +123,12 @@ def make_replan_node(deps: "NodeDeps"):
                 "last_error_hash":    None,    # clear hash to avoid false stagnation signal
                 "stagnation_pattern": "none",  # reset pattern
             },
-            "critic_findings":   [],
-            "verifier_verdict":  None,
-            "preflight_result":  None,
-            "diff_proposal":     None,
+            "critic_findings":           [],
+            "verifier_verdict":          None,
+            "preflight_result":          None,
+            "diff_proposal":             None,
+            "red_phase_evidence_path":   None,   # force tdd_gate to generate new tests
+            "test_inventory_paths":      [],     # clear old test inventory for new strategies
         }
 
     return replan_node
