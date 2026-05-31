@@ -58,24 +58,9 @@ class NodeDeps:
         self.critic_semaphore = asyncio.Semaphore(self.config.max_parallel_critics)
 
 
-async def _run_verifier_with_confidence(
-    state: WorkflowState,
-    deps:  NodeDeps,
-) -> dict:
-    """
-    Run the verifier node and compute confidence_score in state.
-
-    This is the shared helper used by both the graph node wrapper
-    (_inject_confidence) and speculative branch evaluation
-    (speculative_branch._evaluate_branch).
-    """
-    from sacv.nodes.verifier import make_verifier_node
-
-    _inner = make_verifier_node(deps)
-    out    = await _inner(state)
-    merged = {**state, **out}
-    score  = compute_confidence_score(merged, deps.config)
-    return {**out, "confidence_score": score}
+from sacv.orchestration.verifier_utils import (
+    run_verifier_with_confidence as _run_verifier_with_confidence,
+)
 
 
 def _inject_confidence(deps: NodeDeps):
