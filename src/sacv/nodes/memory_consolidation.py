@@ -218,10 +218,20 @@ async def _update_agents_md(
             ),
         )
         _AGENTS_MD.write_text(result.content, encoding="utf-8")
-        deps.git.commit(
-            f"sacv: update AGENTS.md after {state['task_id']} [skip ci]",
-            add_all=False,
-        )
+
+        def _commit_agents_md():
+            import subprocess
+            subprocess.run(
+                ["git", "add", str(_AGENTS_MD)],
+                capture_output=True, timeout=10,
+            )
+            subprocess.run(
+                ["git", "commit", "-m",
+                 f"sacv: update AGENTS.md after {state['task_id']} [skip ci]"],
+                capture_output=True, timeout=15,
+            )
+
+        await asyncio.to_thread(_commit_agents_md)
         return True
     except Exception as exc:
         log.warning("memory_consolidation.agents_md_failed", error=str(exc))
