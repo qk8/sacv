@@ -180,7 +180,8 @@ def make_actor_node(deps: "NodeDeps"):
                 "correction_state": {
                     **correction,
                     "attempt_count": correction["attempt_count"] + 1,
-                }
+                },
+                "diff_proposal": None,  # clear stale diff from prior iteration
             }
 
         apply_result = await deps.diff.apply_diffs([UnifiedDiff(**p) for p in diffs])
@@ -191,7 +192,8 @@ def make_actor_node(deps: "NodeDeps"):
                     **correction,
                     "attempt_count": correction["attempt_count"] + 1,
                     "branch_name":   branch_name,
-                }
+                },
+                "diff_proposal": None,  # clear stale diff from prior iteration
             }
 
         proposal = DiffProposal(
