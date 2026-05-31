@@ -43,7 +43,9 @@ def make_speculative_branch_node(deps: "NodeDeps"):
 
         # Stash the current branch before forking
         current_branch = correction.get("branch_name") or "main"
-        stash_ref      = deps.git.stash(f"sacv-speculative-stash-{task_id}")
+        stash_ref      = await asyncio.to_thread(
+            deps.git.stash, f"sacv-speculative-stash-{task_id}"
+        )
         exhausted.append(current_branch)
 
         # Sort remaining candidates by composite_score (highest priority first)
@@ -98,12 +100,12 @@ def make_speculative_branch_node(deps: "NodeDeps"):
             else:
                 new_exhausted.append(branch_name)
                 # Stash failed branch
-                deps.git.checkout(branch_name)
-                deps.git.stash(f"sacv-failed-{branch_name}")
+                await asyncio.to_thread(deps.git.checkout, branch_name)
+                await asyncio.to_thread(deps.git.stash, f"sacv-failed-{branch_name}")
 
         if winning_branch:
             log.info("speculative_branch.winner", branch=winning_branch)
-            deps.git.checkout(winning_branch)
+            await asyncio.to_thread(deps.git.checkout, winning_branch)
             return {
                 "current_phase":      WorkflowPhase.MEMORY_CONSOLIDATION.value,
                 "active_branches":    [winning_branch],
@@ -159,8 +161,8 @@ async def _evaluate_branch(
     branch_name = f"agent-task-{task_id[:8]}-{strategy['strategy_id']}"
 
     try:
-        deps.git.create_branch(branch_name)
-        deps.git.checkout(branch_name)
+        await asyncio.to_thread(deps.git.create_branch, branch_name)
+        await asyncio.to_thread(deps.git.checkout, branch_name)
 
         # Inline mini-workflow: actor → preflight → critics → verifier
         # Note: per-critic semaphore inside _run_critic handles throttling;
