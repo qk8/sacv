@@ -41,33 +41,34 @@ class DockerContainerManager(SandboxProvider):
         self,
         image:      str       = _SANDBOX_IMAGE,
         host_mount: str | Path = ".",
-        network:    str       = "none",   # isolated network by default
+        network:    str       = "bridge",  # changed from "none" — needed for OTel/Jaeger
+        jdwp_port:  int       = 5005,
+        cdp_port:   int       = 9229,
     ) -> None:
         self._image      = image
         self._host_mount = str(Path(host_mount).resolve())
         self._network    = network
+        self._jdwp_port  = jdwp_port
+        self._cdp_port   = cdp_port
         self._handle:    SandboxHandle | None = None
 
     async def warm_container(self) -> SandboxHandle:
         """
-        Start a warm container if one is not already running.
-        Returns the same handle on subsequent calls (singleton per instance).
+        Always creates a new isolated container.
+        Callers are responsible for calling destroy_container() when done.
+        The singleton self._handle is kept only for optional long-lived
+        background container reuse (not used in the main workflow).
         """
-        if self._handle:
-            # Verify the container is still alive
-            alive = await self._container_alive(self._handle.container_id)
-            if alive:
-                log.debug("docker.warm_reuse", id=self._handle.container_id[:12])
-                return self._handle
-
         container_id = await self._start_container()
-        self._handle = SandboxHandle(
+        # Give sandbox-start.sh time to start background services (Jaeger etc.)
+        await asyncio.sleep(2)
+        handle = SandboxHandle(
             container_id=container_id,
             working_dir=_DEFAULT_WORKDIR,
             warm=True,
         )
         log.info("docker.warm_started", id=container_id[:12])
-        return self._handle
+        return handle
 
     async def exec_in_container(
         self,
@@ -131,7 +132,6 @@ class DockerContainerManager(SandboxProvider):
     async def destroy_container(self, handle: SandboxHandle) -> None:
         await _run_docker(["docker", "stop",   handle.container_id])
         await _run_docker(["docker", "rm", "-f", handle.container_id])
-        self._handle = None
         log.info("docker.destroyed", id=handle.container_id[:12])
 
     # ── Internal helpers ──────────────────────────────────────────────────
@@ -148,8 +148,15 @@ class DockerContainerManager(SandboxProvider):
             "--mount",   f"type=bind,source={self._host_mount},target={_DEFAULT_WORKDIR}",
             "--memory",  "2g",
             "--cpus",    "2",
+            # Publish all debug + service ports so host-side clients can connect
+            "-p", f"{self._jdwp_port}:{self._jdwp_port}",
+            "-p", f"{self._cdp_port}:{self._cdp_port}",
+            "-p", "8080:8080",
+            "-p", "16686:16686",
+            "-p", "4317:4317",
+            "-p", "4318:4318",
             self._image,
-            "tail", "-f", "/dev/null",   # keep container alive
+            # Do NOT override CMD — let sandbox-start.sh run (starts Jaeger etc.)
         ]
         proc_result = await _run_docker(cmd)
         return proc_result.strip()   # docker outputs the container ID
