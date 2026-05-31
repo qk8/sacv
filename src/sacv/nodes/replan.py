@@ -129,6 +129,7 @@ def make_replan_node(deps: "NodeDeps"):
             "diff_proposal":             None,
             "red_phase_evidence_path":   None,   # force tdd_gate to generate new tests
             "test_inventory_paths":      [],     # clear old test inventory for new strategies
+            "tdd_gate_attempts":         0,      # reset — prevents immediate HITL escalation after replan
         }
 
     return replan_node
