@@ -57,42 +57,54 @@ def make_preflight_node(deps: "NodeDeps"):
         log.info("preflight.start", task_id=state["task_id"], module=module)
         handle = await deps.sandbox.warm_container()
 
-        # ── Check 1: LSP / Compile ─────────────────────────────────────────
-        lsp_cmd    = "npx tsc --noEmit 2>&1" if "frontend" in module else "mvn compile -q 2>&1"
-        lsp_out    = await deps.sandbox.exec_in_container(handle, lsp_cmd, timeout=60)
-        lsp_errors = _parse_lsp(lsp_out.stdout + lsp_out.stderr, module)
+        try:
+            # ── Check 1: LSP / Compile ─────────────────────────────────────
+            lsp_cmd = "npx tsc --noEmit 2>&1" if "frontend" in module else "mvn compile -q 2>&1"
+            lsp_out = await deps.sandbox.exec_in_container(handle, lsp_cmd, timeout=60)
+            lsp_errors = _parse_lsp(lsp_out.stdout + lsp_out.stderr, module)
 
-        # ── Check 2: Architecture / Structure ──────────────────────────────
-        arch_cmd   = _arch_cmd(module)
-        arch_errs: list[dict] = []
-        if arch_cmd:
-            arch_out  = await deps.sandbox.exec_in_container(handle, arch_cmd, timeout=30)
-            arch_errs = _parse_arch(arch_out.stdout + arch_out.stderr, module)
+            # ── Check 2: Architecture / Structure ──────────────────────────
+            arch_cmd = _arch_cmd(module)
+            arch_errs: list[dict] = []
+            if arch_cmd:
+                arch_out = await deps.sandbox.exec_in_container(
+                    handle, arch_cmd, timeout=30,
+                )
+                arch_errs = _parse_arch(arch_out.stdout + arch_out.stderr, module)
 
-        # ── Check 3: Cross-Stack Type Safety (monorepo only) ───────────────
-        cross_stack_errors: list[dict] = []
-        if cfg.monorepo_mode and "frontend" not in module:
-            cross_stack_errors = await _check_cross_stack_types(handle, cfg, deps)
+            # ── Check 3: Cross-Stack Type Safety (monorepo only) ───────────
+            cross_stack_errors: list[dict] = []
+            if cfg.monorepo_mode and "frontend" not in module:
+                cross_stack_errors = await _check_cross_stack_types(
+                    handle, cfg, deps,
+                )
 
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        passed      = not lsp_errors and not arch_errs and not cross_stack_errors
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            passed = not lsp_errors and not arch_errs and not cross_stack_errors
 
-        result = PreflightResult(
-            passed=passed,
-            lsp_errors=lsp_errors,
-            arch_violations=arch_errs,
-            cross_stack_errors=cross_stack_errors,
-            duration_ms=duration_ms,
-        )
-        log.info("preflight.complete", passed=passed, lsp=len(lsp_errors),
-                 arch=len(arch_errs), cross_stack=len(cross_stack_errors),
-                 duration_ms=duration_ms)
+            result = PreflightResult(
+                passed=passed,
+                lsp_errors=lsp_errors,
+                arch_violations=arch_errs,
+                cross_stack_errors=cross_stack_errors,
+                duration_ms=duration_ms,
+            )
+            log.info(
+                "preflight.complete",
+                passed=passed,
+                lsp=len(lsp_errors),
+                arch=len(arch_errs),
+                cross_stack=len(cross_stack_errors),
+                duration_ms=duration_ms,
+            )
 
-        return {
-            "current_phase":    WorkflowPhase.PREFLIGHT.value,
-            "preflight_result": result,
-            "critic_findings":  [],
-        }
+            return {
+                "current_phase":    WorkflowPhase.PREFLIGHT.value,
+                "preflight_result": result,
+                "critic_findings":  [],
+            }
+        finally:
+            await deps.sandbox.destroy_container(handle)
 
     return preflight_node
 
