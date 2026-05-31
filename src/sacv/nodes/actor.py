@@ -17,7 +17,10 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from sacv.orchestration.state import WorkflowPhase, DiffProposal, UnifiedDiffPayload
+from sacv.orchestration.state import (
+    WorkflowPhase, DiffProposal, UnifiedDiffPayload,
+    VerifierVerdict, DiagnosticVerdict,
+)
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.interfaces.diff_provider import UnifiedDiff
 from sacv.nodes._stagnation import check_stagnation
@@ -84,12 +87,30 @@ def make_actor_node(deps: "NodeDeps"):
         stagnation = check_stagnation(correction, deps.config)
         if stagnation:
             log.warning("actor.stagnation", pattern=stagnation)
+            # Return a synthetic failing verdict so route_after_verifier
+            # sends the graph directly to hitl_escalation (attempt_count
+            # == max_self_correction_cycles triggers the max-cycles path).
             return {
                 "correction_state": {
                     **correction,
                     "attempt_count":      deps.config.max_self_correction_cycles,
                     "stagnation_pattern": stagnation,
-                }
+                },
+                "verifier_verdict": VerifierVerdict(
+                    test_result="FAIL",
+                    diagnostic=DiagnosticVerdict.FIX_IMPL.value,
+                    phase1_passed=False,
+                    phase2_passed=False,
+                    test_failures=[{"message": f"stagnation_detected: {stagnation}"}],
+                    performance_delta=None,
+                    visual_diff_result=None,
+                    critic_findings=[],
+                    docker_exit_code=-1,
+                    playwright_trace_path=None,
+                    otel_trace=None,
+                    actuator_snapshot=None,
+                ),
+                "diff_proposal": None,
             }
 
         # ── 1. Git branch ─────────────────────────────────────────────────
