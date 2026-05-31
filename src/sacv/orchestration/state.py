@@ -163,6 +163,37 @@ class LessonLearned(TypedDict):
     session_duration_ms:  int
 
 
+# ── Debug observation schema (must precede WorkflowState) ─────────────────────
+
+class BreakpointHit(TypedDict):
+    file:      str
+    line:      int
+    variables: dict        # {name: {"value": ..., "type": ...}}
+    call_stack: list[str]  # ["ClassName.method(File.java:42)", ...]
+    thread_id:  str | None
+
+
+class DebugObservations(TypedDict):
+    """
+    Structured output from the IntelligentDebuggerNode.
+    Passed directly to the Actor so it can make a precise fix.
+    """
+    error_type:       str               # e.g. "NULL_REFERENCE", "ASYNC_RACE_CONDITION"
+    root_cause:       str               # human-readable hypothesis
+    breakpoint_hits:  list[BreakpointHit]
+    # Spring Actuator snapshot (Java only, on BeanCreationException)
+    actuator_beans:   dict | None
+    actuator_env:     dict | None
+    # Delta debug result (validation failures)
+    minimal_payload:  dict | None       # smallest input that reproduces the failure
+    # Playwright trace (frontend only)
+    playwright_trace_path: str | None
+    # OTel trace (cross-stack)
+    otel_trace:       dict | None       # {trace_id, spans: [...]}
+    # Pruned stack trace (always present)
+    pruned_stack:     list[dict]        # [{file, line, method, message}]
+
+
 # ── Root graph state ──────────────────────────────────────────────────────────
 
 class WorkflowState(TypedDict):
@@ -226,34 +257,3 @@ class WorkflowState(TypedDict):
 
     # ── Debugger output (IntelligentDebuggerNode → ActorNode) ─────────────
     debug_observations:     DebugObservations | None
-
-
-# ── Debug observation schema (NEW — debugging session) ────────────────────────
-
-class BreakpointHit(TypedDict):
-    file:      str
-    line:      int
-    variables: dict        # {name: {"value": ..., "type": ...}}
-    call_stack: list[str]  # ["ClassName.method(File.java:42)", ...]
-    thread_id:  str | None
-
-
-class DebugObservations(TypedDict):
-    """
-    Structured output from the IntelligentDebuggerNode.
-    Passed directly to the Actor so it can make a precise fix.
-    """
-    error_type:       str               # e.g. "NULL_REFERENCE", "ASYNC_RACE_CONDITION"
-    root_cause:       str               # human-readable hypothesis
-    breakpoint_hits:  list[BreakpointHit]
-    # Spring Actuator snapshot (Java only, on BeanCreationException)
-    actuator_beans:   dict | None
-    actuator_env:     dict | None
-    # Delta debug result (validation failures)
-    minimal_payload:  dict | None       # smallest input that reproduces the failure
-    # Playwright trace (frontend only)
-    playwright_trace_path: str | None
-    # OTel trace (cross-stack)
-    otel_trace:       dict | None       # {trace_id, spans: [...]}
-    # Pruned stack trace (always present)
-    pruned_stack:     list[dict]        # [{file, line, method, message}]
