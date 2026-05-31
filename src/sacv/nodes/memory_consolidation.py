@@ -302,8 +302,9 @@ async def _update_arch_rules(
     """
     try:
         is_frontend = "frontend" in module_type
+        user_package = deps.config.debug.user_java_package
         config_file = Path(".dependency-cruiser.json" if is_frontend else
-                           "src/test/java/com/sacv/ArchitectureTest.java")
+                           f"src/test/java/{user_package.replace('.', '/')}/ArchitectureTest.java")
 
         current_content = config_file.read_text(encoding="utf-8") if config_file.exists() else ""
 
@@ -326,7 +327,7 @@ async def _update_arch_rules(
         if new_rule and is_frontend:
             _inject_depcruiser_rule(config_file, new_rule)
         elif new_rule:
-            _inject_archunit_rule(config_file, new_rule)
+            _inject_archunit_rule(config_file, new_rule, user_package)
 
         # Commit the updated rule file so it survives HITL reset_hard
         def _commit_rule():
@@ -373,7 +374,11 @@ def _inject_depcruiser_rule(config_file: Path, new_rule: str) -> None:
     config_file.write_text(json.dumps(config, indent=2))
 
 
-def _inject_archunit_rule(config_file: Path, new_rule: str) -> None:
+def _inject_archunit_rule(
+    config_file: Path,
+    new_rule: str,
+    user_package: str = "com.sacv",
+) -> None:
     """Inject an ArchUnit rule with validation (ARCH-003 fix)."""
     # Validate: must be a syntactically plausible @ArchTest method
     if "@ArchTest" not in new_rule:
@@ -387,7 +392,7 @@ def _inject_archunit_rule(config_file: Path, new_rule: str) -> None:
 
     if not config_file.exists():
         config_file.parent.mkdir(parents=True, exist_ok=True)
-        config_file.write_text(_default_archunit_class(new_rule))
+        config_file.write_text(_default_archunit_class(new_rule, user_package))
         return
 
     content = config_file.read_text()
@@ -431,11 +436,12 @@ def _default_agents_md() -> str:
     )
 
 
-def _default_archunit_class(rule: str) -> str:
+def _default_archunit_class(rule: str, user_package: str = "com.sacv") -> str:
     return (
-        "package com.sacv;\n\nimport com.tngtech.archunit.junit.ArchTest;\n"
-        "import com.tngtech.archunit.lang.ArchRule;\nimport static "
-        "com.tngtech.archunit.library.Architectures.layeredArchitecture;\n\n"
+        f"package {user_package};\n\n"
+        "import com.tngtech.archunit.junit.ArchTest;\n"
+        "import com.tngtech.archunit.lang.ArchRule;\n"
+        "import static com.tngtech.archunit.library.Architectures.layeredArchitecture;\n\n"
         "class ArchitectureTest {\n\n"
         f"    {rule}\n}}\n"
     )
