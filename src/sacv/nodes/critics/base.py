@@ -29,10 +29,6 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-# Shared semaphore: at most 2 critics/branches run Docker or LLM concurrently.
-# It is module-level so all critic nodes share the same permit pool.
-_RESOURCE_SEMAPHORE = asyncio.Semaphore(2)
-
 _CRITIC_BASE_SYSTEM = """\
 You are a {role} code reviewer. Analyse only the diff provided.
 Output ONLY a JSON array of finding objects. Each object must have:
@@ -72,7 +68,7 @@ async def _run_critic(
         f"mode: {state['project_mode']}."
     )
 
-    async with _RESOURCE_SEMAPHORE:
+    async with deps.critic_semaphore:
         result = await deps.agent.run_task(
             prompt=prompt,
             context={"proposal": proposal},

@@ -49,6 +49,13 @@ class NodeDeps:
     sandbox:      SandboxProvider
     diff:         DiffProvider
     config:       WorkflowConfig = field(default_factory=WorkflowConfig)
+    # Per-instance semaphore — prevents module-level sharing across
+    # parallel graph invocations and pytest workers (BUG-012 fix).
+    critic_semaphore: object = field(init=False)  # asyncio.Semaphore
+
+    def __post_init__(self) -> None:
+        import asyncio
+        self.critic_semaphore = asyncio.Semaphore(self.config.max_parallel_critics)
 
 
 async def _run_verifier_with_confidence(
