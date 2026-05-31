@@ -3,7 +3,7 @@ nodes/speculative_branch.py
 ===========================
 When the Actor fails a second time on the main branch, the orchestrator
 forks the state into multiple isolated git branches and evaluates alternative
-strategies concurrently (throttled to ≤2 via the shared semaphore).
+strategies concurrently (throttled to ≤max_parallel_branches via asyncio.gather).
 
 Each branch runs a complete Actor → Critics → Verifier sub-cycle.
 The first branch to produce a PASS verdict wins; its diff is committed
@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING
 import structlog
 
 from sacv.orchestration.state import WorkflowPhase, VerifierVerdict, DiagnosticVerdict
-from sacv.nodes.critics.base import _RESOURCE_SEMAPHORE
 
 if TYPE_CHECKING:
     from sacv.orchestration.graph import NodeDeps
@@ -146,60 +145,63 @@ async def _evaluate_branch(
     deps:     "NodeDeps",
 ) -> tuple[str, "VerifierVerdict | None"]:
     """
-    Run a complete Actor → Critics → Verifier cycle for one strategy,
-    throttled via the shared semaphore.
+    Run a complete Actor → Critics → Verifier cycle for one strategy.
+    Concurrency is controlled by asyncio.gather in the caller;
+    per-critic throttling is handled by the semaphore inside _run_critic.
     """
     task_id     = state["task_id"]
     branch_name = f"agent-task-{task_id[:8]}-{strategy['strategy_id']}"
 
-    async with _RESOURCE_SEMAPHORE:
-        try:
-            deps.git.create_branch(branch_name)
-            deps.git.checkout(branch_name)
+    try:
+        deps.git.create_branch(branch_name)
+        deps.git.checkout(branch_name)
 
-            # Inline mini-workflow: actor → critics → verifier
-            from sacv.nodes.actor   import make_actor_node
-            from sacv.nodes.verifier import make_verifier_node
-            from sacv.nodes.critics.security    import make_security_critic_node
-            from sacv.nodes.critics.style       import make_style_critic_node
-            from sacv.nodes.critics.consistency import make_consistency_critic_node
+        # Inline mini-workflow: actor → critics → verifier
+        # Note: per-critic semaphore inside _run_critic handles throttling;
+        # no outer semaphore here — acquiring it would deadlock with
+        # max_parallel_branches >= 2 (see BUG-001 fix).
+        from sacv.nodes.actor   import make_actor_node
+        from sacv.nodes.verifier import make_verifier_node
+        from sacv.nodes.critics.security    import make_security_critic_node
+        from sacv.nodes.critics.style       import make_style_critic_node
+        from sacv.nodes.critics.consistency import make_consistency_critic_node
 
-            branch_state = {
-                **state,
-                "selected_strategy": strategy,
-                "correction_state": {
-                    **state["correction_state"],
-                    "branch_name": branch_name,
-                },
-                "critic_findings": [],
-            }
+        branch_state = {
+            **state,
+            "selected_strategy": strategy,
+            "correction_state": {
+                **state["correction_state"],
+                "branch_name": branch_name,
+            },
+            "critic_findings": [],
+        }
 
-            actor_out   = await make_actor_node(deps)(branch_state)
-            if not actor_out.get("diff_proposal"):
-                return branch_name, None
-
-            branch_state = {**branch_state, **actor_out}
-
-            sec_out  = await make_security_critic_node(deps)(branch_state)
-            sty_out  = await make_style_critic_node(deps)(branch_state)
-            con_out  = await make_consistency_critic_node(deps)(branch_state)
-
-            branch_state = {
-                **branch_state,
-                "critic_findings": (
-                    sec_out.get("critic_findings", [])
-                    + sty_out.get("critic_findings", [])
-                    + con_out.get("critic_findings", [])
-                ),
-            }
-
-            ver_out = await make_verifier_node(deps)(branch_state)
-            return branch_name, ver_out.get("verifier_verdict")
-
-        except Exception as exc:
-            log.error(
-                "speculative_branch.evaluation_error",
-                branch=branch_name,
-                error=str(exc),
-            )
+        actor_out   = await make_actor_node(deps)(branch_state)
+        if not actor_out.get("diff_proposal"):
             return branch_name, None
+
+        branch_state = {**branch_state, **actor_out}
+
+        sec_out  = await make_security_critic_node(deps)(branch_state)
+        sty_out  = await make_style_critic_node(deps)(branch_state)
+        con_out  = await make_consistency_critic_node(deps)(branch_state)
+
+        branch_state = {
+            **branch_state,
+            "critic_findings": (
+                sec_out.get("critic_findings", [])
+                + sty_out.get("critic_findings", [])
+                + con_out.get("critic_findings", [])
+            ),
+        }
+
+        ver_out = await make_verifier_node(deps)(branch_state)
+        return branch_name, ver_out.get("verifier_verdict")
+
+    except Exception as exc:
+        log.error(
+            "speculative_branch.evaluation_error",
+            branch=branch_name,
+            error=str(exc),
+        )
+        return branch_name, None
