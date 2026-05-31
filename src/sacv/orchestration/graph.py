@@ -10,6 +10,7 @@ Refactoring additions (debugging session):
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -51,11 +52,12 @@ class NodeDeps:
     config:       WorkflowConfig = field(default_factory=WorkflowConfig)
     # Per-instance semaphore — prevents module-level sharing across
     # parallel graph invocations and pytest workers (BUG-012 fix).
-    critic_semaphore: object = field(init=False)  # asyncio.Semaphore
+    critic_semaphore: asyncio.Semaphore = field(init=False)
 
     def __post_init__(self) -> None:
-        import asyncio
-        self.critic_semaphore = asyncio.Semaphore(self.config.max_parallel_critics)
+        self.critic_semaphore = asyncio.Semaphore(
+            self.config.max_parallel_critics,
+        )
 
 
 from sacv.orchestration.verifier_utils import (
