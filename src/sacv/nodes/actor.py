@@ -12,6 +12,7 @@ Refactoring additions (debugging + architecture sessions):
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING
 
@@ -119,8 +120,8 @@ def make_actor_node(deps: "NodeDeps"):
             f"agent-task-{task_id[:8]}-a{attempt}"
         )
         if not correction.get("branch_name"):
-            deps.git.create_branch(branch_name)
-        deps.git.checkout(branch_name)
+            await asyncio.to_thread(deps.git.create_branch, branch_name)
+        await asyncio.to_thread(deps.git.checkout, branch_name)
 
         # ── 2. Build prompt ───────────────────────────────────────────────
         language        = "TypeScript" if "frontend" in state["module_type"] else "Java"

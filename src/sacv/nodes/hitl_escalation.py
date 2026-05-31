@@ -17,6 +17,7 @@ back to AgentMemory as procedural constraints (see memory_consolidation.py).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -59,20 +60,25 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
         # ── 1. Build resolution hints ─────────────────────────────────────
         hints: list[ResolutionHint] = _build_hints(verdict, state)
 
-        # ── 2. Capture git state ──────────────────────────────────────────
-        stash_ref      = None
-        current_branch = correction.get("branch_name") or deps.git.current_branch()
+       # ── 2. Capture git state ───────────────────────────────────────────
+        stash_ref: str | None = None
+        current_branch = (
+            correction.get("branch_name")
+            or await asyncio.to_thread(deps.git.current_branch)
+        )
         if current_branch and current_branch != "main":
-            stash_ref = deps.git.stash(f"sacv-hitl-{esc_id[:8]}")
+            stash_ref = await asyncio.to_thread(
+                deps.git.stash, f"sacv-hitl-{esc_id[:8]}"
+            )
 
-        green_sha      = deps.git.get_last_green_commit()
-        uncommitted    = deps.git.uncommitted_files()
+        green_sha = await asyncio.to_thread(deps.git.get_last_green_commit)
+        uncommitted = await asyncio.to_thread(deps.git.uncommitted_files)
 
         # Reset to last green state — errors are captured but never block escalation
         git_reset_error: str | None = None
         try:
-            deps.git.reset_hard(green_sha)
-            deps.git.checkout("main")
+            await asyncio.to_thread(deps.git.reset_hard, green_sha)
+            await asyncio.to_thread(deps.git.checkout, "main")
         except Exception as exc:
             git_reset_error = str(exc)
             log.error("hitl.git_reset_failed", error=git_reset_error, green_sha=green_sha)

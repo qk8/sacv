@@ -82,7 +82,7 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
             committed_tests = await _commit_test_inventory(inv_paths, task_id, deps)
 
         # ── 2. COMMIT PRODUCTION CODE ─────────────────────────────────────
-        green_sha = _commit_production_code(task_id, deps)
+        green_sha = await _commit_production_code(task_id, deps)
 
         # ── 3. BUILD LESSON LEARNED ───────────────────────────────────────
         correction_type = "none"
@@ -175,17 +175,19 @@ async def _commit_test_inventory(
         return []
 
 
-def _commit_production_code(task_id: str, deps: "NodeDeps") -> str:
-    """Commit production code and record green SHA."""
-    try:
-        sha = deps.git.commit(
-            f"sacv: implement {task_id}", add_all=True
-        )
-        deps.git.record_green_commit(sha)
-        return sha
-    except Exception as exc:
-        log.warning("memory_consolidation.commit_failed", error=str(exc))
-        return ""
+async def _commit_production_code(task_id: str, deps: "NodeDeps") -> str:
+    """Commit production code and record green SHA (non-blocking)."""
+    def _sync_work() -> str:
+        try:
+            sha = deps.git.commit(
+                f"sacv: implement {task_id}", add_all=True
+            )
+            deps.git.record_green_commit(sha)
+            return sha
+        except Exception as exc:
+            log.warning("memory_consolidation.commit_failed", error=str(exc))
+            return ""
+    return await asyncio.to_thread(_sync_work)
 
 
 async def _update_agents_md(
