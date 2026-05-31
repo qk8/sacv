@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -275,15 +274,20 @@ class CdpClient:
 
     async def _discover_ws_url(self) -> str:
         """Query Node.js /json endpoint to get the WebSocket URL."""
-        try:
-            url  = f"http://{self._host}:{self._port}/json"
-            resp = urllib.request.urlopen(url, timeout=5)
-            data = json.loads(resp.read())
-            if data:
-                return data[0]["webSocketDebuggerUrl"]
-        except Exception:
-            pass
-        return f"ws://{self._host}:{self._port}"
+        import urllib.request as _urllib
+
+        def _blocking_get() -> str:
+            try:
+                url  = f"http://{self._host}:{self._port}/json"
+                resp = _urllib.urlopen(url, timeout=5)
+                data = json.loads(resp.read())
+                if data:
+                    return data[0]["webSocketDebuggerUrl"]
+            except Exception:
+                pass
+            return f"ws://{self._host}:{self._port}"
+
+        return await asyncio.to_thread(_blocking_get)
 
 
 # ── Parsers ───────────────────────────────────────────────────────────────────
