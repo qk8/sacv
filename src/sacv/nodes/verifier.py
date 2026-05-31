@@ -28,6 +28,8 @@ Refactoring additions (debugging session):
 from __future__ import annotations
 
 import json
+import re
+import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -297,15 +299,30 @@ async def _run_perf(handle, module_type: str, task_id: str, deps) -> dict | None
 
 
 async def _run_visual_diff(handle, task_id: str, deps) -> dict | None:
-    cmd = (
-        f"npm run build --silent 2>&1 | tail -3 && "
-        f"node /sacv/visual-diff.js --task {task_id} --output /tmp/vd-{task_id}.json && "
-        f"cat /tmp/vd-{task_id}.json"
+    # Sanitize task_id for shell safety
+    safe_task_id = re.sub(r"[^a-zA-Z0-9\-_]", "-", task_id)[:32]
+    output_path = f"/tmp/vd-{safe_task_id}.json"
+
+    # Run build first to isolate JSON output
+    build_cmd = "npm run build --silent 2>&1 | tail -3"
+    build_r = await deps.sandbox.exec_in_container(handle, build_cmd, timeout=60)
+    if build_r.exit_code != 0:
+        log.warning("verifier.build_failed_for_visual_diff")
+        return None
+
+    # Run visual diff as separate command to isolate JSON output
+    vd_cmd = (
+        f"node /sacv/visual-diff.js "
+        f"--task {shlex.quote(safe_task_id)} "
+        f"--output {shlex.quote(output_path)} 2>&1 && "
+        f"cat {shlex.quote(output_path)}"
     )
-    r = await deps.sandbox.exec_in_container(handle, cmd, timeout=90)
+    r = await deps.sandbox.exec_in_container(handle, vd_cmd, timeout=60)
     try:
-        return json.loads(r.stdout.split("\n{")[1] if "\n{" in r.stdout else r.stdout)
-    except Exception:
+        return json.loads(r.stdout.strip())
+    except json.JSONDecodeError:
+        log.warning("verifier.visual_diff_parse_failed",
+                    stdout=r.stdout[:200])
         return None
 
 
