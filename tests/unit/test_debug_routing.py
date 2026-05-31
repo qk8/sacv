@@ -94,10 +94,10 @@ class TestAmbiguousRouting:
         s = _s(diagnostic="FIX_IMPL", attempt=2)
         assert route_after_verifier(s, cfg) == "speculative_branch"
 
-    def test_ambiguous_attempt_2_still_goes_to_debugger(self):
-        """AMBIGUOUS at attempt 2: prefer debugger over speculative branching."""
+    def test_ambiguous_attempt_2_routes_to_speculative(self):
+        """AMBIGUOUS at attempt 2: falls through to speculative_branch (ARCH-004)."""
         s = _s(diagnostic="AMBIGUOUS", attempt=2)
-        assert route_after_verifier(s, cfg) == "intelligent_debugger"
+        assert route_after_verifier(s, cfg) == "speculative_branch"
 
     def test_none_verdict_raises(self):
         s = _s()
