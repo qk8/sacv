@@ -301,7 +301,7 @@ async def _run_jdwp_session(
 
     try:
         async with JdwpClient(
-            host="localhost", port=deps.sandbox.get_host_jdwp_port()
+            host="localhost", port=handle.host_jdwp_port
         ) as jdb:
             await jdb.set_breakpoint_at_line(class_name, target_line)
             await jdb.run()
@@ -400,7 +400,7 @@ async def _run_cdp_session(
 
     try:
         async with CdpClient(
-            host="localhost", port=deps.sandbox.get_host_cdp_port()
+            host="localhost", port=handle.host_cdp_port
         ) as cdp:
             await cdp.enable_debugger()
             await cdp.set_breakpoint_by_url(target_file, target_line)

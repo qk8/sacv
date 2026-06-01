@@ -14,6 +14,8 @@ class SandboxHandle:
     container_id: str
     working_dir: str
     warm: bool
+    host_jdwp_port: int = 5005   # resolved at container start
+    host_cdp_port:  int = 9229   # resolved at container start
 
 class SandboxProvider(ABC):
     @abstractmethod
@@ -23,7 +25,3 @@ class SandboxProvider(ABC):
                                  env: dict[str, str] | None = None, timeout: int = 120) -> ExecResult: ...
     @abstractmethod
     async def destroy_container(self, handle: SandboxHandle) -> None: ...
-    @abstractmethod
-    def get_host_jdwp_port(self) -> int: ...
-    @abstractmethod
-    def get_host_cdp_port(self) -> int: ...

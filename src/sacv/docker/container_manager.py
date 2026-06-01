@@ -69,6 +69,8 @@ class DockerContainerManager(SandboxProvider):
             container_id=container_id,
             working_dir=_DEFAULT_WORKDIR,
             warm=True,
+            host_jdwp_port=self._host_jdwp_port or self._jdwp_port,
+            host_cdp_port=self._host_cdp_port or self._cdp_port,
         )
         log.info("docker.warm_started", id=container_id[:12])
         return handle
@@ -136,12 +138,6 @@ class DockerContainerManager(SandboxProvider):
         await _run_docker(["docker", "stop",   handle.container_id])
         await _run_docker(["docker", "rm", "-f", handle.container_id])
         log.info("docker.destroyed", id=handle.container_id[:12])
-
-    def get_host_jdwp_port(self) -> int:
-        return self._host_jdwp_port or self._jdwp_port
-
-    def get_host_cdp_port(self) -> int:
-        return self._host_cdp_port or self._cdp_port
 
     # ── Internal helpers ──────────────────────────────────────────────────
 

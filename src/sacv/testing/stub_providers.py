@@ -278,9 +278,3 @@ class StubSandboxProvider(SandboxProvider):
 
     async def destroy_container(self, handle: SandboxHandle) -> None:
         pass
-
-    def get_host_jdwp_port(self) -> int:
-        return 5005
-
-    def get_host_cdp_port(self) -> int:
-        return 9229
