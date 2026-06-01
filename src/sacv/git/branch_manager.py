@@ -141,6 +141,9 @@ class BranchManager(GitProvider):
     def commit(self, message: str, add_all: bool = True) -> str:
         if add_all:
             self._run(["git", "add", "-A"])
+            # Un-stage workflow internals — these contain internal state,
+            # not application code. They should never enter the repo.
+            self._run(["git", "reset", "--", ".workflow/"])
         result = self._run(["git", "commit", "-m", message])
         sha = self._run(["git", "rev-parse", "HEAD"]).stdout.strip()
         log.info("git.commit", sha=sha[:12], message=message[:60])
