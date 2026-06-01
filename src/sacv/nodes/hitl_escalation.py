@@ -208,4 +208,17 @@ def _build_hints(
             automated=False,
         ))
 
+    # TDD gate failure: oracle couldn't produce red-phase evidence
+    if state.get("tdd_gate_attempts", 0) >= 3 and not state.get("red_phase_evidence_path"):
+        hints.insert(0, ResolutionHint(
+            priority=1,
+            category="test_oracle",
+            hint=(
+                "TDD gate failed to produce red-phase evidence after 3 attempts. "
+                "The Test Oracle may be generating tests that pass before implementation, "
+                "or the test framework is misconfigured. Review the oracle system prompt."
+            ),
+            automated=False,
+        ))
+
     return hints
