@@ -95,6 +95,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
             "module_type":      args.module,
             "session_id":       "",
             "current_phase":    WorkflowPhase.BOOTSTRAP.value,
+            "check_profile":    "standard",    # BUG-010: required WorkflowState field
             # All remaining fields initialised to None/[] by bootstrap
             "context_skeleton":       None, "blast_radius_map": None,
             "agents_md_context":      None, "strategy_candidates": [],
@@ -113,6 +114,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
             "speculative_stash_ref":   None, "escalation_payload": None,
             "procedural_constraints":  [], "lesson_learned": None,
             "arch_rules_updated":      False,
+            "cumulative_cost_dollars": 0.0,    # BUG-008: token budget tracking
         }
 
         async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
