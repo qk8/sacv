@@ -250,21 +250,21 @@ async def _test_payload(
         endpoint = "/" + endpoint
     endpoint = re.sub(r"[^a-zA-Z0-9/_\-.]", "", endpoint)
 
-    # Health-check: if no server is running, skip delta debug entirely
-    # (BUG-009: fresh debug container has no Spring Boot app running)
-    health_cmd = "curl -sf http://localhost:8080/actuator/health 2>/dev/null || echo NOSERVER"
-    health = await deps.sandbox.exec_in_container(handle, health_cmd, timeout=5)
-    if "NOSERVER" in health.stdout or health.exit_code != 0:
-        log.warning("debugger.delta_debug_no_server")
-        return False  # can't test; don't assert error present
-
+    # Attempt the curl directly — if the server isn't running, curl will
+    # return exit code 7 (connection refused), which we treat as "error
+    # persists" since the endpoint should be reachable.
     cmd = (
         f"echo {shlex.quote(payload_json)} | "
         f"curl -sf -X POST -H 'Content-Type: application/json' "
         f"--data-binary @- http://localhost:8080{endpoint} 2>&1 | head -5"
     )
     result = await deps.sandbox.exec_in_container(handle, cmd, timeout=10)
-    return result.exit_code != 0 or "error" in result.stdout.lower()
+    # exit_code 7 = connection refused (server not running) → treat as error
+    # exit_code 0 with "error" in body → server rejected the request
+    # exit_code != 0 with no "error" → server error response
+    if result.exit_code != 0:
+        return True  # connection refused or server error
+    return "error" in result.stdout.lower()
 
 
 async def _run_jdwp_session(
