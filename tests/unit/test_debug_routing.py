@@ -99,8 +99,8 @@ class TestAmbiguousRouting:
         s = _s(diagnostic="AMBIGUOUS", attempt=2)
         assert route_after_verifier(s, cfg) == "speculative_branch"
 
-    def test_none_verdict_raises(self):
+    def test_none_verdict_routes_to_hitl(self):
+        """Missing verifier_verdict now routes to HITL instead of crashing."""
         s = _s()
         s["verifier_verdict"] = None
-        with pytest.raises(ValueError):
-            route_after_verifier(s, cfg)
+        assert route_after_verifier(s, cfg) == "hitl_escalation"

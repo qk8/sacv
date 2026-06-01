@@ -97,9 +97,9 @@ class TestRouteAfterVerifier:
         s    = _s(verifier_verdict=_verdict("FAIL", "FIX_IMPL"), correction_state=_corr(1))
         assert route_after_verifier(s, cfg1) == "hitl_escalation"
 
-    def test_none_verdict_raises(self):
-        with pytest.raises(ValueError):
-            route_after_verifier(_s(verifier_verdict=None), cfg3)
+    def test_none_verdict_routes_to_hitl(self):
+        """Missing verifier_verdict now routes to HITL instead of crashing."""
+        assert route_after_verifier(_s(verifier_verdict=None), cfg3) == "hitl_escalation"
 
 
 class TestRouteAfterValueNode:
