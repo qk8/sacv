@@ -374,16 +374,25 @@ async def _run_cdp_session(
     import asyncio
 
     # Start Node in inspect-brk mode
-    # Use a safe shell pattern: capture glob result, check for empty,
-    # and run node with the full path (not dist/dist/...).
+    # Search common build output locations in priority order:
+    #   - dist/main.js, dist/index.js (standard)
+    #   - build/index.js, build/main.js (SWC/esbuild)
+    #   - dist/server/index.js (Next.js API)
+    #   - .next/standalone/server.js (Next.js standalone)
+    #   - Any .js file in dist/ or build/ (fallback)
     start_cmd = (
-        f"ENTRY=$(ls dist/*.js 2>/dev/null | head -1); "
-        f"[ -z \"$ENTRY\" ] && echo 'NO_DIST_JS' && exit 1; "
+        "ENTRY=$("
+        "  ls dist/main.js dist/index.js build/index.js build/main.js "
+        "  dist/server/index.js .next/standalone/server.js "
+        "  $(find dist build -maxdepth 2 -name '*.js' 2>/dev/null | head -1) "
+        "  2>/dev/null | head -1"
+        "); "
+        f"[ -z \"$ENTRY\" ] && echo 'NO_ENTRY_POINT' && exit 1; "
         f"node --inspect-brk=0.0.0.0:{cfg.cdp_port} "
         f"\"$ENTRY\" 2>&1 &"
     )
     result = await deps.sandbox.exec_in_container(handle, start_cmd, timeout=5)
-    if "NO_DIST_JS" in result.stdout:
+    if "NO_ENTRY_POINT" in result.stdout:
         log.warning("debugger.cdp_no_bundle")
         return obs
 
