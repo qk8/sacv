@@ -35,6 +35,8 @@ log = structlog.get_logger(__name__)
 _TS_ERROR_RE    = re.compile(r"^(.+\.tsx?)\((\d+),(\d+)\): error (TS\d+): (.+)$")
 _JAVA_ERROR_RE  = re.compile(r"^\[ERROR\] (.+\.java):\[(\d+),\d+\] (.+)$")
 _ARCHUNIT_RE    = re.compile(r"Architecture Violation .* Rule '([^']+)'.*\n\s*- (.+)")
+_ARCHUNIT_RULE_RE   = re.compile(r"Architecture Violation.*[Rr]ule '([^']+)'")
+_ARCHUNIT_DETAIL_RE = re.compile(r"^\s+-\s+(.+)")
 _DEPCRUISER_ERR = re.compile(r'"violations":\s*\[')
 
 
@@ -208,8 +210,8 @@ def _parse_lsp(output: str, module_type: str) -> list[dict]:
 def _parse_arch(output: str, module_type: str) -> list[dict]:
     if "NO_ARCH_TEST" in output:
         return []
-    violations: list[dict] = []
     if "frontend" in module_type:
+        violations: list[dict] = []
         try:
             data = json.loads(output)
             for item in (data if isinstance(data, list) else []):
@@ -222,8 +224,38 @@ def _parse_arch(output: str, module_type: str) -> list[dict]:
                     })
         except (json.JSONDecodeError, TypeError):
             pass
+        return violations[:20]
     else:
-        for m in _ARCHUNIT_RE.finditer(output):
-            violations.append({"rule": m.group(1), "source_file": "unknown",
-                                "target_file": "unknown", "message": m.group(2).strip()})
+        return _parse_java_archunit(output)
+
+
+def _parse_java_archunit(output: str) -> list[dict]:
+    """
+    Parse ArchUnit violations using a two-pass state machine.
+    Tolerates intermediate lines between the rule header and violation details.
+    """
+    violations: list[dict] = []
+    current_rule: str | None = None
+
+    for line in output.splitlines():
+        rule_match = _ARCHUNIT_RULE_RE.search(line)
+        if rule_match:
+            current_rule = rule_match.group(1)
+            continue
+
+        if current_rule:
+            detail_match = _ARCHUNIT_DETAIL_RE.match(line)
+            if detail_match:
+                violations.append({
+                    "rule":        current_rule,
+                    "source_file": "unknown",
+                    "target_file": "unknown",
+                    "message":     detail_match.group(1).strip(),
+                })
+            elif line.strip() and not line.strip().startswith("There is"):
+                # If a non-empty, non-meta line appears that doesn't look like
+                # a violation detail, assume we've moved past this rule block.
+                if not _ARCHUNIT_RULE_RE.search(line):
+                    current_rule = None
+
     return violations[:20]
