@@ -32,7 +32,7 @@ from sacv.testing.stub_providers import (
 from sacv.interfaces.agent_provider import AgentResult
 from sacv.interfaces.sandbox_provider import ExecResult
 
-FIXTURES = Path(__file__).parent.parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent.parent.parent / "src" / "sacv" / "testing" / "fixtures"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
