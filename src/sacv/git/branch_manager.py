@@ -81,13 +81,37 @@ class BranchManager(GitProvider):
     def stash_pop(self, ref: str) -> None:
         """
         Pop a specific stash entry by its SHA.
-        Accepts both SHA and positional refs (stash@{N}).
+
+        Resolves the SHA to a positional stash@{N} ref before popping,
+        because ``git stash pop <SHA>`` is not valid git syntax.
         """
         if not ref:
             log.debug("git.stash_pop_skipped", reason="empty ref")
             return
-        self._run(["git", "stash", "pop", ref])
-        log.info("git.stash_pop", ref=ref[:12] if len(ref) > 12 else ref)
+        positional = self._sha_to_stash_ref(ref)
+        if positional:
+            self._run(["git", "stash", "pop", positional])
+            log.info("git.stash_pop", ref=positional)
+        else:
+            log.warning("git.stash_pop_not_found", sha=ref[:12])
+
+    def _sha_to_stash_ref(self, sha: str) -> str | None:
+        """
+        Look up the stash@{N} positional reference corresponding to a SHA.
+
+        Returns ``None`` if the SHA is not found in the stash list.
+        """
+        try:
+            # git stash list --format='%H %gd' emits lines like:
+            # abc1234... stash@{0}
+            result = self._run(["git", "stash", "list", "--format=%H %gd"])
+            for line in result.stdout.splitlines():
+                parts = line.strip().split(" ", 1)
+                if len(parts) == 2 and parts[0].startswith(sha[:12]):
+                    return parts[1]  # e.g. "stash@{2}"
+        except RuntimeError:
+            pass
+        return None
 
     def reset_hard(self, ref: str) -> None:
         """
