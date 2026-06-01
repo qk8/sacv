@@ -9,6 +9,7 @@ more than ``MAX_OVERWRITE_RATIO`` of a file's lines is rejected.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import subprocess
 from pathlib import Path
@@ -76,11 +77,11 @@ class DiffEngine(DiffProvider):
         for diff in diffs:
             try:
                 if diff.operation == "create":
-                    self._create_file(diff)
+                    await asyncio.to_thread(self._create_file, diff)
                 elif diff.operation == "delete":
-                    self._delete_file(diff)
+                    await asyncio.to_thread(self._delete_file, diff)
                 else:
-                    self._apply_patch(diff)
+                    await asyncio.to_thread(self._apply_patch, diff)
                 applied.append(diff.file_path)
             except RuntimeError as exc:
                 conflicts.append({"file": diff.file_path, "error": str(exc)})
