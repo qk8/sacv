@@ -150,7 +150,8 @@ async def cmd_resume(args: argparse.Namespace) -> None:
             # Resume the interrupted graph with the human's decision
             config = {"configurable": {"thread_id": task_id}}
             # Provide None as the resume input (human reviewed; no automated fix)
-            result = await graph.ainvoke(None, config=config)
+            from langgraph.types import Command
+            result = await graph.ainvoke(Command(resume=None), config=config)
 
         print(json.dumps({
             "resumed": task_id,
