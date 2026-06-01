@@ -46,53 +46,83 @@ def _build_deps():
     )
 
 
+async def _start_deps(deps: "NodeDeps") -> None:
+    """Start all MCP subprocess adapters (agentmemory, codegraph, graphify)."""
+    from sacv.adapters.memory.agentmemory_adapter import AgentMemoryAdapter
+    from sacv.adapters.graph.codegraph_adapter import CodeGraphAdapter
+    from sacv.adapters.graph.graphify_adapter import GraphifyAdapter
+
+    if isinstance(deps.memory, AgentMemoryAdapter):
+        await deps.memory.start()
+    if isinstance(deps.code_graph, CodeGraphAdapter):
+        await deps.code_graph.start()
+    if isinstance(deps.cross_domain, GraphifyAdapter):
+        await deps.cross_domain.start()
+
+
+async def _stop_deps(deps: "NodeDeps") -> None:
+    """Stop all MCP subprocess adapters gracefully."""
+    from sacv.adapters.memory.agentmemory_adapter import AgentMemoryAdapter
+    from sacv.adapters.graph.codegraph_adapter import CodeGraphAdapter
+    from sacv.adapters.graph.graphify_adapter import GraphifyAdapter
+
+    if isinstance(deps.memory, AgentMemoryAdapter):
+        await deps.memory.stop()
+    if isinstance(deps.code_graph, CodeGraphAdapter):
+        await deps.code_graph.stop()
+    if isinstance(deps.cross_domain, GraphifyAdapter):
+        await deps.cross_domain.stop()
+
+
 async def cmd_run(args: argparse.Namespace) -> None:
     from sacv.orchestration.graph import build_graph
     from sacv.orchestration.state import WorkflowPhase
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
     deps = _build_deps()
+    await _start_deps(deps)
+    try:
+        db_path = Path(".workflow/sacv.db")
+        db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Use AsyncSqliteSaver for persistence (supports HITL interrupt/resume)
-    db_path = Path(".workflow/sacv.db")
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+        initial_state = {
+            "task_id":          args.task_id,
+            "task_description": args.description,
+            "project_mode":     args.mode,
+            "module_type":      args.module,
+            "session_id":       "",
+            "current_phase":    WorkflowPhase.BOOTSTRAP.value,
+            # All remaining fields initialised to None/[] by bootstrap
+            "context_skeleton":       None, "blast_radius_map": None,
+            "agents_md_context":      None, "strategy_candidates": [],
+            "selected_strategy":      None, "pruned_strategies": [],
+            "red_phase_evidence_path": None, "test_inventory_paths": [],
+            "tdd_gate_attempts":      0, "diff_proposal": None,
+            "preflight_result":       None, "critic_findings": [],
+            "verifier_verdict":       None, "debug_observations": None,
+            "correction_state": {
+                "attempt_count": 0, "branch_name": None,
+                "last_error_hash": None, "error_history": [],
+                "stagnation_pattern": "none",
+            },
+            "confidence_score":        1.0, "replan_count": 0,
+            "active_branches":         [], "exhausted_branches": [],
+            "speculative_stash_ref":   None, "escalation_payload": None,
+            "procedural_constraints":  [], "lesson_learned": None,
+            "arch_rules_updated":      False,
+        }
 
-    initial_state = {
-        "task_id":          args.task_id,
-        "task_description": args.description,
-        "project_mode":     args.mode,
-        "module_type":      args.module,
-        "session_id":       "",
-        "current_phase":    WorkflowPhase.BOOTSTRAP.value,
-        # All remaining fields initialised to None/[] by bootstrap
-        "context_skeleton":       None, "blast_radius_map": None,
-        "agents_md_context":      None, "strategy_candidates": [],
-        "selected_strategy":      None, "pruned_strategies": [],
-        "red_phase_evidence_path": None, "test_inventory_paths": [],
-        "tdd_gate_attempts":      0, "diff_proposal": None,
-        "preflight_result":       None, "critic_findings": [],
-        "verifier_verdict":       None, "debug_observations": None,
-        "correction_state": {
-            "attempt_count": 0, "branch_name": None,
-            "last_error_hash": None, "error_history": [],
-            "stagnation_pattern": "none",
-        },
-        "confidence_score":        1.0, "replan_count": 0,
-        "active_branches":         [], "exhausted_branches": [],
-        "speculative_stash_ref":   None, "escalation_payload": None,
-        "procedural_constraints":  [], "lesson_learned": None,
-        "arch_rules_updated":      False,
-    }
+        async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
+            graph = build_graph(deps, checkpointer=checkpointer)
+            config = {"configurable": {"thread_id": args.task_id}}
+            result = await graph.ainvoke(initial_state, config=config)
 
-    async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
-        graph = build_graph(deps, checkpointer=checkpointer)
-        config = {"configurable": {"thread_id": args.task_id}}
-        result = await graph.ainvoke(initial_state, config=config)
-
-    print(json.dumps({
-        "phase": result.get("current_phase"),
-        "task": args.task_id,
-    }))
+        print(json.dumps({
+            "phase": result.get("current_phase"),
+            "task": args.task_id,
+        }))
+    finally:
+        await _stop_deps(deps)  # always runs, even on Ctrl+C or exception
 
 
 async def cmd_resume(args: argparse.Namespace) -> None:
@@ -109,22 +139,25 @@ async def cmd_resume(args: argparse.Namespace) -> None:
     task_id = payload["task_id"]
 
     deps = _build_deps()
+    await _start_deps(deps)
+    try:
+        # Use AsyncSqliteSaver for persistence (must match the run checkpointer)
+        db_path = Path(".workflow/sacv.db")
+        db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Use AsyncSqliteSaver for persistence (must match the run checkpointer)
-    db_path = Path(".workflow/sacv.db")
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+        async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
+            graph = build_graph(deps, checkpointer=checkpointer)
+            # Resume the interrupted graph with the human's decision
+            config = {"configurable": {"thread_id": task_id}}
+            # Provide None as the resume input (human reviewed; no automated fix)
+            result = await graph.ainvoke(None, config=config)
 
-    async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
-        graph = build_graph(deps, checkpointer=checkpointer)
-        # Resume the interrupted graph with the human's decision
-        config = {"configurable": {"thread_id": task_id}}
-        # Provide None as the resume input (human reviewed; no automated fix)
-        result = await graph.ainvoke(None, config=config)
-
-    print(json.dumps({
-        "resumed": task_id,
-        "phase": result.get("current_phase"),
-    }))
+        print(json.dumps({
+            "resumed": task_id,
+            "phase": result.get("current_phase"),
+        }))
+    finally:
+        await _stop_deps(deps)  # always runs, even on Ctrl+C or exception
 
 
 def main() -> None:
