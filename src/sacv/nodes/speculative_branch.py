@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from sacv.orchestration.state import WorkflowPhase, VerifierVerdict, DiagnosticVerdict
+from sacv.orchestration.state import WorkflowPhase, VerifierVerdict, DiagnosticVerdict, CRITIC_RESET
 
 if TYPE_CHECKING:
     from sacv.orchestration.graph import NodeDeps
@@ -218,7 +218,7 @@ async def _evaluate_branch(
                 "error_history":      [],         # prevent semantic stagnation bleed
                 "last_error_hash":    None,
             },
-            "critic_findings": [],
+            "critic_findings": CRITIC_RESET,
         }
 
         actor_out   = await make_actor_node(branch_deps)(branch_state)

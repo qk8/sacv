@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from sacv.orchestration.state import WorkflowPhase, PreflightResult
+from sacv.orchestration.state import WorkflowPhase, PreflightResult, CRITIC_RESET
 
 if TYPE_CHECKING:
     from sacv.orchestration.graph import NodeDeps
@@ -101,8 +101,8 @@ def make_preflight_node(deps: "NodeDeps"):
             return {
                 "current_phase":    WorkflowPhase.PREFLIGHT.value,
                 "preflight_result": result,
-                # _merge_lists reducer appends [] to existing findings → no-op
-                "critic_findings":  [],
+                # _merge_lists treats [] as RESET (same as CRITIC_RESET)
+                "critic_findings":  CRITIC_RESET,
             }
         finally:
             await deps.sandbox.destroy_container(handle)

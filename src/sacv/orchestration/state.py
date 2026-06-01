@@ -62,26 +62,33 @@ class StagnationPattern(str, Enum):
 
 # ── State reducers ────────────────────────────────────────────────────────────
 
-def _merge_lists(existing: list | None, new: list | None) -> list:
+class _CriticReset:
+    """Sentinel: when set as critic_findings, the reducer RESETS the list."""
+
+
+CRITIC_RESET = _CriticReset()
+
+
+def _merge_lists(existing: list | None, new: list | _CriticReset | None) -> list:
     """
     Reducer for critic fan-in.
 
     Return value semantics for any node updating ``critic_findings``:
       - Return ``None``  → field unchanged (node did not touch it).
-      - Return ``[]``    → RESET: clears all accumulated findings.
-                           Use this in Actor/Bootstrap to wipe stale data.
+      - Return ``CRITIC_RESET`` or ``[]`` → RESET: clears all accumulated
+        findings. Use this in Actor/Bootstrap to wipe stale data.
       - Return ``[...]`` → APPEND: adds findings to the existing list.
                            Use this in individual critic nodes.
 
     RULE:
       - Critics:     return {"critic_findings": [new_finding_1, ...]}
-      - Actor/Reset: return {"critic_findings": []}  (empty list = reset)
+      - Actor/Reset: return {"critic_findings": CRITIC_RESET}
       - Observers:   return {} or omit the key entirely  (None = no change)
     """
     if new is None:
         return existing or []   # no change
-    # Empty list is an explicit RESET signal
-    if len(new) == 0:
+    # Empty list or CRITIC_RESET sentinel is an explicit RESET signal
+    if isinstance(new, _CriticReset) or (isinstance(new, list) and len(new) == 0):
         return []
     return (existing or []) + new
 

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from sacv.orchestration.state import WorkflowPhase
+from sacv.orchestration.state import WorkflowPhase, CRITIC_RESET
 from sacv.interfaces.agent_provider import AgentConfig
 
 if TYPE_CHECKING:
@@ -123,7 +123,7 @@ def make_replan_node(deps: "NodeDeps"):
                 "last_error_hash":    None,    # clear hash to avoid false stagnation signal
                 "stagnation_pattern": "none",  # reset pattern
             },
-            "critic_findings":           [],
+            "critic_findings":           CRITIC_RESET,
             "verifier_verdict":          None,
             "preflight_result":          None,
             "diff_proposal":             None,

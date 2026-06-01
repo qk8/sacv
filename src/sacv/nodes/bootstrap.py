@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 import structlog
-from sacv.orchestration.state import WorkflowPhase
+from sacv.orchestration.state import WorkflowPhase, CRITIC_RESET
 from sacv.interfaces.memory_provider import EpisodicEvent
 if TYPE_CHECKING:
     from sacv.orchestration.graph import NodeDeps
@@ -33,7 +33,7 @@ def make_bootstrap_node(deps: "NodeDeps"):
             "current_phase":          WorkflowPhase.MODE_ROUTER.value,
             "procedural_constraints": [c.description for c in constraints],
             "check_profile":          "standard",
-            "critic_findings":        [],
+            "critic_findings":        CRITIC_RESET,
             "active_branches":        [],
             "exhausted_branches":     [],
             "test_inventory_paths":   [],

@@ -20,7 +20,7 @@ import structlog
 
 from sacv.orchestration.state import (
     WorkflowPhase, DiffProposal, UnifiedDiffPayload,
-    VerifierVerdict, DiagnosticVerdict,
+    VerifierVerdict, DiagnosticVerdict, CRITIC_RESET,
 )
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.interfaces.diff_provider import UnifiedDiff
@@ -180,7 +180,7 @@ def make_actor_node(deps: "NodeDeps"):
                     "attempt_count": correction["attempt_count"] + 1,
                 },
                 "diff_proposal": None,
-                "critic_findings": [],   # clear stale findings to avoid misleading next prompt
+                "critic_findings": CRITIC_RESET,   # clear stale findings to avoid misleading next prompt
             }
 
         errors = await deps.diff.validate_no_full_overwrite(
@@ -193,8 +193,8 @@ def make_actor_node(deps: "NodeDeps"):
                     **correction,
                     "attempt_count": correction["attempt_count"] + 1,
                 },
-                "diff_proposal":   None,
-                "critic_findings": [],  # clear stale critic feedback from prior diff
+               "diff_proposal":   None,
+                "critic_findings": CRITIC_RESET,  # clear stale critic feedback from prior diff
             }
 
         apply_result = await deps.diff.apply_diffs([UnifiedDiff(**p) for p in diffs])
@@ -207,7 +207,7 @@ def make_actor_node(deps: "NodeDeps"):
                     "branch_name":   branch_name,
                 },
                 "diff_proposal":   None,
-                "critic_findings": [],  # clear stale critic feedback from prior diff
+                "critic_findings": CRITIC_RESET,  # clear stale critic feedback from prior diff
             }
 
         proposal = DiffProposal(
@@ -221,7 +221,7 @@ def make_actor_node(deps: "NodeDeps"):
         return {
             "current_phase":    WorkflowPhase.ACTOR.value,
             "diff_proposal":    proposal,
-            "critic_findings":  [],
+            "critic_findings":  CRITIC_RESET,
             "preflight_result": None,
             "debug_observations": None,  # reset after actor uses them
             "correction_state": {
