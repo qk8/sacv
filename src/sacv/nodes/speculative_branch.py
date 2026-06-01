@@ -30,6 +30,19 @@ if TYPE_CHECKING:
 log = structlog.get_logger(__name__)
 
 
+def _merge_branch_state(base: dict, update: dict) -> dict:
+    """
+    Merge node output into branch_state, correctly handling CRITIC_RESET.
+
+    Replaces CRITIC_RESET with [] so branch_state always holds a list.
+    This mirrors what the LangGraph _merge_lists reducer does.
+    """
+    merged = {**base, **update}
+    if merged.get("critic_findings") is CRITIC_RESET:
+        merged["critic_findings"] = []
+    return merged
+
+
 def make_speculative_branch_node(deps: "NodeDeps"):
 
     async def speculative_branch_node(state: "WorkflowState") -> dict:
@@ -224,7 +237,7 @@ async def _evaluate_branch(
         if not actor_out.get("diff_proposal"):
             return branch_name, None
 
-        branch_state = {**branch_state, **actor_out}
+        branch_state = _merge_branch_state(branch_state, actor_out)
 
         # Run preflight — if it fails, skip this branch (LSP/compile/arch checks)
         preflight_out = await make_preflight_node(branch_deps)(branch_state)
@@ -237,7 +250,7 @@ async def _evaluate_branch(
             )
             return branch_name, None  # treat as failed branch
 
-        branch_state = {**branch_state, **preflight_out}
+        branch_state = _merge_branch_state(branch_state, preflight_out)
 
         # Run critics concurrently — _run_critic already throttles via
         # deps.critic_semaphore internally; no outer wrapper needed.
