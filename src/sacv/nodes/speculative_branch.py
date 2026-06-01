@@ -214,15 +214,12 @@ async def _evaluate_branch(
 
         branch_state = {**branch_state, **preflight_out}
 
-        # Run critics concurrently (respecting per-critic semaphore throttling)
-        async def _run_with_semaphore(critic_fn, state):
-            async with deps.critic_semaphore:
-                return await critic_fn(state)
-
+        # Run critics concurrently — _run_critic already throttles via
+        # deps.critic_semaphore internally; no outer wrapper needed.
         sec_out, sty_out, con_out = await asyncio.gather(
-            _run_with_semaphore(make_security_critic_node(deps), branch_state),
-            _run_with_semaphore(make_style_critic_node(deps), branch_state),
-            _run_with_semaphore(make_consistency_critic_node(deps), branch_state),
+            make_security_critic_node(deps)(branch_state),
+            make_style_critic_node(deps)(branch_state),
+            make_consistency_critic_node(deps)(branch_state),
         )
 
         branch_state = {
