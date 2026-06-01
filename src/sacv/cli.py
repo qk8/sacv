@@ -82,6 +82,9 @@ async def cmd_run(args: argparse.Namespace) -> None:
     deps = _build_deps()
     await _start_deps(deps)
     try:
+        # Validate Docker image exists before starting the graph
+        await DockerContainerManager.validate_image()
+
         db_path = Path(".workflow/sacv.db")
         db_path.parent.mkdir(parents=True, exist_ok=True)
 

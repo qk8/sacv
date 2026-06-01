@@ -37,6 +37,17 @@ class DockerContainerManager(SandboxProvider):
     Async wrappers around subprocess calls so node code stays non-blocking.
     """
 
+    @staticmethod
+    async def validate_image(image: str = _SANDBOX_IMAGE) -> None:
+        """Raise RuntimeError if the sandbox Docker image is not available locally."""
+        try:
+            await _run_docker(["docker", "image", "inspect", image])
+        except RuntimeError:
+            raise RuntimeError(
+                f"Docker image '{image}' not found. "
+                f"Build it first: docker build -f Dockerfile.sandbox -t {image} ."
+            )
+
     def __init__(
         self,
         image:      str       = _SANDBOX_IMAGE,
