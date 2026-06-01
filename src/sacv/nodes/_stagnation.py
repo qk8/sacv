@@ -36,7 +36,10 @@ def check_stagnation(
     history = correction.get("error_history", [])
 
     # Iteration-based stagnation (fast path — no vector math)
-    if attempt >= config.stagnation.total_abort_force:
+    # Use max_self_correction_cycles as the single source of truth for the
+    # iteration-based abort threshold (BUG-011 fix).
+    abort_threshold = config.max_self_correction_cycles
+    if attempt >= abort_threshold:
         return "iteration"
 
     # Semantic stagnation (requires at least 2 error records)
