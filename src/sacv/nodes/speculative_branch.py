@@ -174,7 +174,7 @@ async def _evaluate_branch(
 
         # ── Isolated deps per worktree ───────────────────────────────────
         from sacv.git.branch_manager import BranchManager
-        from sacv.docker.container_manager import DockerContainerManager
+        from sacv.adapters.sandbox import DockerContainerManager
         from sacv.git.diff_engine import DiffEngine
         from sacv.orchestration.graph import NodeDeps
 

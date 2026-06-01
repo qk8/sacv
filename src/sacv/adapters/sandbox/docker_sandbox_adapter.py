@@ -1,6 +1,6 @@
 """
-docker/container_manager.py
-============================
+adapters/sandbox/docker_sandbox_adapter.py
+==========================================
 Manages the warm Docker sandbox container.
 
 Design:

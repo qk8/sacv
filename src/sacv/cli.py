@@ -30,7 +30,7 @@ def _build_deps():
     from sacv.adapters.memory.agentmemory_adapter import AgentMemoryAdapter
     from sacv.adapters.graph.codegraph_adapter import CodeGraphAdapter
     from sacv.adapters.graph.graphify_adapter import GraphifyAdapter
-    from sacv.docker.container_manager import DockerContainerManager
+    from sacv.adapters.sandbox import DockerContainerManager
     from sacv.git.branch_manager import BranchManager
     from sacv.git.diff_engine import DiffEngine
 
