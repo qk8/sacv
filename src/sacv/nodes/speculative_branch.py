@@ -109,7 +109,6 @@ def make_speculative_branch_node(deps: "NodeDeps"):
             log.info("speculative_branch.winner", branch=winning_branch)
             await asyncio.to_thread(deps.git.checkout, winning_branch)
             return {
-                "current_phase":      WorkflowPhase.MEMORY_CONSOLIDATION.value,
                 "active_branches":    [winning_branch],
                 "exhausted_branches": new_exhausted,
                 "speculative_stash_ref": stash_ref,  # preserve for HITL
