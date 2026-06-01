@@ -171,6 +171,18 @@ def make_actor_node(deps: "NodeDeps"):
             for d in raw_diffs
         ]
 
+        # ── 3b. Reject empty diffs — prevents phantom DiffProposal bypass ─
+        if not diffs:
+            log.warning("actor.empty_diff", task_id=task_id, attempt=attempt)
+            return {
+                "correction_state": {
+                    **correction,
+                    "attempt_count": correction["attempt_count"] + 1,
+                },
+                "diff_proposal": None,
+                "critic_findings": [],   # clear stale findings to avoid misleading next prompt
+            }
+
         errors = await deps.diff.validate_no_full_overwrite(
             [UnifiedDiff(**p) for p in diffs]
         )
