@@ -41,6 +41,16 @@ _ESCALATION_DIR = Path(".workflow/escalations")
 _WORKFLOW_VERSION = "sacv-1.0"
 
 
+def _do_interrupt(payload: object) -> None:
+    """
+    Thin wrapper around langgraph.types.interrupt.
+
+    Replaceable in tests via monkeypatch or module-level override.
+    """
+    from langgraph.types import interrupt as _lg_interrupt
+    _lg_interrupt(payload)
+
+
 def make_hitl_escalation_node(deps: "NodeDeps"):
 
     async def hitl_escalation_node(state: "WorkflowState") -> dict:
@@ -61,7 +71,7 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
         # ── 1. Build resolution hints ─────────────────────────────────────
         hints: list[ResolutionHint] = _build_hints(verdict, state, deps.config)
 
-       # ── 2. Capture git state ───────────────────────────────────────────
+        # ── 2. Capture git state ───────────────────────────────────────────
         stash_ref: str | None = None
         current_branch = (
             correction.get("branch_name")
@@ -143,7 +153,7 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
         # ── 6. Pause graph — developer must manually resume ───────────────
         # ``interrupt()`` raises an internal LangGraph signal; the graph
         # checkpoint is saved at this exact state and execution stops.
-        interrupt(payload)
+        _do_interrupt(payload)
 
         # Code below is unreachable during normal execution but satisfies
         # the type checker and will run when the graph is resumed.
