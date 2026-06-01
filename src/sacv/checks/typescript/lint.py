@@ -1,4 +1,5 @@
-"""ESLint + tsc type-check runner for TypeScript projects."""
+# NOT YET WIRED — see ARCH-003.
+"""ESLint + tsc type-check runner for TypeScript projects. Not connected to preflight_node."""
 from __future__ import annotations
 import subprocess, json
 from pathlib import Path

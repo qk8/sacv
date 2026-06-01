@@ -1,4 +1,5 @@
-"""Checkstyle + SpotBugs runner for Java projects."""
+# NOT YET WIRED — see ARCH-003.
+"""Checkstyle + SpotBugs runner for Java projects. Not connected to preflight_node."""
 from __future__ import annotations
 import subprocess
 from pathlib import Path

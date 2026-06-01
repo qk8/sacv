@@ -1,3 +1,4 @@
+# NOT YET WIRED — see ARCH-003.
 from sacv.modes.base import ModeConfig
 from dataclasses import dataclass
 

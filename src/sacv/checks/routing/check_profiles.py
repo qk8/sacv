@@ -1,10 +1,15 @@
 """
 check_profiles.py
 =================
+NOT YET WIRED — see ARCH-003.
+
 Defines which checks (LSP, arch, cross-stack, visual, perf) are active
 per module_type and project_mode combination.
 
 CHECK_MATRIX[module_type][profile_name] -> list[CheckSpec]
+
+TODO: Wire get_checks() into preflight_node so the CheckSpec matrix
+actually controls which checks run, their timeouts, and their required flag.
 """
 from __future__ import annotations
 
