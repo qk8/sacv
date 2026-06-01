@@ -164,7 +164,8 @@ def make_verifier_node(deps: "NodeDeps"):
 
             # ── Performance profiling ────────────────────────────────────
             # Feature not yet implemented — perf baseline infrastructure
-            # does not exist. Placeholder: perf_delta = None.
+            # does not exist.
+            perf_delta: dict | None = None
 
             # ── Visual diff (frontend only) ──────────────────────────────
             visual_result: dict | None = None

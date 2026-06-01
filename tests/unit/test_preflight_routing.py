@@ -2,13 +2,14 @@
 tests/unit/test_preflight_routing.py
 =====================================
 Unit tests for route_after_preflight — pure function, no I/O.
-Validates LSP error and arch violation routing decisions.
+
+After Issue 3 fix, route_after_preflight returns a single string:
+  - "all_critics" when preflight is clean (no LSP errors, no arch violations)
+  - "actor" when preflight reports violations (needs re-implementation)
 """
 from __future__ import annotations
 import pytest
-from langgraph.types import Send
 from sacv.orchestration.edges import route_after_preflight
-from sacv.orchestration.state import WorkflowPhase
 
 
 def _s(**kw):
@@ -32,18 +33,18 @@ def _s(**kw):
 
 class TestRouteAfterPreflight:
 
-    def test_clean_preflight_fans_out_to_critics(self):
-        state  = _s(preflight_result={"passed":True,"lsp_errors":[],"arch_violations":[],"duration_ms":120})
+    def test_clean_preflight_routes_to_all_critics(self):
+        """Clean preflight → route to all_critics node."""
+        state = _s(preflight_result={"passed":True,"lsp_errors":[],"arch_violations":[],"cross_stack_errors":[],"duration_ms":120})
         result = route_after_preflight(state)
-        assert isinstance(result, list)
-        node_names = [send.node for send in result]
-        assert set(node_names) == {"security_critic", "style_critic", "consistency_critic"}
+        assert result == "all_critics"
 
     def test_lsp_error_routes_back_to_actor(self):
         state = _s(preflight_result={
             "passed": False,
             "lsp_errors": [{"file":"A.ts","line":5,"code":"TS2322","message":"Type mismatch"}],
             "arch_violations": [],
+            "cross_stack_errors": [],
             "duration_ms": 50,
         })
         assert route_after_preflight(state) == "actor"
@@ -53,6 +54,7 @@ class TestRouteAfterPreflight:
             "passed": False,
             "lsp_errors": [],
             "arch_violations": [{"rule":"no-ui-to-db","source_file":"ui/A.ts","target_file":"db/B.ts","message":"forbidden import"}],
+            "cross_stack_errors": [],
             "duration_ms": 30,
         })
         assert route_after_preflight(state) == "actor"
@@ -62,25 +64,37 @@ class TestRouteAfterPreflight:
             "passed": False,
             "lsp_errors":      [{"file":"X.java","line":1,"code":"CE","message":"cannot find symbol"}],
             "arch_violations": [{"rule":"domain-isolation","source_file":"domain/X.java","target_file":"infra/Y.java","message":"layer violation"}],
+            "cross_stack_errors": [],
             "duration_ms": 80,
         })
         assert route_after_preflight(state) == "actor"
 
-    def test_none_preflight_result_fans_out(self):
-        """No preflight yet (e.g. first pass) → treat as clean → fan out."""
+    def test_cross_stack_error_routes_to_actor(self):
+        """Cross-stack type errors also route back to actor."""
+        state = _s(preflight_result={
+            "passed": False,
+            "lsp_errors": [],
+            "arch_violations": [],
+            "cross_stack_errors": [{"file":"frontend/api/types.ts","line":10,"code":"TS2345","message":"Type mismatch"}],
+            "duration_ms": 40,
+        })
+        assert route_after_preflight(state) == "actor"
+
+    def test_none_preflight_result_routes_to_all_critics(self):
+        """No preflight yet (e.g. first pass) → treat as clean → all_critics."""
         state = _s(preflight_result=None)
         result = route_after_preflight(state)
-        assert isinstance(result, list)
-        assert len(result) == 3
+        assert result == "all_critics"
 
-    def test_fan_out_produces_exactly_three_sends(self):
-        state  = _s(preflight_result={"passed":True,"lsp_errors":[],"arch_violations":[],"duration_ms":10})
-        result = route_after_preflight(state)
-        assert len(result) == 3
-        assert all(isinstance(s, Send) for s in result)
-
-    def test_empty_preflight_result_fans_out(self):
+    def test_empty_preflight_result_routes_to_all_critics(self):
         """Empty dict (missing 'passed' key) defaults to clean."""
-        state  = _s(preflight_result={})
+        state = _s(preflight_result={})
         result = route_after_preflight(state)
-        assert isinstance(result, list)
+        assert result == "all_critics"
+
+    def test_returns_string_not_list(self):
+        """After Issue 3 fix, route_after_preflight returns a string, not list[Send]."""
+        state = _s(preflight_result={"passed":True,"lsp_errors":[],"arch_violations":[],"cross_stack_errors":[],"duration_ms":10})
+        result = route_after_preflight(state)
+        assert isinstance(result, str)
+        assert result in ("all_critics", "actor")
