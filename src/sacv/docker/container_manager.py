@@ -51,6 +51,9 @@ class DockerContainerManager(SandboxProvider):
         self._jdwp_port  = jdwp_port
         self._cdp_port   = cdp_port
         self._handle:    SandboxHandle | None = None
+        # Ephemeral host ports resolved at container start time
+        self._host_jdwp_port: int | None = None
+        self._host_cdp_port:   int | None = None
 
     async def warm_container(self) -> SandboxHandle:
         """
@@ -134,6 +137,12 @@ class DockerContainerManager(SandboxProvider):
         await _run_docker(["docker", "rm", "-f", handle.container_id])
         log.info("docker.destroyed", id=handle.container_id[:12])
 
+    def get_host_jdwp_port(self) -> int:
+        return self._host_jdwp_port or self._jdwp_port
+
+    def get_host_cdp_port(self) -> int:
+        return self._host_cdp_port or self._cdp_port
+
     # ── Internal helpers ──────────────────────────────────────────────────
 
     async def _start_container(self) -> str:
@@ -148,18 +157,62 @@ class DockerContainerManager(SandboxProvider):
             "--mount",   f"type=bind,source={self._host_mount},target={_DEFAULT_WORKDIR}",
             "--memory",  "2g",
             "--cpus",    "2",
-            # Publish all debug + service ports so host-side clients can connect
-            "-p", f"{self._jdwp_port}:{self._jdwp_port}",
-            "-p", f"{self._cdp_port}:{self._cdp_port}",
-            "-p", "8080:8080",
-            "-p", "16686:16686",
-            "-p", "4317:4317",
-            "-p", "4318:4318",
+            # Use 0 (ephemeral) host ports — avoids conflicts when multiple
+            # containers run concurrently (e.g. speculative branches).
+            # The actual host ports are resolved after start via docker inspect.
+            "-p", f"0:{self._jdwp_port}",
+            "-p", f"0:{self._cdp_port}",
+            "-p", "0:8080",
+            "-p", "0:16686",
+            "-p", "0:4317",
+            "-p", "0:4318",
             self._image,
             # Do NOT override CMD — let sandbox-start.sh run (starts Jaeger etc.)
         ]
         proc_result = await _run_docker(cmd)
-        return proc_result.strip()   # docker outputs the container ID
+        container_id = proc_result.strip()
+
+        # Resolve actual ephemeral host ports from container port bindings
+        self._host_jdwp_port, self._host_cdp_port = self._resolve_host_ports(container_id)
+
+        return container_id
+
+    def _resolve_host_ports(self, container_id: str) -> tuple[int, int]:
+        """
+        Look up the actual host ports assigned by Docker for the JDWP and CDP
+        container ports.  Returns (host_jdwp_port, host_cdp_port).
+
+        Falls back to the configured default ports if inspection fails.
+        """
+        import json
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", container_id],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return self._jdwp_port, self._cdp_port
+            inspect_data = json.loads(result.stdout)
+            if not inspect_data:
+                return self._jdwp_port, self._cdp_port
+            host_map = inspect_data[0].get("NetworkSettings", {}).get("Ports", {})
+            jdwp_host = self._find_host_port(host_map, f"{self._jdwp_port}/tcp")
+            cdp_host  = self._find_host_port(host_map, f"{self._cdp_port}/tcp")
+            return jdwp_host or self._jdwp_port, cdp_host or self._cdp_port
+        except Exception:
+            pass
+        # Fallback to configured defaults
+        return self._jdwp_port, self._cdp_port
+
+    @staticmethod
+    def _find_host_port(host_map: dict, container_port: str) -> int | None:
+        """Extract host port from docker inspect port mapping."""
+        mappings = host_map.get(container_port)
+        if mappings:
+            first = mappings[0] if isinstance(mappings[0], dict) else {}
+            return int(first.get("HostPort", 0))
+        return None
 
     async def _container_alive(self, container_id: str) -> bool:
         try:
