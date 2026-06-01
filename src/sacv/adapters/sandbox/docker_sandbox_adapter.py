@@ -180,7 +180,11 @@ class DockerContainerManager(SandboxProvider):
         container_id = proc_result.strip()
 
         # Resolve actual ephemeral host ports from container port bindings
-        self._host_jdwp_port, self._host_cdp_port = self._resolve_host_ports(container_id)
+        # Run blocking subprocess.run in a thread pool so the event loop
+        # is not blocked (BUG-002 fix).
+        self._host_jdwp_port, self._host_cdp_port = await asyncio.to_thread(
+            self._resolve_host_ports, container_id
+        )
 
         return container_id
 
