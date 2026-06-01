@@ -29,6 +29,8 @@ _SANDBOX_IMAGE      = "sacv-sandbox:latest"
 _CONTAINER_PREFIX   = "sacv-sandbox"
 _DEFAULT_WORKDIR    = "/workspace"
 _EXEC_TIMEOUT_SEC   = 300
+_HEALTH_CHECK_INTERVAL = 0.25   # seconds between polls
+_HEALTH_CHECK_TIMEOUT  = 15.0   # give up after this many seconds
 
 
 class DockerContainerManager(SandboxProvider):
@@ -66,7 +68,7 @@ class DockerContainerManager(SandboxProvider):
         self._host_jdwp_port: int | None = None
         self._host_cdp_port:   int | None = None
 
-    async def warm_container(self) -> SandboxHandle:
+   async def warm_container(self) -> SandboxHandle:
         """
         Always creates a new isolated container.
         Callers are responsible for calling destroy_container() when done.
@@ -74,8 +76,6 @@ class DockerContainerManager(SandboxProvider):
         background container reuse (not used in the main workflow).
         """
         container_id = await self._start_container()
-        # Give sandbox-start.sh time to start background services (Jaeger etc.)
-        await asyncio.sleep(2)
         handle = SandboxHandle(
             container_id=container_id,
             working_dir=_DEFAULT_WORKDIR,
@@ -83,6 +83,7 @@ class DockerContainerManager(SandboxProvider):
             host_jdwp_port=self._host_jdwp_port or self._jdwp_port,
             host_cdp_port=self._host_cdp_port or self._cdp_port,
         )
+        await self._wait_for_ready(handle)
         log.info("docker.warm_started", id=container_id[:12])
         return handle
 
@@ -233,6 +234,25 @@ class DockerContainerManager(SandboxProvider):
             return out.strip() == "true"
         except Exception:
             return False
+
+    async def _wait_for_ready(self, handle: SandboxHandle) -> None:
+        """
+        Poll the container until the sandbox-start.sh script signals readiness.
+        We check for the existence of /tmp/sacv-ready (written by sandbox-start.sh).
+        Falls back gracefully after _HEALTH_CHECK_TIMEOUT seconds.
+        """
+        deadline = asyncio.get_event_loop().time() + _HEALTH_CHECK_TIMEOUT
+        while asyncio.get_event_loop().time() < deadline:
+            result = await self.exec_in_container(
+                handle,
+                "test -f /tmp/sacv-ready && echo OK || echo WAIT",
+                timeout=2,
+            )
+            if result.stdout.strip() == "OK":
+                return
+            await asyncio.sleep(_HEALTH_CHECK_INTERVAL)
+        log.warning("docker.ready_timeout", timeout=_HEALTH_CHECK_TIMEOUT)
+        # Do not raise — container may still be usable; services just started slowly
 
 
 async def _run_docker(cmd: list[str]) -> str:
