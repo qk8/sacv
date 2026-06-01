@@ -114,7 +114,7 @@ class AgentMemoryAdapter(MemoryProvider):
     # ── MemoryProvider interface ───────────────────────────────────────────
 
     async def store_episodic(self, event: EpisodicEvent) -> None:
-        await self._call_tool("memory_store", {
+        await self._call_tool("create_memory", {
             "type":      "episodic",
             "content":   json.dumps(asdict(event)),
             "metadata":  {
@@ -127,7 +127,7 @@ class AgentMemoryAdapter(MemoryProvider):
     async def retrieve_procedural(
         self, context_tags: list[str]
     ) -> list[ProceduralConstraint]:
-        result = await self._call_tool("memory_search", {
+        result = await self._call_tool("search_memory", {
             "type":  "procedural",
             "query": " ".join(context_tags),
             "limit": 20,
@@ -151,27 +151,23 @@ class AgentMemoryAdapter(MemoryProvider):
 
     async def consolidate_session(self, session_id: str) -> LessonLearned:
         """
-        Compress episodic events for this session into a summary.
-        Delegates the summarisation to the MCP server's built-in
-        compression endpoint.
+        The agentmemory MCP server has no compression endpoint.
+        The real LessonLearned is written via store_episodic by the node.
+        This method is a no-op stub to satisfy the interface contract.
         """
-        result = await self._call_tool("memory_compress", {
-            "session_id": session_id,
-            "keep_types": ["lesson_learned"],
-        })
-        # Return a minimal LessonLearned — the real one was written by the node
+        log.debug("agentmemory.consolidate_session_noop", session_id=session_id)
         return LessonLearned(
             task_id=session_id,
-            pattern_discovered=str(result or ""),
+            pattern_discovered="",
             negative_constraints=[],
             blast_radius_learned={},
             correction_type="consolidated",
-            session_duration_ms=0,    # MCP server doesn't report duration; node computes it
+            session_duration_ms=0,
         )
 
     async def purge_noise(self, session_id: str) -> None:
         """Delete intermediate failed-attempt events to prevent memory pollution."""
-        await self._call_tool("memory_delete", {
+        await self._call_tool("delete_memory", {
             "filter": {
                 "session_id": session_id,
                 "event_type": {"$in": ["actor_attempt", "critic_finding_temp"]},
