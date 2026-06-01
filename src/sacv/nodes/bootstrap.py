@@ -32,6 +32,7 @@ def make_bootstrap_node(deps: "NodeDeps"):
             "session_id":             session_id,
             "current_phase":          WorkflowPhase.MODE_ROUTER.value,
             "procedural_constraints": [c.description for c in constraints],
+            "check_profile":          "standard",
             "critic_findings":        [],
             "active_branches":        [],
             "exhausted_branches":     [],

@@ -227,6 +227,9 @@ class WorkflowState(TypedDict):
     project_mode:  str
     module_type:   str
 
+    # ── Preflight check profile ────────────────────────────────────────────
+    check_profile: str  # "standard" | "full" — controls which preflight checks run
+
     # ── Phase tracking ────────────────────────────────────────────────────
     current_phase: str
 
