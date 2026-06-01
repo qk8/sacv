@@ -175,7 +175,7 @@ async def _evaluate_branch(
         from sacv.git.branch_manager import BranchManager
         from sacv.adapters.sandbox import DockerContainerManager
         from sacv.git.diff_engine import DiffEngine
-        from sacv.orchestration.graph import NodeDeps
+        from sacv.orchestration.deps import NodeDeps
 
         branch_git = BranchManager(repo_root=worktree_path)
         branch_sandbox = DockerContainerManager(
