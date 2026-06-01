@@ -69,10 +69,26 @@ class CodeGraphAdapter(CodeGraphProvider):
     async def __aexit__(self, *_: Any) -> None:
         await self.stop()
 
+    async def _ensure_running(self) -> bool:
+        """Return True if the subprocess is alive; attempt one reconnect if not."""
+        if self._proc and self._proc.returncode is None:
+            return True
+        log.error("codegraph.process_dead",
+                  returncode=self._proc.returncode if self._proc else None)
+        try:
+            await self.start()
+            log.info("codegraph.reconnected")
+            return True
+        except Exception as exc:
+            log.error("codegraph.reconnect_failed", error=str(exc))
+            return False
+
     async def _call(self, tool: str, args: dict) -> dict:
         """MCP JSON-RPC stdio transport — mirrors AgentMemoryAdapter._call_tool."""
-        if not self._proc or not self._proc.stdin or not self._proc.stdout:
-            log.warning("codegraph.not_started", tool=tool)
+        alive = await self._ensure_running()
+        if not alive:
+            log.error("codegraph.degraded_mode", tool=tool,
+                      impact="code graph operations are no-ops this session")
             return {}
         async with self._lock:
             self._req_id += 1

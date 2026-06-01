@@ -160,15 +160,32 @@ class AgentMemoryAdapter(MemoryProvider):
 
     # ── MCP JSON-RPC transport ────────────────────────────────────────────
 
+    async def _ensure_running(self) -> bool:
+        """Return True if the subprocess is alive; attempt one reconnect if not."""
+        if self._proc and self._proc.returncode is None:
+            return True
+        log.error("agentmemory.process_dead",
+                  returncode=self._proc.returncode if self._proc else None)
+        try:
+            await self.start()
+            log.info("agentmemory.reconnected")
+            return True
+        except Exception as exc:
+            log.error("agentmemory.reconnect_failed", error=str(exc))
+            return False
+
     async def _call_tool(self, tool_name: str, arguments: dict) -> Any:
         """
         Sends a ``tools/call`` JSON-RPC request to the MCP server
         and returns the parsed result.
 
-        Falls back to None on any error (degraded mode — no crash).
+        Attempts one reconnect if the subprocess is dead. Falls back to None
+        on any error (degraded mode — no crash).
         """
-        if not self._proc or not self._proc.stdin or not self._proc.stdout:
-            log.warning("agentmemory.not_started", tool=tool_name)
+        alive = await self._ensure_running()
+        if not alive:
+            log.error("agentmemory.degraded_mode", tool=tool_name,
+                      impact="memory operations are no-ops this session")
             return None
 
         async with self._lock:
