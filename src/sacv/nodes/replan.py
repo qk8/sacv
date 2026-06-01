@@ -10,7 +10,7 @@ Difference from ValueNode:
   - Explicitly told which strategies FAILED and why.
   - Generates a NEW strategy tree that avoids the previously failed paths.
   - Increments replan_count.
-  - Routes back to value_node (which rescores and prunes the new candidates).
+  - Routes directly to tdd_gate with pre-selected best candidate.
 
 Plan Agent role: read-only, no tool use. Pure strategy generation.
 """
@@ -108,10 +108,16 @@ def make_replan_node(deps: "NodeDeps"):
 
         log.info("replan.complete", new_candidates=len(new_candidates))
 
+        # Prune and pre-select the best candidate so tdd_gate can proceed
+        # without going through value_node (BUG-005 fix).
+        from sacv.nodes._scoring import prune_strategies
+        passing = prune_strategies(new_candidates, config=cfg)
+        selected = passing[0] if passing else None
+
         return {
-            "current_phase":             WorkflowPhase.VALUE_NODE.value,
-            "strategy_candidates":       new_candidates,
-            "selected_strategy":         None,    # value_node will select
+            "current_phase":             WorkflowPhase.TDD_GATE.value,
+            "strategy_candidates":       passing,
+            "selected_strategy":         selected,   # pre-selected by replan
             "replan_count":              replan_cnt + 1,
             "exhausted_branches":        [],      # reset for new replan cycle
             "active_branches":           [],

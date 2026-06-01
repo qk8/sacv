@@ -25,6 +25,7 @@ from sacv.orchestration.edges import (
     route_after_speculative_branch,
     route_after_preflight,
     route_after_actor,
+    route_after_replan,
     compute_confidence_score,
 )
 from sacv.orchestration.deps import NodeDeps
@@ -134,7 +135,6 @@ def build_graph(
     )
      # Debugger always routes to actor (with structured observations attached)
     builder.add_edge("intelligent_debugger", "actor")              # NEW
-    builder.add_edge("replan",               "value_node")
     builder.add_edge("memory_consolidation", END)
     builder.add_edge("hitl_escalation",      END)
     builder.add_edge("all_critics",          "verifier")
@@ -177,6 +177,14 @@ def build_graph(
             "memory_consolidation": "memory_consolidation",
             "replan":               "replan",
             "hitl_escalation":      "hitl_escalation",
+        },
+    )
+    builder.add_conditional_edges(
+        "replan",
+        route_after_replan,
+        {
+            "tdd_gate":       "tdd_gate",
+            "hitl_escalation": "hitl_escalation",
         },
     )
 

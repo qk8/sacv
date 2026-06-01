@@ -167,3 +167,10 @@ def route_after_speculative_branch(
     if replan_count < cfg.max_replan_attempts:
         return "replan"
     return "hitl_escalation"
+
+
+def route_after_replan(state: WorkflowState) -> str:
+    """After replan, go straight to TDD gate with the new candidates."""
+    if not state.get("strategy_candidates"):
+        return "hitl_escalation"
+    return "tdd_gate"
