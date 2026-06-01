@@ -2,8 +2,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from sacv.orchestration.state import LessonLearned
-
 @dataclass
 class EpisodicEvent:
     session_id: str
@@ -23,7 +21,7 @@ class MemoryProvider(ABC):
     async def store_episodic(self, event: EpisodicEvent) -> None: ...
     @abstractmethod
     async def retrieve_procedural(self, context_tags: list[str]) -> list[ProceduralConstraint]: ...
-    @abstractmethod
-    async def consolidate_session(self, session_id: str) -> LessonLearned: ...
+    # NOTE: consolidate_session was removed — the real LessonLearned is
+    # written via store_episodic by the memory_consolidation node.
     @abstractmethod
     async def purge_noise(self, session_id: str) -> None: ...

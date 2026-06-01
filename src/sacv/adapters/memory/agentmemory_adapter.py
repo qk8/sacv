@@ -30,7 +30,6 @@ from sacv.interfaces.memory_provider import (
     MemoryProvider,
     EpisodicEvent,
     ProceduralConstraint,
-    LessonLearned,
 )
 
 log = structlog.get_logger(__name__)
@@ -148,22 +147,6 @@ class AgentMemoryAdapter(MemoryProvider):
 
         log.debug("agentmemory.retrieved_procedural", count=len(constraints))
         return constraints
-
-    async def consolidate_session(self, session_id: str) -> LessonLearned:
-        """
-        The agentmemory MCP server has no compression endpoint.
-        The real LessonLearned is written via store_episodic by the node.
-        This method is a no-op stub to satisfy the interface contract.
-        """
-        log.debug("agentmemory.consolidate_session_noop", session_id=session_id)
-        return LessonLearned(
-            task_id=session_id,
-            pattern_discovered="",
-            negative_constraints=[],
-            blast_radius_learned={},
-            correction_type="consolidated",
-            session_duration_ms=0,
-        )
 
     async def purge_noise(self, session_id: str) -> None:
         """Delete intermediate failed-attempt events to prevent memory pollution."""

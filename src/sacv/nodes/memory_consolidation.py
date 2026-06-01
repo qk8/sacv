@@ -109,7 +109,6 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
             timestamp=datetime.now(timezone.utc).isoformat(),
         ))
         await deps.memory.purge_noise(session_id)
-        await deps.memory.consolidate_session(session_id)
 
         # ── 5. UPDATE AGENTS.MD (approach 3) ──────────────────────────────
         agents_md_updated = await _update_agents_md(lesson, state, deps)

@@ -86,17 +86,6 @@ class StubMemoryProvider(MemoryProvider):
     ) -> list[ProceduralConstraint]:
         return self._constraints
 
-    async def consolidate_session(self, session_id: str) -> LessonLearned:
-        self.consolidated_sessions.append(session_id)
-        return LessonLearned(
-            task_id=session_id,
-            pattern_discovered="stub",
-            negative_constraints=[],
-            blast_radius_learned={},
-            correction_type="stub",
-            session_duration_ms=0,
-        )
-
     async def purge_noise(self, session_id: str) -> None:
         self.purged_sessions.append(session_id)
 
