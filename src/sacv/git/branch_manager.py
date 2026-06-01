@@ -58,14 +58,36 @@ class BranchManager(GitProvider):
         log.debug("git.checkout", branch=branch_name)
 
     def stash(self, message: str) -> str:
-        result = self._run(["git", "stash", "push", "-m", message])
-        ref = "stash@{0}"   # git always pushes to the top of the stash
-        log.info("git.stash", message=message, ref=ref)
+        """
+        Stash working changes and return the stash SHA (stable ref).
+        Returns empty string if there is nothing to stash.
+        """
+        # Check if there is anything to stash first
+        status = self._run(["git", "status", "--porcelain"])
+        if not status.stdout.strip():
+            log.debug("git.stash_nothing_to_stash")
+            return ""  # nothing to stash — return sentinel
+
+        self._run(["git", "stash", "push", "-m", message])
+
+        # Use the stash SHA for a stable reference that survives subsequent
+        # stash operations. 'git rev-parse stash@{0}' returns the object SHA
+        # immediately after the push.
+        result = self._run(["git", "rev-parse", "stash@{0}"])
+        ref = result.stdout.strip()
+        log.info("git.stash", message=message, ref=ref[:12])
         return ref
 
     def stash_pop(self, ref: str) -> None:
+        """
+        Pop a specific stash entry by its SHA.
+        Accepts both SHA and positional refs (stash@{N}).
+        """
+        if not ref:
+            log.debug("git.stash_pop_skipped", reason="empty ref")
+            return
         self._run(["git", "stash", "pop", ref])
-        log.info("git.stash_pop", ref=ref)
+        log.info("git.stash_pop", ref=ref[:12] if len(ref) > 12 else ref)
 
     def reset_hard(self, ref: str) -> None:
         """
