@@ -120,9 +120,6 @@ def build_graph(
     from sacv.nodes.tdd_gate             import make_tdd_gate_node
     from sacv.nodes.actor                import make_actor_node
     from sacv.nodes.preflight_node       import make_preflight_node
-    from sacv.nodes.critics.security     import make_security_critic_node
-    from sacv.nodes.critics.style        import make_style_critic_node
-    from sacv.nodes.critics.consistency  import make_consistency_critic_node
     from sacv.nodes.intelligent_debugger import make_intelligent_debugger_node  # NEW
     from sacv.nodes.replan               import make_replan_node
     from sacv.nodes.speculative_branch   import make_speculative_branch_node
@@ -140,9 +137,6 @@ def build_graph(
     builder.add_node("tdd_gate",             make_tdd_gate_node(deps))
     builder.add_node("actor",                make_actor_node(deps))
     builder.add_node("preflight_node",       make_preflight_node(deps))
-    builder.add_node("security_critic",      make_security_critic_node(deps))
-    builder.add_node("style_critic",         make_style_critic_node(deps))
-    builder.add_node("consistency_critic",   make_consistency_critic_node(deps))
     builder.add_node("all_critics",          _make_all_critics_node(deps))
     builder.add_node("verifier",             _inject_confidence(deps))
     builder.add_node("intelligent_debugger", make_intelligent_debugger_node(deps))  # NEW

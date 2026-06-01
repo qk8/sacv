@@ -1,15 +1,16 @@
 """
 nodes/critics/base.py
 =====================
-Base class and aggregation node for the critic fan-out.
+Shared execution logic for the critic fan-out.
 
 All three critics (Security, Style, Consistency) share:
 - A common AgentConfig template
 - The same output schema (list[CriticFinding])
 - An asyncio.Semaphore to enforce the ≤2 concurrent executions resource limit
 
-The ``aggregate_critics_node`` collects findings after the fan-in and
-resets ``critic_findings`` on the state so callers always see a clean slate.
+Each critic node runs concurrently via asyncio.gather (inside all_critics node
+or _evaluate_branch in speculative_branch), and findings are merged by the
+_merge_lists reducer in WorkflowState.
 """
 from __future__ import annotations
 
@@ -110,23 +111,3 @@ async def _run_critic(
     return findings
 
 
-def make_aggregate_critics_node(deps: "NodeDeps"):
-    """
-    Fan-in aggregation: runs after all three critics complete.
-    The ``critic_findings`` field already has all findings merged by the
-    ``_merge_lists`` reducer in WorkflowState.  This node just advances
-    the phase and logs a summary.
-    """
-    async def aggregate_critics_node(state: "WorkflowState") -> dict:
-        findings  = state.get("critic_findings", [])
-        critical  = [f for f in findings if f["severity"] == "critical"]
-
-        log.info(
-            "aggregate_critics.complete",
-            total=len(findings),
-            critical=len(critical),
-        )
-
-        return {"current_phase": WorkflowPhase.VERIFIER.value}
-
-    return aggregate_critics_node
