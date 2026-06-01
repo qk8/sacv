@@ -49,15 +49,13 @@ def _build_deps():
 async def cmd_run(args: argparse.Namespace) -> None:
     from sacv.orchestration.graph import build_graph
     from sacv.orchestration.state import WorkflowPhase
-    from langgraph.checkpoint.sqlite import SqliteSaver
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
     deps = _build_deps()
 
-    # Use SqliteSaver for persistence (supports HITL interrupt/resume)
+    # Use AsyncSqliteSaver for persistence (supports HITL interrupt/resume)
     db_path = Path(".workflow/sacv.db")
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with SqliteSaver.from_conn_string(str(db_path)) as checkpointer:
-        graph = build_graph(deps, checkpointer=checkpointer)
 
     initial_state = {
         "task_id":          args.task_id,
@@ -86,8 +84,11 @@ async def cmd_run(args: argparse.Namespace) -> None:
         "arch_rules_updated":      False,
     }
 
-    config = {"configurable": {"thread_id": args.task_id}}
-    result = await graph.ainvoke(initial_state, config=config)
+    async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
+        graph = build_graph(deps, checkpointer=checkpointer)
+        config = {"configurable": {"thread_id": args.task_id}}
+        result = await graph.ainvoke(initial_state, config=config)
+
     print(json.dumps({
         "phase": result.get("current_phase"),
         "task": args.task_id,
@@ -97,7 +98,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
 async def cmd_resume(args: argparse.Namespace) -> None:
     """Resume a graph that was paused at HITL escalation."""
     from sacv.orchestration.graph import build_graph
-    from langgraph.checkpoint.sqlite import SqliteSaver
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
     esc_path = Path(f".workflow/escalations/{args.escalation_id}.json")
     if not esc_path.exists():
@@ -109,16 +110,17 @@ async def cmd_resume(args: argparse.Namespace) -> None:
 
     deps = _build_deps()
 
-    # Use SqliteSaver for persistence (must match the run checkpointer)
+    # Use AsyncSqliteSaver for persistence (must match the run checkpointer)
     db_path = Path(".workflow/sacv.db")
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with SqliteSaver.from_conn_string(str(db_path)) as checkpointer:
-        graph = build_graph(deps, checkpointer=checkpointer)
 
-    # Resume the interrupted graph with the human's decision
-    config = {"configurable": {"thread_id": task_id}}
-    # Provide None as the resume input (human reviewed; no automated fix)
-    result = await graph.ainvoke(None, config=config)
+    async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
+        graph = build_graph(deps, checkpointer=checkpointer)
+        # Resume the interrupted graph with the human's decision
+        config = {"configurable": {"thread_id": task_id}}
+        # Provide None as the resume input (human reviewed; no automated fix)
+        result = await graph.ainvoke(None, config=config)
+
     print(json.dumps({
         "resumed": task_id,
         "phase": result.get("current_phase"),
