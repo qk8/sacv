@@ -91,15 +91,16 @@ def route_after_value_node(state: WorkflowState) -> str:
     return "hitl_escalation" if not state.get("strategy_candidates") else "tdd_gate"
 
 
-_TDD_GATE_MAX_ATTEMPTS = 3
-
-
-def route_after_tdd_gate(state: WorkflowState) -> str:
-    if state.get("red_phase_evidence_path"):
-        return "actor"
-    if state.get("tdd_gate_attempts", 0) >= _TDD_GATE_MAX_ATTEMPTS:
-        return "hitl_escalation"
-    return "tdd_gate"
+def route_after_tdd_gate(
+        state:  WorkflowState,
+        config: object = _SENTINEL,
+    ) -> str:
+        cfg = _cfg(config)
+        if state.get("red_phase_evidence_path"):
+            return "actor"
+        if state.get("tdd_gate_attempts", 0) >= cfg.max_tdd_gate_attempts:
+            return "hitl_escalation"
+        return "tdd_gate"
 
 
 def route_after_verifier(

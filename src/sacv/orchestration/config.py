@@ -70,6 +70,8 @@ class WorkflowConfig:
     confidence_escalation_threshold: float = 0.25
     # Replan budget
     max_replan_attempts:             int   = 1
+    # TDD gate
+    max_tdd_gate_attempts:           int   = 3
     # Resource throttles
     max_parallel_branches:           int   = 2
     max_parallel_critics:            int   = 2
@@ -101,6 +103,7 @@ class WorkflowConfig:
             ),
             confidence_escalation_threshold=raw.get("confidence_escalation_threshold", 0.25),
             max_replan_attempts=raw.get("max_replan_attempts", 1),
+            max_tdd_gate_attempts=raw.get("max_tdd_gate_attempts", 3),
             max_parallel_branches=raw.get("max_parallel_branches", 2),
             max_parallel_critics=raw.get("max_parallel_critics", 2),
             min_strategy_score=raw.get("min_strategy_score", 0.3),

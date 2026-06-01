@@ -31,6 +31,7 @@ from sacv.orchestration.state import WorkflowPhase, EscalationPayload, Resolutio
 from sacv.interfaces.memory_provider import EpisodicEvent
 
 if TYPE_CHECKING:
+    from sacv.orchestration.config import WorkflowConfig
     from sacv.orchestration.graph import NodeDeps
     from sacv.orchestration.state import WorkflowState
 
@@ -58,7 +59,7 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
         )
 
         # ── 1. Build resolution hints ─────────────────────────────────────
-        hints: list[ResolutionHint] = _build_hints(verdict, state)
+        hints: list[ResolutionHint] = _build_hints(verdict, state, deps.config)
 
        # ── 2. Capture git state ───────────────────────────────────────────
         stash_ref: str | None = None
@@ -157,6 +158,7 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
 def _build_hints(
     verdict: "VerifierVerdict | None",
     state:   "WorkflowState",
+    config:  "WorkflowConfig",
 ) -> list[ResolutionHint]:
     hints: list[ResolutionHint] = []
 
@@ -208,13 +210,17 @@ def _build_hints(
             automated=False,
         ))
 
-    # TDD gate failure: oracle couldn't produce red-phase evidence
-    if state.get("tdd_gate_attempts", 0) >= 3 and not state.get("red_phase_evidence_path"):
+   # TDD gate failure: oracle couldn't produce red-phase evidence
+    if (
+        state.get("tdd_gate_attempts", 0) >= config.max_tdd_gate_attempts
+        and not state.get("red_phase_evidence_path")
+    ):
         hints.insert(0, ResolutionHint(
             priority=1,
             category="test_oracle",
             hint=(
-                "TDD gate failed to produce red-phase evidence after 3 attempts. "
+                f"TDD gate failed to produce red-phase evidence after "
+                f"{config.max_tdd_gate_attempts} attempts. "
                 "The Test Oracle may be generating tests that pass before implementation, "
                 "or the test framework is misconfigured. Review the oracle system prompt."
             ),
