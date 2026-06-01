@@ -81,6 +81,8 @@ class WorkflowConfig:
     max_blast_files:                 int   = 50
     # Monorepo mode (approach 1 from architecture session)
     monorepo_mode:                   bool  = False
+    # Agents.md prompt chars (chars of AGENTS.md to include in Actor prompt)
+    agents_md_prompt_chars:          int   = 2_000
     # Sub-configs
     iteration_limits: IterationLimits  = field(default_factory=IterationLimits)
     stagnation:       StagnationConfig = field(default_factory=StagnationConfig)

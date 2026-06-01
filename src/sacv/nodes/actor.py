@@ -144,7 +144,7 @@ def make_actor_node(deps: "NodeDeps"):
                 system_prompt=_ACTOR_SYSTEM.format(
                     language=language,
                     constraints="\n".join(f"- {c}" for c in constraints) or "None.",
-                    agents_md=agents_md[:2000],
+                    agents_md=agents_md[:deps.config.agents_md_prompt_chars],
                     preflight_feedback=preflight_fb or "None.",
                     debug_feedback=debug_fb or "None (no debug session yet).",
                     critic_feedback=critic_fb or "None.",
