@@ -47,7 +47,6 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_PERF_REGRESSION_THRESHOLD = 0.20
 _EVIDENCE_DIR = Path(".workflow/tdd-evidence")
 _TRACE_DIR    = Path(".workflow/playwright-traces")
 
@@ -164,12 +163,8 @@ def make_verifier_node(deps: "NodeDeps"):
                 otel_trace = await _query_otel(handle, task_id, deps)
 
             # ── Performance profiling ────────────────────────────────────
-            # TEMPORARILY DISABLED — _run_perf returns {"raw", "exit_code"}
-            # but _has_perf_regression reads "cpu_time_change_pct" (BUG-006).
-            # Re-enable once baseline infrastructure is ready.
-            perf_delta: dict | None = None
-            # if p1_passed and p2_passed:
-            #     perf_delta = await _run_perf(handle, module, task_id, deps)
+            # Feature not yet implemented — perf baseline infrastructure
+            # does not exist. Placeholder: perf_delta = None.
 
             # ── Visual diff (frontend only) ──────────────────────────────
             visual_result: dict | None = None
@@ -178,7 +173,6 @@ def make_verifier_node(deps: "NodeDeps"):
 
             overall_pass = (
                 p1_passed and p2_passed
-                and not _has_perf_regression(perf_delta)
                 and not _has_visual_breakage(visual_result)
             )
 
@@ -284,20 +278,6 @@ async def _extract_playwright_trace(handle, task_id: str, deps) -> str | None:
     return path if path else None
 
 
-async def _run_perf(handle, module_type: str, task_id: str, deps) -> dict | None:
-    """
-    TEMPORARILY DISABLED — BUG-006: returns {"raw", "exit_code"} but
-    _has_perf_regression reads "cpu_time_change_pct" which never exists.
-    Always returned False (no regression detected), silently lying.
-    Re-enable once baseline infrastructure (.workflow/perf-baseline.json) is ready.
-    """
-    if "frontend" in module_type:
-        return None
-    cmd = "mvn test -Dtest=*PerformanceTest -q 2>&1 | tail -5"
-    r   = await deps.sandbox.exec_in_container(handle, cmd, timeout=120)
-    return {"raw": r.stdout[:500], "exit_code": r.exit_code} if r.exit_code == 0 else None
-
-
 async def _run_visual_diff(handle, task_id: str, deps) -> dict | None:
     # Sanitize task_id for shell safety
     safe_task_id = re.sub(r"[^a-zA-Z0-9\-_]", "-", task_id)[:32]
@@ -324,13 +304,6 @@ async def _run_visual_diff(handle, task_id: str, deps) -> dict | None:
         log.warning("verifier.visual_diff_parse_failed",
                     stdout=r.stdout[:200])
         return None
-
-
-def _has_perf_regression(delta: dict | None) -> bool:
-    if not delta:
-        return False
-    pct = delta.get("cpu_time_change_pct", 0)
-    return isinstance(pct, (int, float)) and pct > _PERF_REGRESSION_THRESHOLD * 100
 
 
 def _has_visual_breakage(visual: dict | None) -> bool:
