@@ -438,6 +438,11 @@ def _inject_archunit_rule(
     if new_rule.count("{") != new_rule.count("}"):
         log.warning("memory_consolidation.archunit_rule_unbalanced_braces")
         return
+    # Must contain an ArchRule return type
+    if "ArchRule" not in new_rule and "ArchRules" not in new_rule:
+        log.warning("memory_consolidation.archunit_rule_missing_archrule_type",
+                    content=new_rule[:100])
+        return
 
     if not config_file.exists():
         config_file.parent.mkdir(parents=True, exist_ok=True)
