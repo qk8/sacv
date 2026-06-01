@@ -159,7 +159,11 @@ def build_graph(
     builder.add_conditional_edges(
         "actor",
         route_after_actor,
-        {"preflight_node": "preflight_node", "hitl_escalation": "hitl_escalation"},
+        {
+            "actor":           "actor",           # self-loop for empty-diff retry
+            "preflight_node":  "preflight_node",
+            "hitl_escalation": "hitl_escalation",
+        },
     )
      # Debugger always routes to actor (with structured observations attached)
     builder.add_edge("intelligent_debugger", "actor")              # NEW

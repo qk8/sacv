@@ -67,10 +67,17 @@ def route_after_actor(state: WorkflowState) -> str:
     If stagnation was detected during actor execution, skip preflight/critics
     and go directly to HITL escalation to avoid wasting LLM calls and Docker
     cycles on a known-stagnated path.
+
+    If actor produced no diff (overwrite rejected or apply failed), loop back
+    to actor directly — skip the full pipeline to avoid wasting Docker/critic
+    cycles and prevent silent completion with no code applied.
     """
     correction = state["correction_state"]
     if correction.get("stagnation_pattern", "none") != "none":
         return "hitl_escalation"
+    # If actor produced no diff, retry without wasting Docker/critic cycles
+    if state.get("diff_proposal") is None:
+        return "actor"
     return "preflight_node"
 
 
