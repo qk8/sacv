@@ -14,6 +14,9 @@ If all branches fail, the node signals HITL escalation.
 from __future__ import annotations
 
 import asyncio
+import tempfile
+import shutil
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
@@ -160,9 +163,6 @@ async def _evaluate_branch(
     Each branch is evaluated in its own git worktree with an isolated
     Docker container mount to prevent concurrent filesystem races.
     """
-    import tempfile
-    import shutil
-
     task_id     = state["task_id"]
     branch_name = f"agent-task-{task_id[:8]}-{strategy['strategy_id']}"
     worktree_path = Path(tempfile.mkdtemp(prefix=f"sacv-spec-{branch_name}-"))

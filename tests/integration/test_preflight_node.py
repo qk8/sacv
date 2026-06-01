@@ -133,6 +133,7 @@ class TestPreflightNode:
 
     async def test_critic_findings_reset_on_preflight(self):
         """Preflight resets critic_findings to avoid stale data in fan-out."""
+        from sacv.orchestration.state import CRITIC_RESET
         sandbox = StubSandboxProvider(default_exit_code=0)
         state   = _state()
         state["critic_findings"] = [
@@ -140,7 +141,8 @@ class TestPreflightNode:
              "rule_id":"r","message":"old finding","resolution_hint":"fix"},
         ]
         out = await make_preflight_node(_deps(sandbox))(state)
-        assert out.get("critic_findings") == []
+        # CRITIC_RESET sentinel signals the reducer to reset the list
+        assert out.get("critic_findings") is CRITIC_RESET
 
 
 # ── Pure function tests ───────────────────────────────────────────────────────
