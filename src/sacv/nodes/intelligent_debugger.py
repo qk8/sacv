@@ -282,7 +282,10 @@ async def _run_jdwp_session(
 
     first_frame = pruned[0]
     # Class name from "com.example.UserService.findById"
-    class_name  = ".".join(first_frame.method.split(".")[:-1])
+    # For inner classes (e.g. UserService$Builder.build), replace $ with .
+    # since JDB uses . not $ for inner class separators
+    raw_class = ".".join(first_frame.method.split(".")[:-1])
+    class_name = raw_class.replace("$", ".")
     target_line = max(1, first_frame.line + strategy.breakpoint_offset)
 
     # Start test in debug-suspend mode via Docker exec
