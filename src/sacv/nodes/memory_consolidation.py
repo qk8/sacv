@@ -44,11 +44,10 @@ log = structlog.get_logger(__name__)
 _AGENTS_MD = Path("AGENTS.md")
 
 _AGENTS_MD_UPDATER_SYSTEM = """\
-You are a technical writer maintaining a project's AGENTS.md file.
-Update ONLY the '## Common Mistakes' and '## Architecture Decisions' sections.
-Keep ALL other existing content exactly as-is.
-Output the complete updated AGENTS.md content.
-No explanation. No markdown fences. Only the raw file content.
+You are a technical writer. Based on the new lesson learned, output ONLY the
+updated content for two sections as a JSON object with keys
+"common_mistakes" and "architecture_decisions".
+No other keys. No explanation. Only the JSON object.
 """
 
 _ARCH_RULE_UPDATER_SYSTEM = """\
@@ -261,7 +260,9 @@ async def _update_agents_md(
 ) -> bool:
     """
     Append new learnings to AGENTS.md (approach 3).
-    Uses Plan Agent in read-only mode to produce the updated file.
+    Uses section-targeted update: LLM outputs only the two updated
+    sections as JSON, which are spliced back into the existing file.
+    This prevents truncation-based data loss when the file grows.
     """
     try:
         current = _AGENTS_MD.read_text(encoding="utf-8") if _AGENTS_MD.exists() else _default_agents_md()
@@ -271,7 +272,9 @@ async def _update_agents_md(
                 f"New lesson learned:\n{json.dumps(dict(lesson), indent=2)}\n\n"
                 f"Violations fixed this session:\n"
                 f"{json.dumps(state.get('preflight_result') or {}, indent=2)}\n\n"
-                f"Current AGENTS.md:\n{current[:3000]}"
+                f"Current AGENTS.md sections (for context):\n"
+                f"{_extract_section(current, 'Common Mistakes')}\n"
+                f"{_extract_section(current, 'Architecture Decisions')}"
             ),
             context={},
             config=AgentConfig(
@@ -281,7 +284,16 @@ async def _update_agents_md(
                 allowed_tools=[],
             ),
         )
-        _AGENTS_MD.write_text(result.content, encoding="utf-8")
+
+        # Parse LLM JSON and splice sections back into the file
+        try:
+            updates = json.loads(result.content)
+        except json.JSONDecodeError:
+            log.warning("memory_consolidation.agents_md_parse_failed")
+            return False
+
+        updated = _splice_sections(current, updates)
+        _AGENTS_MD.write_text(updated, encoding="utf-8")
 
         def _commit_agents_md():
             import subprocess
@@ -300,6 +312,33 @@ async def _update_agents_md(
     except Exception as exc:
         log.warning("memory_consolidation.agents_md_failed", error=str(exc))
         return False
+
+
+def _extract_section(content: str, section_name: str) -> str:
+    """Extract the content of a ## Section from AGENTS.md for context."""
+    import re
+    pattern = rf"## {re.escape(section_name)}\s*\n(.*?)(?=## |\Z)"
+    match = re.search(pattern, content, re.DOTALL)
+    if match:
+        return f"## {section_name}:\n{match.group(1).strip()[:500]}"
+    return f"## {section_name}: _not present_"
+
+
+def _splice_sections(content: str, updates: dict) -> str:
+    """
+    Replace ## Common Mistakes and ## Architecture Decisions sections
+    in the existing AGENTS.md content with updated versions from the LLM.
+    Returns the full updated content.
+    """
+    import re
+
+    for section_name, new_content in updates.items():
+        if not new_content:
+            continue
+        pattern = rf"(## {re.escape(section_name)}\s*\n)(.*?)(?=## |\Z)"
+        replacement = f"\\g<1>{new_content.strip()}\n"
+        content = re.sub(pattern, replacement, content, count=1, flags=re.DOTALL)
+    return content
 
 
 async def _update_arch_rules(
