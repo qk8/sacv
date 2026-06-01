@@ -61,5 +61,6 @@ def make_bootstrap_node(deps: "NodeDeps"):
             "speculative_stash_ref":   None,   # set by SpeculativeBranch
             "escalation_payload":      None,   # set by HITL
             "lesson_learned":          None,   # set by MemoryConsolidation
+            "cumulative_cost_dollars": 0.0,    # BUG-008: token budget tracking
         }
     return bootstrap_node

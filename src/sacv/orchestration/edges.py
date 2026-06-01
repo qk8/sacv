@@ -131,6 +131,15 @@ def route_after_verifier(
     if verdict["test_result"] == "PASS":
         return "memory_consolidation"
 
+    # Token budget circuit-breaker (BUG-008)
+    cost = state.get("cumulative_cost_dollars", 0.0)
+    if cost >= cfg.token_budget.critical_dollar:
+        log.error("route_after_verifier.budget_exceeded",
+                  cost=cost, threshold=cfg.token_budget.critical_dollar)
+        return "hitl_escalation"
+    if cost >= cfg.token_budget.warning_dollar:
+        log.warning("route_after_verifier.budget_warning", cost=cost)
+
     # Use the value already computed and stored by _inject_confidence
     confidence = state.get("confidence_score", 1.0)
     if confidence < cfg.confidence_escalation_threshold:

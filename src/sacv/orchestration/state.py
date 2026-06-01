@@ -299,3 +299,6 @@ class WorkflowState(TypedDict):
 
     # ── Debugger output (IntelligentDebuggerNode → ActorNode) ─────────────
     debug_observations:     DebugObservations | None
+
+    # ── Token budget tracking (BUG-008) ──────────────────────────────────
+    cumulative_cost_dollars: float
