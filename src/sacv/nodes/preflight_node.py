@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from sacv.orchestration.state import WorkflowPhase, PreflightResult, CRITIC_RESET
+from sacv.checks.routing.check_profiles import get_checks, CheckSpec
 
 if TYPE_CHECKING:
     from sacv.orchestration.graph import NodeDeps
@@ -40,10 +41,11 @@ _DEPCRUISER_ERR = re.compile(r'"violations":\s*\[')
 def make_preflight_node(deps: "NodeDeps"):
 
     async def preflight_node(state: "WorkflowState") -> dict:
-        t0      = time.monotonic()
-        module  = state["module_type"]
-        proposal = state.get("diff_proposal")
-        cfg     = deps.config
+        t0        = time.monotonic()
+        module    = state["module_type"]
+        profile   = state.get("check_profile", "standard")
+        proposal  = state.get("diff_proposal")
+        cfg       = deps.config
 
         if not proposal:
             return {
@@ -54,33 +56,50 @@ def make_preflight_node(deps: "NodeDeps"):
                 ),
             }
 
-        log.info("preflight.start", task_id=state["task_id"], module=module)
+        active_checks: list[CheckSpec] = get_checks(module, profile)
+        check_names = {c.name for c in active_checks}
+        check_timeout = {c.name: c.timeout for c in active_checks}
+
+        log.info("preflight.start", task_id=state["task_id"], module=module,
+                 profile=profile, checks=sorted(check_names))
         handle = await deps.sandbox.warm_container()
 
         try:
             # ── Check 1: LSP / Compile ─────────────────────────────────────
-            lsp_cmd = "npx tsc --noEmit 2>&1" if "frontend" in module else "mvn compile -q 2>&1"
-            lsp_out = await deps.sandbox.exec_in_container(handle, lsp_cmd, timeout=60)
-            lsp_errors = _parse_lsp(lsp_out.stdout + lsp_out.stderr, module)
+            lsp_errors: list[dict] = []
+            if "lsp" in check_names:
+                lsp_cmd = "npx tsc --noEmit 2>&1" if "frontend" in module else "mvn compile -q 2>&1"
+                lsp_out = await deps.sandbox.exec_in_container(
+                    handle, lsp_cmd, timeout=check_timeout.get("lsp", 60)
+                )
+                lsp_errors = _parse_lsp(lsp_out.stdout + lsp_out.stderr, module)
 
             # ── Check 2: Architecture / Structure ──────────────────────────
-            arch_cmd = _arch_cmd(module)
             arch_errs: list[dict] = []
-            if arch_cmd:
-                arch_out = await deps.sandbox.exec_in_container(
-                    handle, arch_cmd, timeout=30,
-                )
-                arch_errs = _parse_arch(arch_out.stdout + arch_out.stderr, module)
+            if "arch" in check_names:
+                arch_cmd = _arch_cmd(module)
+                if arch_cmd:
+                    arch_out = await deps.sandbox.exec_in_container(
+                        handle, arch_cmd, timeout=check_timeout.get("arch", 30),
+                    )
+                    arch_errs = _parse_arch(arch_out.stdout + arch_out.stderr, module)
 
-            # ── Check 3: Cross-Stack Type Safety (monorepo only) ───────────
+            # ── Check 3: Cross-Stack Type Safety ───────────────────────────
             cross_stack_errors: list[dict] = []
-            if cfg.monorepo_mode and "frontend" not in module:
+            if "cross_stack" in check_names and "frontend" not in module:
                 cross_stack_errors = await _check_cross_stack_types(
                     handle, cfg, deps,
                 )
 
             duration_ms = int((time.monotonic() - t0) * 1000)
-            passed = not lsp_errors and not arch_errs and not cross_stack_errors
+            # For "required=False" checks, don't fail the gate — just report
+            lsp_spec = next((c for c in active_checks if c.name == "lsp"), CheckSpec("lsp"))
+            arch_spec = next((c for c in active_checks if c.name == "arch"), CheckSpec("arch"))
+            required_failed = (
+                (lsp_errors and lsp_spec.required)
+                or (arch_errs and arch_spec.required)
+            )
+            passed = not required_failed and not lsp_errors and not arch_errs and not cross_stack_errors
 
             result = PreflightResult(
                 passed=passed,
@@ -96,6 +115,7 @@ def make_preflight_node(deps: "NodeDeps"):
                 arch=len(arch_errs),
                 cross_stack=len(cross_stack_errors),
                 duration_ms=duration_ms,
+                profile=profile,
             )
 
             return {
