@@ -31,6 +31,29 @@ class GraphifyAdapter(CrossDomainProvider):
             stderr=asyncio.subprocess.PIPE,
         )
         log.info("graphify.started", pid=self._proc.pid)
+        await self._initialize()
+
+    async def _initialize(self) -> None:
+        """Perform the MCP initialize / initialized lifecycle handshake."""
+        if not self._proc or not self._proc.stdin or not self._proc.stdout:
+            return
+        init_request = {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "sacv", "version": "0.1.0"},
+            },
+        }
+        self._proc.stdin.write((json.dumps(init_request) + "\n").encode())
+        await asyncio.wait_for(self._proc.stdin.drain(), timeout=_TIMEOUT_SEC)
+        await asyncio.wait_for(self._proc.stdout.readline(), timeout=_TIMEOUT_SEC)
+        initialized_notif = {"jsonrpc": "2.0", "method": "initialized", "params": {}}
+        self._proc.stdin.write((json.dumps(initialized_notif) + "\n").encode())
+        await asyncio.wait_for(self._proc.stdin.drain(), timeout=_TIMEOUT_SEC)
+        log.info("graphify.initialized")
 
     async def stop(self) -> None:
         if self._proc:
