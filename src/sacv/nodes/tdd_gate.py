@@ -121,7 +121,10 @@ def make_tdd_gate_node(deps: "NodeDeps"):
                 if not file_path or not content:
                     continue
                 # Enforce permanent directory convention (approach 8)
-                file_path = _canonicalise_test_path(file_path, module, task_id)
+                file_path = _canonicalise_test_path(
+                    file_path, module, task_id,
+                    user_package=deps.config.debug.user_java_package,
+                )
                 # Sanitize file path to prevent shell injection; encode content
                 # as base64 to avoid heredoc injection via test content.
                 safe_path = shlex.quote(file_path)
@@ -187,7 +190,10 @@ def _feature_id(task_id: str) -> str:
     return re.sub(r"[^a-zA-Z0-9\-]", "-", task_id)[:32].lower()
 
 
-def _canonicalise_test_path(path: str, module_type: str, task_id: str) -> str:
+def _canonicalise_test_path(
+    path: str, module_type: str, task_id: str,
+    user_package: str = "com.sacv",
+) -> str:
     """
     Enforce permanent test inventory directory convention (approach 8):
       frontend  → tests/e2e/features/<feature>.spec.ts
@@ -202,8 +208,9 @@ def _canonicalise_test_path(path: str, module_type: str, task_id: str) -> str:
         if not path.startswith("tests/api/"):
             path = f"tests/api/routes/{fid}.spec.ts"
     else:
+        pkg_path = user_package.replace(".", "/")
         if not path.startswith("tests/unit/") and not path.startswith("src/test/"):
-            path = f"src/test/java/com/sacv/{fid}Test.java"
+            path = f"src/test/java/{pkg_path}/{fid}Test.java"
     return path
 
 
