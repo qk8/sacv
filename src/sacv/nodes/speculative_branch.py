@@ -186,7 +186,11 @@ async def _evaluate_branch(
             "selected_strategy": strategy,
             "correction_state": {
                 **state["correction_state"],
-                "branch_name": branch_name,
+                "branch_name":        branch_name,
+                "attempt_count":      0,          # each branch gets a clean start
+                "stagnation_pattern": "none",     # clear inherited stagnation signal
+                "error_history":      [],         # prevent semantic stagnation bleed
+                "last_error_hash":    None,
             },
             "critic_findings": [],
         }
