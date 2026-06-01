@@ -65,6 +65,43 @@ from sacv.orchestration.verifier_utils import (
 )
 
 
+def _make_all_critics_node(deps: "NodeDeps"):
+    """
+    Single node that runs all 3 critics concurrently and returns merged findings.
+
+    Replaces the broken Send()-based fan-out pattern where each critic had
+    add_edge → aggregate_critics → verifier, causing verifier to run 3×.
+    Now all critics run inside one node via asyncio.gather, fan-in here,
+    and a single edge → verifier ensures it runs exactly once.
+    """
+    from sacv.nodes.critics.security    import make_security_critic_node
+    from sacv.nodes.critics.style       import make_style_critic_node
+    from sacv.nodes.critics.consistency import make_consistency_critic_node
+    from sacv.orchestration.state import WorkflowPhase
+
+    async def all_critics_node(state: "WorkflowState") -> dict:
+        sec_node = make_security_critic_node(deps)
+        sty_node = make_style_critic_node(deps)
+        con_node = make_consistency_critic_node(deps)
+
+        sec_out, sty_out, con_out = await asyncio.gather(
+            sec_node(state),
+            sty_node(state),
+            con_node(state),
+        )
+        all_findings = (
+            sec_out.get("critic_findings", [])
+            + sty_out.get("critic_findings", [])
+            + con_out.get("critic_findings", [])
+        )
+        return {
+            "current_phase":   WorkflowPhase.VERIFIER.value,
+            "critic_findings": all_findings,
+        }
+
+    return all_critics_node
+
+
 def _inject_confidence(deps: NodeDeps):
     async def verifier_with_confidence(state: WorkflowState) -> dict:
         return await _run_verifier_with_confidence(state, deps)
@@ -86,7 +123,6 @@ def build_graph(
     from sacv.nodes.critics.security     import make_security_critic_node
     from sacv.nodes.critics.style        import make_style_critic_node
     from sacv.nodes.critics.consistency  import make_consistency_critic_node
-    from sacv.nodes.critics.base         import make_aggregate_critics_node
     from sacv.nodes.intelligent_debugger import make_intelligent_debugger_node  # NEW
     from sacv.nodes.replan               import make_replan_node
     from sacv.nodes.speculative_branch   import make_speculative_branch_node
@@ -107,7 +143,7 @@ def build_graph(
     builder.add_node("security_critic",      make_security_critic_node(deps))
     builder.add_node("style_critic",         make_style_critic_node(deps))
     builder.add_node("consistency_critic",   make_consistency_critic_node(deps))
-    builder.add_node("aggregate_critics",    make_aggregate_critics_node(deps))
+    builder.add_node("all_critics",          _make_all_critics_node(deps))
     builder.add_node("verifier",             _inject_confidence(deps))
     builder.add_node("intelligent_debugger", make_intelligent_debugger_node(deps))  # NEW
     builder.add_node("replan",               make_replan_node(deps))
@@ -125,15 +161,12 @@ def build_graph(
         route_after_actor,
         {"preflight_node": "preflight_node", "hitl_escalation": "hitl_escalation"},
     )
-    builder.add_edge("security_critic",      "aggregate_critics")
-    builder.add_edge("style_critic",         "aggregate_critics")
-    builder.add_edge("consistency_critic",   "aggregate_critics")
-    builder.add_edge("aggregate_critics",    "verifier")
-    # Debugger always routes to actor (with structured observations attached)
+     # Debugger always routes to actor (with structured observations attached)
     builder.add_edge("intelligent_debugger", "actor")              # NEW
     builder.add_edge("replan",               "value_node")
     builder.add_edge("memory_consolidation", END)
     builder.add_edge("hitl_escalation",      END)
+    builder.add_edge("all_critics",          "verifier")
 
     # ── Conditional edges ─────────────────────────────────────────────────
     builder.add_conditional_edges(
@@ -150,10 +183,8 @@ def build_graph(
         "preflight_node",
         route_after_preflight,
         {
-            "actor":              "actor",
-            "security_critic":    "security_critic",
-            "style_critic":       "style_critic",
-            "consistency_critic": "consistency_critic",
+            "actor":           "actor",
+            "all_critics":     "all_critics",
         },
     )
 

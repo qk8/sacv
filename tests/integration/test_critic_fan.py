@@ -10,7 +10,6 @@ from sacv.orchestration.state import WorkflowState, WorkflowPhase, DiffProposal,
 from sacv.nodes.critics.security    import make_security_critic_node
 from sacv.nodes.critics.style       import make_style_critic_node
 from sacv.nodes.critics.consistency import make_consistency_critic_node
-from sacv.nodes.critics.base        import make_aggregate_critics_node
 from sacv.testing.stub_providers import (
     StubAgentProvider, StubMemoryProvider, StubCodeGraphProvider,
     StubCrossDomainProvider, StubDiffProvider, StubGitProvider,
@@ -85,9 +84,17 @@ class TestCriticFanOut:
             out   = await node_fn(_deps(agent))(_state())
             assert out["critic_findings"] == []
 
-    async def test_aggregate_advances_phase(self):
-        agent = StubAgentProvider()
-        out   = await make_aggregate_critics_node(_deps(agent))({**_state(), "critic_findings": []})
+    async def test_all_critics_advances_phase(self):
+        """The all_critics node runs all 3 critics and advances to VERIFIER phase."""
+        agent = StubAgentProvider([
+            make_json_agent_result([]),
+            make_json_agent_result([]),
+            make_json_agent_result([]),
+        ])
+        from sacv.orchestration.graph import _make_all_critics_node
+        deps  = _deps(agent)
+        state = {**_state(), "critic_findings": []}
+        out   = await _make_all_critics_node(deps)(state)
         assert out["current_phase"] == WorkflowPhase.VERIFIER.value
 
     async def test_concurrent_execution_no_deadlock(self):

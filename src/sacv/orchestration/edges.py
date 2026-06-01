@@ -1,7 +1,7 @@
 """
 orchestration/edges.py
 ======================
-All conditional edge functions. Pure functions: (WorkflowState) -> str | list[Send].
+All conditional edge functions. Pure functions: (WorkflowState) -> str.
 No I/O, no side effects. Fully unit-testable.
 
 Refactoring additions (debugging session):
@@ -9,8 +9,6 @@ Refactoring additions (debugging session):
     instead of sending Actor back for a blind retry.
 """
 from __future__ import annotations
-
-from langgraph.types import Send
 
 from sacv.orchestration.state import WorkflowState
 from sacv.orchestration.config import WorkflowConfig
@@ -27,7 +25,7 @@ def _cfg(config: object) -> "WorkflowConfig":
 
 # ── Preflight routing ─────────────────────────────────────────────────────────
 
-def route_after_preflight(state: WorkflowState) -> str | list[Send]:
+def route_after_preflight(state: WorkflowState) -> str:
     result = state.get("preflight_result") or {}
     if (
         result.get("lsp_errors")
@@ -35,11 +33,7 @@ def route_after_preflight(state: WorkflowState) -> str | list[Send]:
         or result.get("cross_stack_errors")
     ):
         return "actor"
-    return [
-        Send("security_critic",    state),
-        Send("style_critic",       state),
-        Send("consistency_critic", state),
-    ]
+    return "all_critics"
 
 
 # ── Confidence score ──────────────────────────────────────────────────────────
