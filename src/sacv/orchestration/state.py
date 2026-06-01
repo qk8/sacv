@@ -66,14 +66,17 @@ def _merge_lists(existing: list | None, new: list | None) -> list:
     """
     Reducer for critic fan-in.
 
-    - new is None  → preserve existing (node did not touch this field)
-    - new is []    → RESET (actor/bootstrap clearing stale findings)
-    - new is [...]  → APPEND (critics adding new findings)
+    Return value semantics for any node updating ``critic_findings``:
+      - Return ``None``  → field unchanged (node did not touch it).
+      - Return ``[]``    → RESET: clears all accumulated findings.
+                           Use this in Actor/Bootstrap to wipe stale data.
+      - Return ``[...]`` → APPEND: adds findings to the existing list.
+                           Use this in individual critic nodes.
 
-    IMPORTANT: Any node that wants to RESET (not merge) must return
-    {"critic_findings": None} instead of {"critic_findings": []}.
-    Any node that wants to clear and replace must return None first,
-    then set findings in a subsequent call.
+    RULE:
+      - Critics:     return {"critic_findings": [new_finding_1, ...]}
+      - Actor/Reset: return {"critic_findings": []}  (empty list = reset)
+      - Observers:   return {} or omit the key entirely  (None = no change)
     """
     if new is None:
         return existing or []   # no change
