@@ -10,8 +10,12 @@ Refactoring additions (debugging session):
 """
 from __future__ import annotations
 
+import structlog
+
 from sacv.orchestration.state import WorkflowState
 from sacv.orchestration.config import WorkflowConfig
+
+log = structlog.get_logger(__name__)
 
 _SENTINEL = object()
 
@@ -116,7 +120,12 @@ def route_after_verifier(
     cfg     = _cfg(config)
     verdict = state.get("verifier_verdict")
     if verdict is None:
-        raise ValueError("route_after_verifier: verifier_verdict must not be None")
+        log.error(
+            "route_after_verifier.missing_verdict",
+            task_id=state.get("task_id"),
+            phase=state.get("current_phase"),
+        )
+        return "hitl_escalation"
 
     if verdict["test_result"] == "PASS":
         return "memory_consolidation"
