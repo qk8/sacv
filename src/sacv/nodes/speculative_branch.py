@@ -158,20 +158,46 @@ async def _evaluate_branch(
 ) -> tuple[str, "VerifierVerdict | None"]:
     """
     Run a complete Actor → Critics → Verifier cycle for one strategy.
-    Concurrency is controlled by asyncio.gather in the caller;
-    per-critic throttling is handled by the semaphore inside _run_critic.
+    Each branch is evaluated in its own git worktree with an isolated
+    Docker container mount to prevent concurrent filesystem races.
     """
+    import tempfile
+    import shutil
+
     task_id     = state["task_id"]
     branch_name = f"agent-task-{task_id[:8]}-{strategy['strategy_id']}"
+    worktree_path = Path(tempfile.mkdtemp(prefix=f"sacv-spec-{branch_name}-"))
 
     try:
-        await asyncio.to_thread(deps.git.create_branch, branch_name)
-        await asyncio.to_thread(deps.git.checkout, branch_name)
+        # ── Isolated git worktree ────────────────────────────────────────
+        await asyncio.to_thread(deps.git.create_worktree, branch_name, worktree_path)
+
+        # ── Isolated deps per worktree ───────────────────────────────────
+        from sacv.git.branch_manager import BranchManager
+        from sacv.docker.container_manager import DockerContainerManager
+        from sacv.git.diff_engine import DiffEngine
+        from sacv.orchestration.graph import NodeDeps
+
+        branch_git = BranchManager(repo_root=worktree_path)
+        branch_sandbox = DockerContainerManager(
+            host_mount=str(worktree_path),
+            jdwp_port=deps.sandbox._jdwp_port if hasattr(deps.sandbox, "_jdwp_port") else 5005,
+            cdp_port=deps.sandbox._cdp_port if hasattr(deps.sandbox, "_cdp_port") else 9229,
+        )
+        branch_diff = DiffEngine(repo_root=worktree_path)
+
+        branch_deps = NodeDeps(
+            agent=deps.agent,
+            memory=deps.memory,
+            code_graph=deps.code_graph,
+            cross_domain=deps.cross_domain,
+            git=branch_git,
+            sandbox=branch_sandbox,
+            diff=branch_diff,
+            config=deps.config,
+        )
 
         # Inline mini-workflow: actor → preflight → critics → verifier
-        # Note: per-critic semaphore inside _run_critic handles throttling;
-        # no outer semaphore here — acquiring it would deadlock with
-        # max_parallel_branches >= 2 (see BUG-001 fix).
         from sacv.nodes.actor       import make_actor_node
         from sacv.nodes.preflight_node import make_preflight_node
         from sacv.orchestration.verifier_utils import (
@@ -195,14 +221,14 @@ async def _evaluate_branch(
             "critic_findings": [],
         }
 
-        actor_out   = await make_actor_node(deps)(branch_state)
+        actor_out   = await make_actor_node(branch_deps)(branch_state)
         if not actor_out.get("diff_proposal"):
             return branch_name, None
 
         branch_state = {**branch_state, **actor_out}
 
         # Run preflight — if it fails, skip this branch (LSP/compile/arch checks)
-        preflight_out = await make_preflight_node(deps)(branch_state)
+        preflight_out = await make_preflight_node(branch_deps)(branch_state)
         preflight_result = preflight_out.get("preflight_result") or {}
         if not preflight_result.get("passed", True):
             log.info(
@@ -217,9 +243,9 @@ async def _evaluate_branch(
         # Run critics concurrently — _run_critic already throttles via
         # deps.critic_semaphore internally; no outer wrapper needed.
         sec_out, sty_out, con_out = await asyncio.gather(
-            make_security_critic_node(deps)(branch_state),
-            make_style_critic_node(deps)(branch_state),
-            make_consistency_critic_node(deps)(branch_state),
+            make_security_critic_node(branch_deps)(branch_state),
+            make_style_critic_node(branch_deps)(branch_state),
+            make_consistency_critic_node(branch_deps)(branch_state),
         )
 
         branch_state = {
@@ -231,7 +257,7 @@ async def _evaluate_branch(
             ),
         }
 
-        ver_out = await _run_verifier_with_confidence(branch_state, deps)
+        ver_out = await _run_verifier_with_confidence(branch_state, branch_deps)
         return branch_name, ver_out.get("verifier_verdict")
 
     except Exception as exc:
@@ -241,3 +267,13 @@ async def _evaluate_branch(
             error=str(exc),
         )
         return branch_name, None
+    finally:
+        # Always clean up the worktree and its temp directory
+        try:
+            await asyncio.to_thread(deps.git.remove_worktree, worktree_path)
+        except Exception:
+            pass  # worktree may already be gone
+        try:
+            shutil.rmtree(str(worktree_path), ignore_errors=True)
+        except Exception:
+            pass  # temp dir may already be gone

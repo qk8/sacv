@@ -127,6 +127,22 @@ class BranchManager(GitProvider):
         lines  = [l.strip() for l in result.stdout.splitlines() if l.strip()]
         return [l[3:] for l in lines]   # strip status prefix (e.g. "M  ")
 
+    # ── Speculative branch isolation ──────────────────────────────────────
+
+    def create_worktree(self, branch_name: str, worktree_path: Path) -> Path:
+        """Create an isolated worktree for speculative evaluation."""
+        worktree_path.mkdir(parents=True, exist_ok=True)
+        self._run([
+            "git", "worktree", "add", str(worktree_path), "-b", branch_name,
+        ])
+        log.info("git.worktree_created", branch=branch_name, path=str(worktree_path))
+        return worktree_path
+
+    def remove_worktree(self, worktree_path: Path) -> None:
+        """Remove an isolated worktree after evaluation."""
+        self._run(["git", "worktree", "remove", "--force", str(worktree_path)])
+        log.info("git.worktree_removed", path=str(worktree_path))
+
     # ── Additional utility methods ────────────────────────────────────────
 
     def list_branches(self, pattern: str = "agent-*") -> list[str]:

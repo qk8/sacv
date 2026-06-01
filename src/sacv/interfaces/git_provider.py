@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 class GitProvider(ABC):
     @abstractmethod
@@ -26,3 +27,11 @@ class GitProvider(ABC):
     def current_branch(self) -> str: ...
     @abstractmethod
     def uncommitted_files(self) -> list[str]: ...
+
+    # ── Speculative branch isolation ──────────────────────────────────────
+
+    @abstractmethod
+    def create_worktree(self, branch_name: str, worktree_path: Path) -> Path: ...
+
+    @abstractmethod
+    def remove_worktree(self, worktree_path: Path) -> None: ...

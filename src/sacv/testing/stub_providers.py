@@ -230,6 +230,13 @@ class StubGitProvider(GitProvider):
     def uncommitted_files(self) -> list[str]:
         return []
 
+    def create_worktree(self, branch_name: str, worktree_path) -> str:  # type: ignore[override]
+        self._rec("create_worktree", branch_name, str(worktree_path))
+        return str(worktree_path)
+
+    def remove_worktree(self, worktree_path) -> None:  # type: ignore[override]
+        self._rec("remove_worktree", str(worktree_path))
+
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────
 
