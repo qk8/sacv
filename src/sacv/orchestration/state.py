@@ -14,6 +14,7 @@ Refactoring additions (approaches 1, 4, 6-11):
 from __future__ import annotations
 
 from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Literal, TypedDict
 
 
@@ -62,11 +63,20 @@ class StagnationPattern(str, Enum):
 
 # ── State reducers ────────────────────────────────────────────────────────────
 
-class _CriticReset:
-    """Sentinel: when set as critic_findings, the reducer RESETS the list."""
+class _CriticReset(StrEnum):
+    """
+    Sentinel: when set as critic_findings, the reducer RESETS the list.
+
+    Uses StrEnum so the sentinel is a plain string under the hood —
+    LangGraph's MemorySaver serialises state to msgpack before the
+    reducer runs, and msgpack can serialise strings but not arbitrary
+    Python class instances.
+    """
+
+    RESET = "__CRITIC_RESET__"
 
 
-CRITIC_RESET = _CriticReset()
+CRITIC_RESET = _CriticReset.RESET
 
 
 def _merge_lists(existing: list | None, new: list | _CriticReset | None) -> list:
@@ -88,7 +98,7 @@ def _merge_lists(existing: list | None, new: list | _CriticReset | None) -> list
     if new is None:
         return existing or []   # no change
     # Empty list or CRITIC_RESET sentinel is an explicit RESET signal
-    if isinstance(new, _CriticReset) or (isinstance(new, list) and len(new) == 0):
+    if new == CRITIC_RESET or (isinstance(new, list) and len(new) == 0):
         return []
     return (existing or []) + new
 

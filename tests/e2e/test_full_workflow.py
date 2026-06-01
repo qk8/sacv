@@ -77,6 +77,23 @@ def _empty_critics() -> list[AgentResult]:
     return [make_json_agent_result([]) for _ in range(3)]
 
 
+def _agents_md_response() -> AgentResult:
+    """Response for AGENTS.md update during memory_consolidation."""
+    return make_json_agent_result({
+        "common_mistakes": "Added findById null-safety pattern.",
+        "architecture_decisions": "UserService uses repository pattern.",
+    })
+
+
+def _arch_rule_response() -> AgentResult:
+    """Response for arch rules update during memory_consolidation."""
+    return make_json_agent_result({
+        "name": "no-layer-violation",
+        "from": {"paths": ["*"]},
+        "to": [{"paths": ["*"]}],
+    })
+
+
 def _initial_state(task_id: str = "task-e2e-001") -> dict:
     return {
         "session_id":             "",
@@ -132,6 +149,8 @@ class TestFullWorkflowHappyPath:
             _tests_response(),             # tdd_gate
             _diff_response(),              # actor
             *_empty_critics(),             # 3 critics
+            _agents_md_response(),         # memory_consolidation (AGENTS.md)
+            _arch_rule_response(),         # memory_consolidation (arch rules)
         ])
         deps = NodeDeps(
             agent=agent,
@@ -168,6 +187,8 @@ class TestFullWorkflowHappyPath:
             *_empty_critics(),       # critics attempt 1
             _diff_response(),        # actor attempt 2 (retry)
             *_empty_critics(),       # critics attempt 2
+            _agents_md_response(),   # memory_consolidation (AGENTS.md)
+            _arch_rule_response(),   # memory_consolidation (arch rules)
         ])
         sandbox = _build_retry_sandbox(fail_first=True)
         deps = NodeDeps(
