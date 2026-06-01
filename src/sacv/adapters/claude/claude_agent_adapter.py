@@ -50,10 +50,6 @@ from sacv.interfaces.agent_provider import AgentProvider, AgentConfig, AgentResu
 
 log = structlog.get_logger(__name__)
 
-# Default model — pinned to avoid unexpected behaviour on model upgrades.
-# Update intentionally when the team decides to upgrade.
-_DEFAULT_MODEL = "claude-sonnet-4-20250514"
-
 
 class ClaudeAgentAdapter(AgentProvider):
     """
@@ -66,7 +62,6 @@ class ClaudeAgentAdapter(AgentProvider):
 
     def __init__(
         self,
-        model:   str = _DEFAULT_MODEL,
         cwd:     str | None = None,
         timeout: int = 300,
     ) -> None:
@@ -75,9 +70,9 @@ class ClaudeAgentAdapter(AgentProvider):
                 "claude-code-sdk is required. Install with: "
                 "pip install claude-code-sdk"
             )
-        self._model   = model
         self._cwd     = cwd
         self._timeout = timeout
+        # Model is controlled by ANTHROPIC_MODEL env var (SDK convention)
 
     @retry(
         retry=retry_if_exception_type((TimeoutError, ConnectionError)),
@@ -105,7 +100,6 @@ class ClaudeAgentAdapter(AgentProvider):
         output_tokens  = 0
 
         options = ClaudeCodeOptions(
-            model=self._model,
             system_prompt=config.system_prompt,
             max_turns=config.max_turns,
             allowed_tools=config.allowed_tools or [],
@@ -169,7 +163,6 @@ class ClaudeAgentAdapter(AgentProvider):
         system prompt and restricted tool set.
         """
         adapter = ClaudeAgentAdapter(
-            model=self._model,
             cwd=self._cwd,
             timeout=self._timeout,
         )
