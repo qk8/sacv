@@ -160,18 +160,8 @@ class ClaudeAgentAdapter(AgentProvider):
         )
 
     async def create_subagent(self, config: AgentConfig) -> "ClaudeAgentAdapter":
-        """
-        Creates a new ClaudeAgentAdapter with the subagent's config.
-        The subagent shares the same model and cwd but stores the
-        provided config as its default for use when run_task() is
-        called without an explicit override.
-        """
-        adapter = ClaudeAgentAdapter(
-            cwd=self._cwd,
-            timeout=self._timeout,
-        )
-        adapter._default_config = config
-        return adapter
+        """Create a new ClaudeAgentAdapter sharing cwd/timeout but not config."""
+        return ClaudeAgentAdapter(cwd=self._cwd, timeout=self._timeout)
 
 
 def _build_prompt(prompt: str, context: dict) -> str:
