@@ -27,5 +27,18 @@ sleep 1
 # DockerContainerManager._wait_for_ready() polls for this file.
 touch /tmp/sacv-ready
 
+# ── Attach OTel Java agent to all JVM processes ───────────────────────────
+if [ -f /opt/opentelemetry-javaagent.jar ]; then
+    export JAVA_TOOL_OPTIONS="\
+        -javaagent:/opt/opentelemetry-javaagent.jar \
+        -Dotel.service.name=sacv-sandbox \
+        -Dotel.exporter.otlp.endpoint=http://localhost:4317 \
+        -Dotel.exporter.otlp.protocol=grpc \
+        -Dotel.traces.exporter=otlp"
+    echo "[sacv-sandbox] OTel Java agent attached (OTLP :4317)"
+else
+    echo "[sacv-sandbox] OTel agent not found — Java tracing disabled"
+fi
+
 echo "[sacv-sandbox] Ready. Waiting for docker exec commands..."
 tail -f /dev/null
