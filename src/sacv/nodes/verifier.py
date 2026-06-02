@@ -50,8 +50,7 @@ log = structlog.get_logger(__name__)
 _EVIDENCE_DIR = Path(".workflow/tdd-evidence")
 _TRACE_DIR    = Path(".workflow/playwright-traces")
 
-# OTel collector endpoint inside Docker sandbox
-_OTEL_QUERY_URL = "http://localhost:16686/api/traces"  # Jaeger-compatible
+# OTel collector endpoint — now configurable via DebugConfig.otel_query_url
 
 
 def make_verifier_node(deps: "NodeDeps"):
@@ -256,7 +255,7 @@ async def _query_otel(handle, task_id: str, deps) -> dict | None:
     """Query OTel/Jaeger for traces correlated with this test run (approach 1)."""
     result = await deps.sandbox.exec_in_container(
         handle,
-        f"curl -sf '{_OTEL_QUERY_URL}?service=sacv-sandbox&limit=5' 2>/dev/null "
+        f"curl -sf '{cfg.otel_query_url}?service=sacv-sandbox&limit=5' 2>/dev/null "
         "|| echo 'NO_OTEL'",
         timeout=8,
     )

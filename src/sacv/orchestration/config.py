@@ -60,6 +60,7 @@ class DebugConfig:
     max_debug_steps:    int  = 10
     actuator_base_url:  str  = "http://localhost:8080/actuator"
     openapi_spec_path:  str  = "contracts/openapi/api.yaml"
+    otel_query_url:     str  = "http://localhost:16686/api/traces"
 
 
 @dataclass(frozen=True)
@@ -122,6 +123,7 @@ class WorkflowConfig:
                 max_debug_steps=dbg.get("max_debug_steps", 10),
                 actuator_base_url=dbg.get("actuator_base_url", "http://localhost:8080/actuator"),
                 openapi_spec_path=dbg.get("openapi_spec_path", "contracts/openapi/api.yaml"),
+                otel_query_url=dbg.get("otel_query_url", "http://localhost:16686/api/traces"),
             ),
             iteration_limits=IterationLimits(
                 implement_loop=il.get("implement_loop", 100),
