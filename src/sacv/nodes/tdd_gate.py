@@ -201,7 +201,7 @@ def _feature_id(task_id: str) -> str:
 
 def _canonicalise_test_path(
     path: str, module_type: str, task_id: str,
-    user_package: str = "com.sacv",
+    user_package: str = "com.example",  # matches DebugConfig.user_java_package default
 ) -> str:
     """
     Enforce permanent test inventory directory convention (approach 8):
