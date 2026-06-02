@@ -128,7 +128,10 @@ def make_preflight_node(deps: "NodeDeps"):
             return {
                 "current_phase":    WorkflowPhase.PREFLIGHT.value,
                 "preflight_result": result,
-                # _merge_lists treats [] as RESET (same as CRITIC_RESET)
+                # CRITIC_RESET clears stale findings from the previous Actor attempt.
+                # NOTE: returning [] would NOT clear findings — it is a no-op in
+                # _merge_lists. Only CRITIC_RESET produces a reset. Do not change
+                # this to [].
                 "critic_findings":  CRITIC_RESET,
             }
         finally:
