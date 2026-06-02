@@ -23,6 +23,7 @@ import structlog
 
 from sacv.orchestration.state import WorkflowPhase, CRITIC_RESET
 from sacv.interfaces.agent_provider import AgentConfig
+from sacv.orchestration.verifier_utils import add_agent_cost
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -85,6 +86,11 @@ def make_replan_node(deps: "NodeDeps"):
             ),
         )
 
+        # ── Token budget tracking (CRIT-002) ──────────────────────────────
+        new_cost = add_agent_cost(
+            result, state.get("cumulative_cost_dollars", 0.0), deps.config,
+        )
+
         try:
             raw: list[dict] = json.loads(result.content)
         except (json.JSONDecodeError, ValueError) as exc:
@@ -136,6 +142,7 @@ def make_replan_node(deps: "NodeDeps"):
             "red_phase_evidence_path":   None,   # force tdd_gate to generate new tests
             "test_inventory_paths":      [],     # clear old test inventory for new strategies
             "tdd_gate_attempts":         0,      # reset — prevents immediate HITL escalation after replan
+            "cumulative_cost_dollars":   new_cost,
         }
 
     return replan_node

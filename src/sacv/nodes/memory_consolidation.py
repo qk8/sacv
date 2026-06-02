@@ -34,6 +34,7 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase, LessonLearned
 from sacv.interfaces.memory_provider import EpisodicEvent
 from sacv.interfaces.agent_provider import AgentConfig
+from sacv.orchestration.verifier_utils import add_agent_cost
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -111,14 +112,18 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
         await deps.memory.purge_noise(session_id)
 
         # ── 5. UPDATE AGENTS.MD (approach 3) ──────────────────────────────
-        agents_md_updated = await _update_agents_md(lesson, state, deps)
+        agents_md_updated, cost_after_agents = await _update_agents_md(lesson, state, deps)
 
         # ── 6. UPDATE ARCH RULES (approach 11) ────────────────────────────
         arch_rules_updated = False
         preflight = state.get("preflight_result") or {}
         arch_violations = preflight.get("arch_violations", [])
         if arch_violations:
-            arch_rules_updated = await _update_arch_rules(arch_violations, module, deps)
+            arch_rules_updated, _ = await _update_arch_rules(
+                arch_violations, module, deps, cost_after_agents,
+            )
+        else:
+            arch_rules_updated = False
 
         # ── 7. RECORD GREEN SHA LAST — after all commits are done ─────────
         # (BUG-011 fix: was recorded at step 2, losing AGENTS.md and arch
@@ -152,6 +157,7 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
             "current_phase":     WorkflowPhase.COMPLETE.value,
             "lesson_learned":    lesson,
             "arch_rules_updated": arch_rules_updated,
+            "cumulative_cost_dollars": cost_after_agents,
         }
 
     return memory_consolidation_node
@@ -284,12 +290,17 @@ async def _update_agents_md(
             ),
         )
 
+        # ── Token budget tracking (CRIT-002) ──────────────────────────────
+        cost = add_agent_cost(
+            result, state.get("cumulative_cost_dollars", 0.0), deps.config,
+        )
+
         # Parse LLM JSON and splice sections back into the file
         try:
             updates = json.loads(result.content)
         except json.JSONDecodeError:
             log.warning("memory_consolidation.agents_md_parse_failed")
-            return False
+            return False, cost
 
         updated = _splice_sections(current, updates)
         _AGENTS_MD.write_text(updated, encoding="utf-8")
@@ -307,10 +318,10 @@ async def _update_agents_md(
             )
 
         await asyncio.to_thread(_commit_agents_md)
-        return True
+        return True, cost
     except Exception as exc:
         log.warning("memory_consolidation.agents_md_failed", error=str(exc))
-        return False
+        return False, cost
 
 
 def _extract_section(content: str, section_name: str) -> str:
@@ -344,10 +355,14 @@ async def _update_arch_rules(
     violations: list[dict],
     module_type: str,
     deps: "NodeDeps",
+    current_cost: float = 0.0,
 ) -> bool:
     """
     Add a new rule to .dependency-cruiser.json (TS) or ArchUnit test (Java)
     to prevent recurring architectural violations (approach 11).
+
+    Returns True if a rule was added, False otherwise.
+    Cost is tracked via add_agent_cost and carried forward.
     """
     try:
         is_frontend = "frontend" in module_type
@@ -372,6 +387,9 @@ async def _update_arch_rules(
             ),
         )
 
+        # ── Token budget tracking (CRIT-002) ──────────────────────────────
+        new_cost = add_agent_cost(result, current_cost, deps.config)
+
         new_rule = result.content.strip()
         if new_rule and is_frontend:
             _inject_depcruiser_rule(config_file, new_rule)
@@ -391,10 +409,10 @@ async def _update_arch_rules(
         await asyncio.to_thread(_commit_rule)
 
         log.info("memory_consolidation.arch_rule_added", module=module_type)
-        return True
+        return True, new_cost
     except Exception as exc:
         log.warning("memory_consolidation.arch_rules_failed", error=str(exc))
-        return False
+        return False, new_cost
 
 
 def _inject_depcruiser_rule(config_file: Path, new_rule: str) -> None:

@@ -17,6 +17,7 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase, StrategyCandidate
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.nodes._scoring import score_strategy, prune_strategies, detect_collision_pairs
+from sacv.orchestration.verifier_utils import add_agent_cost
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -93,6 +94,11 @@ def make_value_node(deps: "NodeDeps"):
             ),
         )
 
+        # ── Token budget tracking (CRIT-002) ──────────────────────────────
+        new_cost = add_agent_cost(
+            result, state.get("cumulative_cost_dollars", 0.0), deps.config,
+        )
+
         # ── 2. Parse LLM JSON response ────────────────────────────────────
         try:
             raw_strategies: list[dict] = json.loads(result.content)
@@ -157,6 +163,7 @@ def make_value_node(deps: "NodeDeps"):
             "strategy_candidates": passing,
             "selected_strategy":   selected,
             "pruned_strategies":   pruned,
+            "cumulative_cost_dollars": new_cost,
         }
 
     return value_node_fn

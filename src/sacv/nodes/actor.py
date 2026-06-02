@@ -25,6 +25,7 @@ from sacv.orchestration.state import (
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.interfaces.diff_provider import UnifiedDiff
 from sacv.nodes._stagnation import check_stagnation
+from sacv.orchestration.verifier_utils import add_agent_cost
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -112,6 +113,7 @@ def make_actor_node(deps: "NodeDeps"):
                     actuator_snapshot=None,
                 ),
                 "diff_proposal": None,
+                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
             }
 
         # ── 1. Git branch ─────────────────────────────────────────────────
@@ -154,6 +156,11 @@ def make_actor_node(deps: "NodeDeps"):
             ),
         )
 
+        # ── Token budget tracking (CRIT-002) ──────────────────────────────
+        new_cost = add_agent_cost(
+            result, state.get("cumulative_cost_dollars", 0.0), deps.config,
+        )
+
         # ── 3. Parse + validate diffs ─────────────────────────────────────
         try:
             raw_diffs: list[dict] = json.loads(result.content)
@@ -181,6 +188,7 @@ def make_actor_node(deps: "NodeDeps"):
                 },
                 "diff_proposal": None,
                 "critic_findings": CRITIC_RESET,   # clear stale findings to avoid misleading next prompt
+                "cumulative_cost_dollars": new_cost,
             }
 
         errors = await deps.diff.validate_no_full_overwrite(
@@ -195,6 +203,7 @@ def make_actor_node(deps: "NodeDeps"):
                 },
                "diff_proposal":   None,
                 "critic_findings": CRITIC_RESET,  # clear stale critic feedback from prior diff
+                "cumulative_cost_dollars": new_cost,
             }
 
         apply_result = await deps.diff.apply_diffs([UnifiedDiff(**p) for p in diffs])
@@ -208,6 +217,7 @@ def make_actor_node(deps: "NodeDeps"):
                 },
                 "diff_proposal":   None,
                 "critic_findings": CRITIC_RESET,  # clear stale critic feedback from prior diff
+                "cumulative_cost_dollars": new_cost,
             }
 
         proposal = DiffProposal(
@@ -229,6 +239,7 @@ def make_actor_node(deps: "NodeDeps"):
                 "attempt_count": correction["attempt_count"] + 1,
                 "branch_name":   branch_name,
             },
+            "cumulative_cost_dollars": new_cost,
         }
 
     return actor_node

@@ -26,6 +26,7 @@ import structlog
 
 from sacv.orchestration.state import WorkflowPhase
 from sacv.interfaces.agent_provider import AgentConfig
+from sacv.orchestration.verifier_utils import add_agent_cost
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -99,6 +100,11 @@ def make_tdd_gate_node(deps: "NodeDeps"):
             ),
         )
 
+        # ── Token budget tracking (CRIT-002) ──────────────────────────────
+        new_cost = add_agent_cost(
+            result, state.get("cumulative_cost_dollars", 0.0), deps.config,
+        )
+
         try:
             test_files: list[dict] = json.loads(result.content)
         except (json.JSONDecodeError, ValueError) as exc:
@@ -107,6 +113,7 @@ def make_tdd_gate_node(deps: "NodeDeps"):
                 "red_phase_evidence_path": None,
                 "test_inventory_paths":    [],
                 "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
+                "cumulative_cost_dollars": new_cost,
             }
 
         # ── 2. Write test files to PERMANENT locations in sandbox ──────────
@@ -155,6 +162,7 @@ def make_tdd_gate_node(deps: "NodeDeps"):
                     "red_phase_evidence_path": None,
                     "test_inventory_paths":    [],
                     "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
+                    "cumulative_cost_dollars": new_cost,
                 }
 
             # ── 4. Serialise evidence ────────────────────────────────────
@@ -177,6 +185,7 @@ def make_tdd_gate_node(deps: "NodeDeps"):
                 "current_phase":          WorkflowPhase.ACTOR.value,
                 "red_phase_evidence_path": str(evidence_path),
                 "test_inventory_paths":   permanent_paths,
+                "cumulative_cost_dollars": new_cost,
             }
         finally:
             await deps.sandbox.destroy_container(handle)

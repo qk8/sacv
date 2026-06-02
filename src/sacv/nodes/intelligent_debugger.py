@@ -36,6 +36,7 @@ from sacv.nodes._debug_strategies import (
     needs_jdwp, needs_cdp, needs_actuator, needs_delta_debug,
 )
 from sacv.interfaces.agent_provider import AgentConfig
+from sacv.orchestration.verifier_utils import add_agent_cost
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -123,7 +124,9 @@ def make_intelligent_debugger_node(deps: "NodeDeps"):
                 )
 
             # ── 5. Synthesise root-cause hypothesis (one LLM call) ────────
-            hypothesis = await _synthesise_hypothesis(observations, state, deps)
+            hypothesis, debug_cost = await _synthesise_hypothesis(
+                observations, state, deps, state.get("cumulative_cost_dollars", 0.0),
+            )
             observations["root_cause"] = hypothesis
 
             log.info("debugger.complete",
@@ -133,6 +136,7 @@ def make_intelligent_debugger_node(deps: "NodeDeps"):
             return {
                 "current_phase":      WorkflowPhase.INTELLIGENT_DEBUGGER.value,
                 "debug_observations": observations,
+                "cumulative_cost_dollars": debug_cost,
             }
         finally:
             await deps.sandbox.destroy_container(handle)
@@ -460,10 +464,14 @@ async def _synthesise_hypothesis(
     obs:   DebugObservations,
     state: "WorkflowState",
     deps,
-) -> str:
-    """Single LLM call to produce a root-cause hypothesis from structured observations."""
+    current_cost: float = 0.0,
+) -> tuple[str, float]:
+    """Single LLM call to produce a root-cause hypothesis from structured observations.
+
+    Returns (hypothesis, updated_cost).
+    """
     if not obs["breakpoint_hits"] and not obs["actuator_beans"] and not obs["minimal_payload"]:
-        return "(debug session produced no observations — falling back to static analysis)"
+        return "(debug session produced no observations — falling back to static analysis)", current_cost
 
     obs_summary = {
         "error_type":     obs["error_type"],
@@ -486,7 +494,10 @@ async def _synthesise_hypothesis(
             allowed_tools=[],
         ),
     )
-    return result.content.strip()[:500]
+
+    # ── Token budget tracking (CRIT-002) ──────────────────────────────
+    new_cost = add_agent_cost(result, current_cost, deps.config)
+    return result.content.strip()[:500], new_cost
 
 
 # ── Payload extraction helpers ────────────────────────────────────────────────

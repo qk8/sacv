@@ -29,6 +29,20 @@ def accumulate_cost(
     return state.get("cumulative_cost_dollars", 0.0) + cost
 
 
+def add_agent_cost(
+    result: "AgentResult",
+    current_cost: float,
+    config: "WorkflowConfig",
+) -> float:
+    """
+    Add the cost of a single AgentResult to the running total.
+
+    Call this after every ``deps.agent.run_task()`` call and include
+    the result in the node's return dict as ``cumulative_cost_dollars``.
+    """
+    return accumulate_cost(result, {"cumulative_cost_dollars": current_cost}, config)
+
+
 async def run_verifier_with_confidence(
     state: "WorkflowState",
     deps:  "NodeDeps",
@@ -41,4 +55,6 @@ async def run_verifier_with_confidence(
     out    = await _inner(state)
     merged = {**state, **out}
     score  = compute_confidence_score(merged, deps.config)
-    return {**out, "confidence_score": score}
+    # Carry existing cumulative cost forward (cost is accumulated by agent-calling nodes)
+    existing_cost = state.get("cumulative_cost_dollars", 0.0)
+    return {**out, "confidence_score": score, "cumulative_cost_dollars": existing_cost}
