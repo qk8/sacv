@@ -35,3 +35,11 @@ class GitProvider(ABC):
 
     @abstractmethod
     def remove_worktree(self, worktree_path: Path) -> None: ...
+
+    # ── Selective staging & SHA queries ────────────────────────────────────
+
+    @abstractmethod
+    def stage_file(self, path: str) -> None: ...
+
+    @abstractmethod
+    def head_sha(self) -> str: ... ...

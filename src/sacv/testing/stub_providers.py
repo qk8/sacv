@@ -226,6 +226,12 @@ class StubGitProvider(GitProvider):
     def remove_worktree(self, worktree_path) -> None:  # type: ignore[override]
         self._rec("remove_worktree", str(worktree_path))
 
+    def stage_file(self, path: str) -> None:
+        self._rec("stage_file", path)
+
+    def head_sha(self) -> str:
+        return self._green
+
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────
 

@@ -128,7 +128,11 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
         # ── 7. RECORD GREEN SHA LAST — after all commits are done ─────────
         # (BUG-011 fix: was recorded at step 2, losing AGENTS.md and arch
         # rule commits on HITL hard-reset)
-        final_sha = await asyncio.to_thread(_get_head_sha)
+        try:
+            final_sha = await asyncio.to_thread(deps.git.head_sha)
+        except RuntimeError as exc:
+            log.warning("memory_consolidation.get_head_sha_failed", error=str(exc))
+            final_sha = ""
         if final_sha:
             await asyncio.to_thread(deps.git.record_green_commit, final_sha)
         else:
@@ -168,77 +172,33 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
 async def _commit_test_inventory(
     paths: list[str], task_id: str, deps: "NodeDeps"
 ) -> list[str]:
-    """Non-blocking wrapper: all subprocess work runs in a thread pool."""
+    """Commit test inventory files via GitProvider (testable, CWD-independent)."""
+    staged: list[str] = []
+    for p in paths:
+        if not Path(p).exists():
+            log.warning("memory_consolidation.test_file_missing", path=p)
+            continue
+        try:
+            await asyncio.to_thread(deps.git.stage_file, p)
+            staged.append(p)
+        except RuntimeError as exc:
+            log.error("memory_consolidation.git_add_failed", path=p, error=str(exc))
 
-    def _sync_work() -> list[str]:
-        import subprocess
-        staged: list[str] = []
-        for p in paths:
-            if not Path(p).exists():
-                log.warning("memory_consolidation.test_file_missing", path=p)
-                continue
-            result = subprocess.run(
-                ["git", "add", p],
-                capture_output=True, timeout=10,
-            )
-            if result.returncode != 0:
-                log.error(
-                    "memory_consolidation.git_add_failed",
-                    path=p, stderr=result.stderr.decode()[:200],
-                )
-            else:
-                staged.append(p)
-
-        if not staged:
-            return []
-
-        diff_result = subprocess.run(
-            ["git", "diff", "--cached", "--name-only"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if diff_result.returncode != 0:
-            log.error("memory_consolidation.git_diff_failed",
-                      stderr=diff_result.stderr[:200])
-            return []
-
-        to_commit = [l.strip() for l in diff_result.stdout.splitlines() if l.strip()]
-        if to_commit:
-            commit_result = subprocess.run(
-                ["git", "commit", "-m",
-                 f"sacv: add test inventory for {task_id} [tests]"],
-                capture_output=True, timeout=15,
-            )
-            if commit_result.returncode != 0:
-                log.error("memory_consolidation.git_commit_failed",
-                          stderr=commit_result.stderr.decode()[:200])
-                return []
-            log.info("memory_consolidation.tests_committed", count=len(to_commit))
-        return to_commit
-
-    try:
-        return await asyncio.to_thread(_sync_work)
-    except Exception as exc:
-        log.warning("memory_consolidation.test_commit_failed", error=str(exc))
+    if not staged:
         return []
 
-
-def _get_head_sha() -> str:
-    """Get current HEAD SHA. Returns empty string on failure (non-fatal)."""
     try:
-        import subprocess
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=10,
+        await asyncio.to_thread(
+            deps.git.commit,
+            f"sacv: add test inventory for {task_id} [tests]",
+            add_all=False,  # files already staged above
         )
-        sha = result.stdout.strip()
-        if result.returncode != 0 or not sha:
-            log.warning("memory_consolidation.get_head_sha_failed",
-                        stderr=result.stderr[:200])
-            return ""
-        return sha
-    except Exception as exc:
-        log.warning("memory_consolidation.get_head_sha_error", error=str(exc))
-        return ""
+        log.info("memory_consolidation.tests_committed", count=len(staged))
+        return staged
+    except RuntimeError as exc:
+        log.error("memory_consolidation.test_commit_failed", error=str(exc))
+        return []
+
 
 
 async def _commit_production_code_no_record(task_id: str, deps: "NodeDeps") -> str:
@@ -306,19 +266,12 @@ async def _update_agents_md(
         updated = _splice_sections(current, updates)
         _AGENTS_MD.write_text(updated, encoding="utf-8")
 
-        def _commit_agents_md():
-            import subprocess
-            subprocess.run(
-                ["git", "add", str(_AGENTS_MD)],
-                capture_output=True, timeout=10,
-            )
-            subprocess.run(
-                ["git", "commit", "-m",
-                 f"sacv: update AGENTS.md after {state['task_id']} [skip ci]"],
-                capture_output=True, timeout=15,
-            )
-
-        await asyncio.to_thread(_commit_agents_md)
+        await asyncio.to_thread(deps.git.stage_file, str(_AGENTS_MD))
+        await asyncio.to_thread(
+            deps.git.commit,
+            f"sacv: update AGENTS.md after {state['task_id']} [skip ci]",
+            add_all=False,
+        )
         return True, cost
     except Exception as exc:
         log.warning("memory_consolidation.agents_md_failed", error=str(exc))
@@ -399,16 +352,12 @@ async def _update_arch_rules(
             _inject_archunit_rule(config_file, new_rule, user_package)
 
         # Commit the updated rule file so it survives HITL reset_hard
-        def _commit_rule():
-            import subprocess
-            subprocess.run(["git", "add", str(config_file)],
-                           capture_output=True, timeout=10)
-            subprocess.run(
-                ["git", "commit", "-m",
-                 f"sacv: add arch rule for {module_type} violations [skip ci]"],
-                capture_output=True, timeout=15,
-            )
-        await asyncio.to_thread(_commit_rule)
+        await asyncio.to_thread(deps.git.stage_file, str(config_file))
+        await asyncio.to_thread(
+            deps.git.commit,
+            f"sacv: add arch rule for {module_type} violations [skip ci]",
+            add_all=False,
+        )
 
         log.info("memory_consolidation.arch_rule_added", module=module_type)
         return True, new_cost

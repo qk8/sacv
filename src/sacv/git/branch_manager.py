@@ -182,6 +182,16 @@ class BranchManager(GitProvider):
         self._run(["git", "worktree", "remove", "--force", str(worktree_path)])
         log.info("git.worktree_removed", path=str(worktree_path))
 
+    def stage_file(self, path: str) -> None:
+        """Stage a single file for commit (partial staging)."""
+        self._run(["git", "add", path])
+        log.debug("git.stage_file", path=path)
+
+    def head_sha(self) -> str:
+        """Return the current HEAD commit SHA."""
+        result = self._run(["git", "rev-parse", "HEAD"])
+        return result.stdout.strip()
+
     # ── Additional utility methods ────────────────────────────────────────
 
     def list_branches(self, pattern: str = "agent-*") -> list[str]:
