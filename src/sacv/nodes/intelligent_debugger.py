@@ -227,16 +227,21 @@ async def _delta_minimize(
             )
 
     # Error only with both halves together — try adding one field at a time
+    # Cap pair checks to avoid O(n²) Docker exec calls on large payloads.
+    max_pair_checks = 20
+    checks = 0
     for i, field in enumerate(fields):
-        candidate = [field]
-        rest = fields[:i] + fields[i + 1:]
-        # Try candidate + each remaining field
-        for other in rest:
-            test_set = dict([field, other])
-            if await _test_payload(test_set, state, handle, module_type, deps):
+        if checks >= max_pair_checks:
+            log.warning("debugger.delta_debug_cap_reached", fields=len(fields))
+            break
+        for other in fields[i + 1:]:
+            if checks >= max_pair_checks:
+                break
+            checks += 1
+            if await _test_payload({field[0]: field[1], other[0]: other[1]}, state, handle, module_type, deps):
                 return [field, other]
-        if await _test_payload(dict(candidate), state, handle, module_type, deps):
-            return candidate
+        if await _test_payload({field[0]: field[1]}, state, handle, module_type, deps):
+            return [field]
 
     return fields  # fallback: can't reduce further
 
