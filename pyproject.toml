@@ -40,7 +40,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "unit: pure unit tests; no I/O",
-    "integration: requires local services (Docker daemon)",
+    "integration: uses stub providers; no live APIs or Docker",
     "e2e: full graph execution via VCR cassettes",
 ]
 
