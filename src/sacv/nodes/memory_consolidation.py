@@ -262,13 +262,14 @@ async def _update_agents_md(
     lesson: "LessonLearned",
     state:  "WorkflowState",
     deps:   "NodeDeps",
-) -> bool:
+) -> tuple[bool, float]:
     """
     Append new learnings to AGENTS.md (approach 3).
     Uses section-targeted update: LLM outputs only the two updated
     sections as JSON, which are spliced back into the existing file.
     This prevents truncation-based data loss when the file grows.
     """
+    cost = state.get("cumulative_cost_dollars", 0.0)
     try:
         current = _AGENTS_MD.read_text(encoding="utf-8") if _AGENTS_MD.exists() else _default_agents_md()
 
@@ -356,14 +357,15 @@ async def _update_arch_rules(
     module_type: str,
     deps: "NodeDeps",
     current_cost: float = 0.0,
-) -> bool:
+) -> tuple[bool, float]:
     """
     Add a new rule to .dependency-cruiser.json (TS) or ArchUnit test (Java)
     to prevent recurring architectural violations (approach 11).
 
-    Returns True if a rule was added, False otherwise.
+    Returns (success, updated_cost).
     Cost is tracked via add_agent_cost and carried forward.
     """
+    new_cost = current_cost
     try:
         is_frontend = "frontend" in module_type
         user_package = deps.config.debug.user_java_package
