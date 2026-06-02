@@ -315,15 +315,47 @@ def _check_test_deletions(state: "WorkflowState") -> str | None:
     proposal = state.get("diff_proposal")
     if not proposal:
         return None
-    deleted = [
-        d["file_path"] for d in proposal.get("diffs", [])
-        if d.get("operation") == "delete"
-        and ("tests/" in d["file_path"] or "src/test/" in d["file_path"])
-    ]
-    if deleted:
+
+    _ASSERTION_KEYWORDS = (
+        "@Test", "void test", "assertThat", "assertEquals", "assert ", "expect(",
+        "it(", "describe(", "test(", "jest.expect",
+    )
+    _TEST_PATH_MARKERS = ("tests/", "src/test/", ".spec.ts", "Test.java")
+
+    violations: list[str] = []
+
+    for d in proposal.get("diffs", []):
+        path = d.get("file_path", "")
+        op = d.get("operation", "")
+        is_test_file = any(m in path for m in _TEST_PATH_MARKERS)
+
+        if not is_test_file:
+            continue
+
+        # Explicit deletion
+        if op == "delete":
+            violations.append(path)
+            continue
+
+        # Gutting: diff removes assertion lines without replacing them
+        diff_content = d.get("diff_content", "")
+        removed = [l[1:] for l in diff_content.splitlines() if l.startswith("-")]
+        added = [l[1:] for l in diff_content.splitlines() if l.startswith("+")]
+        removed_assertions = sum(
+            1 for l in removed if any(kw in l for kw in _ASSERTION_KEYWORDS)
+        )
+        added_assertions = sum(
+            1 for l in added if any(kw in l for kw in _ASSERTION_KEYWORDS)
+        )
+        if removed_assertions > 0 and added_assertions < removed_assertions // 2:
+            violations.append(
+                f"{path} (assertion gutting: -{removed_assertions} +{added_assertions})"
+            )
+
+    if violations:
         return (
-            f"Test deletion prohibited: {', '.join(deleted)}. "
-            "Rewrite implementation so existing tests pass."
+            f"Test modification prohibited: {', '.join(violations)}. "
+            "Rewrite the implementation so existing tests pass; do not weaken tests."
         )
     return None
 
