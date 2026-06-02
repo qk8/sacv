@@ -135,7 +135,7 @@ def build_graph(
      # Debugger always routes to actor (with structured observations attached)
     builder.add_edge("intelligent_debugger", "actor")              # NEW
     builder.add_edge("memory_consolidation", END)
-    builder.add_edge("hitl_escalation",      END)
+    builder.add_edge("hitl_escalation",      "memory_consolidation")  # HIGH-002: persist failure lessons after HITL resume
     builder.add_edge("all_critics",          "verifier")
 
     # ── Conditional edges ─────────────────────────────────────────────────
