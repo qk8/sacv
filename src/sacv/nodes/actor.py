@@ -152,7 +152,12 @@ def make_actor_node(deps: "NodeDeps"):
                     critic_feedback=critic_fb or "None.",
                 ),
                 max_turns=10,
-                allowed_tools=["read_file", "list_directory"],
+                # Valid Claude Code SDK tool names (PascalCase).
+                # Read/Glob/Grep allow the agent to inspect the codebase;
+                # Bash is needed for running git diff and checking context.
+                # Write/Edit are intentionally excluded: the agent produces
+                # unified diff JSON, it does not write files directly.
+                allowed_tools=["Read", "Bash", "Glob", "Grep", "LS"],
             ),
         )
 
