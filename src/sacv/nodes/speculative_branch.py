@@ -274,6 +274,7 @@ async def _evaluate_branch(
             "speculative_branch.evaluation_error",
             branch=branch_name,
             error=str(exc),
+            exc_info=True,
         )
         return branch_name, None
     finally:
