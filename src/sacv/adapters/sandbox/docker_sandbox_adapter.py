@@ -68,7 +68,7 @@ class DockerContainerManager(SandboxProvider):
         self._host_jdwp_port: int | None = None
         self._host_cdp_port:   int | None = None
 
-   async def warm_container(self) -> SandboxHandle:
+    async def warm_container(self) -> SandboxHandle:
         """
         Always creates a new isolated container.
         Callers are responsible for calling destroy_container() when done.
