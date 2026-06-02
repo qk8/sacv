@@ -87,6 +87,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
     from sacv.orchestration.graph import build_graph
     from sacv.orchestration.state import WorkflowPhase
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from sacv.adapters.sandbox import DockerContainerManager
 
     deps = _build_deps()
     await _start_deps(deps)
