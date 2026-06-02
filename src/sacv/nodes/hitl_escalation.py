@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
-from langgraph.types import interrupt
 
 from sacv.orchestration.state import WorkflowPhase, EscalationPayload, ResolutionHint
 from sacv.interfaces.memory_provider import EpisodicEvent
@@ -39,16 +38,6 @@ log = structlog.get_logger(__name__)
 
 _ESCALATION_DIR = Path(".workflow/escalations")
 _WORKFLOW_VERSION = "sacv-1.0"
-
-
-def _do_interrupt(payload: object) -> None:
-    """
-    Thin wrapper around langgraph.types.interrupt.
-
-    Replaceable in tests via monkeypatch or module-level override.
-    """
-    from langgraph.types import interrupt as _lg_interrupt
-    _lg_interrupt(payload)
 
 
 def make_hitl_escalation_node(deps: "NodeDeps"):
@@ -153,7 +142,8 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
         # ── 6. Pause graph — developer must manually resume ───────────────
         # ``interrupt()`` raises an internal LangGraph signal; the graph
         # checkpoint is saved at this exact state and execution stops.
-        _do_interrupt(payload)
+        from langgraph.types import interrupt
+        interrupt(payload)
 
         # Code below is unreachable during normal execution but satisfies
         # the type checker and will run when the graph is resumed.
