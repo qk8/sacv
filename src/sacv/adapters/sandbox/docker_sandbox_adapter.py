@@ -258,8 +258,9 @@ class DockerContainerManager(SandboxProvider):
         We check for the existence of /tmp/sacv-ready (written by sandbox-start.sh).
         Falls back gracefully after _HEALTH_CHECK_TIMEOUT seconds.
         """
-        deadline = asyncio.get_event_loop().time() + _HEALTH_CHECK_TIMEOUT
-        while asyncio.get_event_loop().time() < deadline:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _HEALTH_CHECK_TIMEOUT
+        while loop.time() < deadline:
             result = await self.exec_in_container(
                 handle,
                 "test -f /tmp/sacv-ready && echo OK || echo WAIT",
