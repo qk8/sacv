@@ -130,6 +130,8 @@ def _initial_state(task_id: str = "task-e2e-001") -> dict:
         "procedural_constraints": [],
         "lesson_learned":         None,
         "arch_rules_updated":     False,
+        "check_profile":          "standard",
+        "cumulative_cost_dollars": 0.0,
     }
 
 
