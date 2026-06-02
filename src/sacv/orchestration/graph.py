@@ -189,8 +189,9 @@ def build_graph(
 
     if checkpointer is None:
         raise ValueError(
-            "build_graph() requires an explicit checkpointer. "
-            "Use AsyncSqliteSaver.from_conn_string('.workflow/sacv.db') "
-            "to enable HITL resume. MemorySaver is not supported."
+            "build_graph() requires an explicit checkpointer (got None). "
+            "For production use: AsyncSqliteSaver.from_conn_string('.workflow/sacv.db') "
+            "For testing use: MemorySaver() — note that MemorySaver does not persist "
+            "across process restarts and cannot resume after HITL interrupts."
         )
     return builder.compile(checkpointer=checkpointer)
