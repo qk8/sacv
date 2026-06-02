@@ -152,7 +152,7 @@ def make_actor_node(deps: "NodeDeps"):
                     critic_feedback=critic_fb or "None.",
                 ),
                 max_turns=10,
-                allowed_tools=["Read", "Glob"],
+                allowed_tools=["read_file", "list_directory"],
             ),
         )
 
