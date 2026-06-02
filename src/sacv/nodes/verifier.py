@@ -253,6 +253,7 @@ async def _query_actuator(handle, base_url: str, deps) -> dict | None:
 
 async def _query_otel(handle, task_id: str, deps) -> dict | None:
     """Query OTel/Jaeger for traces correlated with this test run (approach 1)."""
+    cfg = deps.config.debug
     result = await deps.sandbox.exec_in_container(
         handle,
         f"curl -sf '{cfg.otel_query_url}"
