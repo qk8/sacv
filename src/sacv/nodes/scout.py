@@ -22,7 +22,7 @@ import structlog
 from sacv.orchestration.state import ProjectMode, WorkflowPhase
 
 if TYPE_CHECKING:
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState
 
 log = structlog.get_logger(__name__)

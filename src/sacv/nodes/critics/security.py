@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from sacv.nodes.critics.base import _run_critic
 if TYPE_CHECKING:
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState
 
 _SECURITY_RULES = """

@@ -27,7 +27,7 @@ from sacv.interfaces.diff_provider import UnifiedDiff
 from sacv.nodes._stagnation import check_stagnation
 
 if TYPE_CHECKING:
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState
 
 log = structlog.get_logger(__name__)

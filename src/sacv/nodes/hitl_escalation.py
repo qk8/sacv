@@ -32,7 +32,7 @@ from sacv.interfaces.memory_provider import EpisodicEvent
 
 if TYPE_CHECKING:
     from sacv.orchestration.config import WorkflowConfig
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState
 
 log = structlog.get_logger(__name__)

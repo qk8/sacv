@@ -27,7 +27,7 @@ from sacv.orchestration.state import WorkflowPhase, PreflightResult, CRITIC_RESE
 from sacv.checks.routing.check_profiles import get_checks, CheckSpec
 
 if TYPE_CHECKING:
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState
 
 log = structlog.get_logger(__name__)

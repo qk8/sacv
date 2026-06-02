@@ -19,7 +19,7 @@ from sacv.interfaces.agent_provider import AgentConfig
 from sacv.nodes._scoring import score_strategy, prune_strategies, detect_collision_pairs
 
 if TYPE_CHECKING:
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState
 
 log = structlog.get_logger(__name__)

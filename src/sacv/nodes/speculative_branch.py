@@ -24,7 +24,7 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase, VerifierVerdict, DiagnosticVerdict, CRITIC_RESET
 
 if TYPE_CHECKING:
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState, StrategyCandidate
 
 log = structlog.get_logger(__name__)

@@ -42,7 +42,7 @@ from sacv.nodes._stagnation import embed_error_to_b64
 from sacv.nodes._log_parser import prune_stack, frames_to_dict
 
 if TYPE_CHECKING:
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState
 
 log = structlog.get_logger(__name__)

@@ -24,7 +24,7 @@ log = structlog.get_logger(__name__)
 
 def _build_deps():
     """Build NodeDeps with production adapters. Adjust paths as needed."""
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.config import WorkflowConfig
     from sacv.adapters.claude.claude_agent_adapter import ClaudeAgentAdapter
     from sacv.adapters.memory.agentmemory_adapter import AgentMemoryAdapter

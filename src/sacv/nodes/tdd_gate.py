@@ -28,7 +28,7 @@ from sacv.orchestration.state import WorkflowPhase
 from sacv.interfaces.agent_provider import AgentConfig
 
 if TYPE_CHECKING:
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState
 
 log = structlog.get_logger(__name__)
