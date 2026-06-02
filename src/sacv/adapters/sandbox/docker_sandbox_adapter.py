@@ -54,7 +54,7 @@ class DockerContainerManager(SandboxProvider):
         self,
         image:      str       = _SANDBOX_IMAGE,
         host_mount: str | Path = ".",
-        network:    str       = "bridge",  # changed from "none" — needed for OTel/Jaeger
+        network:    str       = "none",
         jdwp_port:  int       = 5005,
         cdp_port:   int       = 9229,
     ) -> None:
