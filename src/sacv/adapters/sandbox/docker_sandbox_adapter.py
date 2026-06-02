@@ -64,9 +64,6 @@ class DockerContainerManager(SandboxProvider):
         self._jdwp_port  = jdwp_port
         self._cdp_port   = cdp_port
         self._handle:    SandboxHandle | None = None
-        # Ephemeral host ports resolved at container start time
-        self._host_jdwp_port: int | None = None
-        self._host_cdp_port:   int | None = None
 
     async def warm_container(self) -> SandboxHandle:
         """
@@ -75,13 +72,13 @@ class DockerContainerManager(SandboxProvider):
         The singleton self._handle is kept only for optional long-lived
         background container reuse (not used in the main workflow).
         """
-        container_id = await self._start_container()
+        container_id, host_jdwp, host_cdp = await self._start_container()
         handle = SandboxHandle(
             container_id=container_id,
             working_dir=_DEFAULT_WORKDIR,
             warm=True,
-            host_jdwp_port=self._host_jdwp_port or self._jdwp_port,
-            host_cdp_port=self._host_cdp_port or self._cdp_port,
+            host_jdwp_port=host_jdwp,
+            host_cdp_port=host_cdp,
         )
         await self._wait_for_ready(handle)
         log.info("docker.warm_started", id=container_id[:12])
@@ -167,7 +164,13 @@ class DockerContainerManager(SandboxProvider):
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
-    async def _start_container(self) -> str:
+    async def _start_container(self) -> tuple[str, int, int]:
+        """
+        Start a new container and return (container_id, host_jdwp_port, host_cdp_port).
+
+        The ephemeral host ports are returned directly rather than stored as
+        instance-side-effects, making concurrent warm_container calls safe.
+        """
         import uuid
         name = f"{_CONTAINER_PREFIX}-{uuid.uuid4().hex[:8]}"
 
@@ -197,11 +200,11 @@ class DockerContainerManager(SandboxProvider):
         # Resolve actual ephemeral host ports from container port bindings
         # Run blocking subprocess.run in a thread pool so the event loop
         # is not blocked (BUG-002 fix).
-        self._host_jdwp_port, self._host_cdp_port = await asyncio.to_thread(
+        host_jdwp, host_cdp = await asyncio.to_thread(
             self._resolve_host_ports, container_id
         )
 
-        return container_id
+        return container_id, host_jdwp, host_cdp
 
     def _resolve_host_ports(self, container_id: str) -> tuple[int, int]:
         """
