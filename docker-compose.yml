@@ -8,13 +8,16 @@ services:
     container_name: sacv-sandbox
     volumes:
       - .:/workspace
+    # Use ephemeral ports to match DockerContainerManager._start_container() behavior.
+    # The workflow resolves actual host ports via 'docker inspect'.
+    # For manual debugging, use: docker run -p 5005:5005 -p 9229:9229 sacv-sandbox:latest
     ports:
-      - "5005:5005"    # JDWP — Java step-through debugging
-      - "9229:9229"    # CDP  — Node.js/TypeScript debugging
-      - "8080:8080"    # Spring Boot app
-      - "16686:16686"  # Jaeger query UI
-      - "4317:4317"    # OTel GRPC collector
-      - "4318:4318"    # OTel HTTP collector
+      - "0:5005"       # JDWP — ephemeral
+      - "0:9229"       # CDP  — ephemeral
+      - "0:8080"       # Spring Boot app — ephemeral
+      - "0:16686"      # Jaeger query UI — ephemeral
+      - "0:4317"       # OTel GRPC collector — ephemeral
+      - "0:4318"       # OTel HTTP collector — ephemeral
     networks:
       - sacv-internal
     restart: "no"
