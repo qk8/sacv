@@ -94,14 +94,19 @@ def make_preflight_node(deps: "NodeDeps"):
                 )
 
             duration_ms = int((time.monotonic() - t0) * 1000)
-            # For "required=False" checks, don't fail the gate — just report
-            lsp_spec = next((c for c in active_checks if c.name == "lsp"), CheckSpec("lsp"))
+            # For "required=False" checks, don't fail the gate — just report.
+            lsp_spec  = next((c for c in active_checks if c.name == "lsp"),  CheckSpec("lsp"))
             arch_spec = next((c for c in active_checks if c.name == "arch"), CheckSpec("arch"))
+            # Only checks marked required=True block forward progress.
+            # cross_stack is always required when it runs.
             required_failed = (
-                (lsp_errors and lsp_spec.required)
+                (lsp_errors   and lsp_spec.required)
                 or (arch_errs and arch_spec.required)
+                or bool(cross_stack_errors)
             )
-            passed = not required_failed and not lsp_errors and not arch_errs and not cross_stack_errors
+            # passed iff no required check failed.
+            # Non-required check findings are still recorded in PreflightResult for reporting.
+            passed = not required_failed
 
             result = PreflightResult(
                 passed=passed,
