@@ -177,7 +177,7 @@ class DockerContainerManager(SandboxProvider):
             self._image,
             # Do NOT override CMD — let sandbox-start.sh run (starts Jaeger etc.)
         ]
-        proc_result = await _run_docker(cmd)
+        proc_result = await _run_docker(cmd, timeout=300)
         container_id = proc_result.strip()
 
         # Resolve actual ephemeral host ports from container port bindings
@@ -255,14 +255,29 @@ class DockerContainerManager(SandboxProvider):
         # Do not raise — container may still be usable; services just started slowly
 
 
-async def _run_docker(cmd: list[str]) -> str:
-    """Run a docker command and return stdout. Raises RuntimeError on failure."""
+async def _run_docker(cmd: list[str], timeout: int = 60) -> str:
+    """Run a docker command and return stdout. Raises RuntimeError on failure.
+
+    Args:
+        cmd: Docker CLI command.
+        timeout: Max seconds to wait. Default 60s. Use 300s for container
+                 start (first run may need to pull the image).
+    """
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=float(timeout),
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        raise RuntimeError(
+            f"docker command timed out after {timeout}s: {' '.join(cmd[:4])}"
+        )
     if proc.returncode != 0:
         raise RuntimeError(
             f"docker command failed: {' '.join(cmd[:4])}\n"
