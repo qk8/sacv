@@ -4,8 +4,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sacv.orchestration.graph import NodeDeps
-    from sacv.orchestration.state import WorkflowState, AgentResult
+    from sacv.orchestration.deps import NodeDeps
+    from sacv.orchestration.state import WorkflowState
+    from sacv.interfaces.agent_provider import AgentResult
+    from sacv.orchestration.config import WorkflowConfig
 
 
 def accumulate_cost(
