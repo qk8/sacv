@@ -291,19 +291,26 @@ async def _run_visual_diff(handle, task_id: str, deps) -> dict | None:
         log.warning("verifier.build_failed_for_visual_diff")
         return None
 
-    # Run visual diff as separate command to isolate JSON output
+    # Run visual diff — redirect stderr to a log file, NOT stdout
     vd_cmd = (
         f"node /sacv/visual-diff.js "
         f"--task {shlex.quote(safe_task_id)} "
-        f"--output {shlex.quote(output_path)} 2>&1 && "
-        f"cat {shlex.quote(output_path)}"
+        f"--output {shlex.quote(output_path)} "
+        f"2>/tmp/vd-stderr.log"
     )
-    r = await deps.sandbox.exec_in_container(handle, vd_cmd, timeout=60)
+    run_r = await deps.sandbox.exec_in_container(handle, vd_cmd, timeout=60)
+    if run_r.exit_code != 0:
+        log.warning("verifier.visual_diff_failed", exit_code=run_r.exit_code)
+        return None
+
+    # Read output separately — stdout is clean JSON only
+    cat_r = await deps.sandbox.exec_in_container(
+        handle, f"cat {shlex.quote(output_path)}", timeout=5
+    )
     try:
-        return json.loads(r.stdout.strip())
+        return json.loads(cat_r.stdout.strip())
     except json.JSONDecodeError:
-        log.warning("verifier.visual_diff_parse_failed",
-                    stdout=r.stdout[:200])
+        log.warning("verifier.visual_diff_parse_failed", stdout=cat_r.stdout[:200])
         return None
 
 
