@@ -75,6 +75,15 @@ async def _stop_deps(deps: "NodeDeps") -> None:
 
 
 async def cmd_run(args: argparse.Namespace) -> None:
+    import os
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print(
+            "ERROR: ANTHROPIC_API_KEY environment variable is not set.\n"
+            "Set it with: export ANTHROPIC_API_KEY=sk-ant-...",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     from sacv.orchestration.graph import build_graph
     from sacv.orchestration.state import WorkflowPhase
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
