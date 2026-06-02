@@ -23,5 +23,9 @@ fi
 # ── Wait for ports to be ready ────────────────────────────────────────────────
 sleep 1
 
+# Signal that the container is ready to receive docker exec commands.
+# DockerContainerManager._wait_for_ready() polls for this file.
+touch /tmp/sacv-ready
+
 echo "[sacv-sandbox] Ready. Waiting for docker exec commands..."
 tail -f /dev/null
