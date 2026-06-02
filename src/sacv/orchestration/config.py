@@ -112,6 +112,7 @@ class WorkflowConfig:
             max_strategies=raw.get("max_strategies", 3),
             max_blast_files=raw.get("max_blast_files", 50),
             monorepo_mode=raw.get("monorepo_mode", False),
+            agents_md_prompt_chars=raw.get("agents_md_prompt_chars", 2_000),
             debug=DebugConfig(
                 user_java_package=dbg.get("user_java_package", "com.example"),
                 user_ts_src_root=dbg.get("user_ts_src_root", "src"),
