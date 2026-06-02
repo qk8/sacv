@@ -85,10 +85,11 @@ def _merge_lists(existing: list | None, new: list | _CriticReset | None) -> list
 
     Return value semantics for any node updating ``critic_findings``:
       - Return ``None``  → field unchanged (node did not touch it).
-      - Return ``CRITIC_RESET`` or ``[]`` → RESET: clears all accumulated
-        findings. Use this in Actor/Bootstrap to wipe stale data.
+      - Return ``CRITIC_RESET`` → RESET: clears all accumulated findings.
+        Use this in Actor/Bootstrap to wipe stale data.
+      - Return ``[]`` → no-op: critic found nothing (preserves existing findings).
       - Return ``[...]`` → APPEND: adds findings to the existing list.
-                           Use this in individual critic nodes.
+        Use this in individual critic nodes.
 
     RULE:
       - Critics:     return {"critic_findings": [new_finding_1, ...]}
@@ -96,10 +97,11 @@ def _merge_lists(existing: list | None, new: list | _CriticReset | None) -> list
       - Observers:   return {} or omit the key entirely  (None = no change)
     """
     if new is None:
-        return existing or []   # no change
-    # Empty list or CRITIC_RESET sentinel is an explicit RESET signal
-    if new == CRITIC_RESET or (isinstance(new, list) and len(new) == 0):
+        return existing or []
+    if new == CRITIC_RESET:          # ONLY the explicit sentinel resets
         return []
+    if isinstance(new, list) and len(new) == 0:
+        return existing or []        # empty list = no findings = no change
     return (existing or []) + new
 
 
