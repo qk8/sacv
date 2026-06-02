@@ -39,26 +39,38 @@ _GREENFIELD_MAX_COMMITS = 5   # fewer than this = likely new project
 def _detect_mode(cwd: Path) -> ProjectMode:
     """
     Heuristic detection: pure function, no I/O beyond filesystem stat calls.
-    Returns BROWNFIELD if any signal file exists; GREENFIELD otherwise.
+    Returns BROWNFIELD if any signal file exists and commit count exceeds
+    the greenfield threshold; GREENFIELD otherwise.
     """
+    git_dir = cwd / ".git"
+    has_git = git_dir.is_dir()
+
     for signal in _BROWNFIELD_SIGNALS:
         candidate = cwd / signal
-        if candidate.exists():
-            # Additional check: if it's a git repo, count commits
-            git_dir = cwd / ".git"
-            if git_dir.is_dir():
-                try:
-                    import subprocess
-                    result = subprocess.run(
-                        ["git", "rev-list", "--count", "HEAD"],
-                        capture_output=True, text=True, cwd=str(cwd), timeout=5,
-                    )
-                    commit_count = int(result.stdout.strip() or "0")
-                    if commit_count <= _GREENFIELD_MAX_COMMITS:
-                        return ProjectMode.GREENFIELD
-                except Exception:
-                    pass
-            return ProjectMode.BROWNFIELD
+
+        # Skip git-specific signals when no git repo
+        if signal == ".git/refs/heads" and not has_git:
+            continue
+
+        if not candidate.exists():
+            continue
+
+        # If we have git, consult commit count before declaring brownfield
+        if has_git:
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["git", "rev-list", "--count", "HEAD"],
+                    capture_output=True, text=True, cwd=str(cwd), timeout=5,
+                )
+                commit_count = int(result.stdout.strip() or "0")
+                if commit_count <= _GREENFIELD_MAX_COMMITS:
+                    return ProjectMode.GREENFIELD
+            except Exception:
+                pass
+
+        return ProjectMode.BROWNFIELD
+
     return ProjectMode.GREENFIELD
 
 
