@@ -55,6 +55,8 @@ async def run_verifier_with_confidence(
     out    = await _inner(state)
     merged = {**state, **out}
     score  = compute_confidence_score(merged, deps.config)
-    # Carry existing cumulative cost forward (cost is accumulated by agent-calling nodes)
+    # The verifier node makes no LLM calls; cost does not change here.
+    # Individual agent-calling nodes (actor, tdd_gate, etc.) are responsible
+    # for accumulating cost via add_agent_cost() in their own return dicts.
     existing_cost = state.get("cumulative_cost_dollars", 0.0)
     return {**out, "confidence_score": score, "cumulative_cost_dollars": existing_cost}
