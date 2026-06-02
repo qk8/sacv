@@ -14,7 +14,6 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
 
 from sacv.orchestration.config import WorkflowConfig
 from sacv.orchestration.state import WorkflowState
@@ -188,4 +187,10 @@ def build_graph(
         },
     )
 
-    return builder.compile(checkpointer=checkpointer or MemorySaver())
+    if checkpointer is None:
+        raise ValueError(
+            "build_graph() requires an explicit checkpointer. "
+            "Use AsyncSqliteSaver.from_conn_string('.workflow/sacv.db') "
+            "to enable HITL resume. MemorySaver is not supported."
+        )
+    return builder.compile(checkpointer=checkpointer)
