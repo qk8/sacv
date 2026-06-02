@@ -97,20 +97,36 @@ def make_replan_node(deps: "NodeDeps"):
             log.error("replan.parse_error", error=str(exc))
             raw = []
 
-        # Remap to StrategyCandidate format (scoring happens in value_node)
+        # Remap to StrategyCandidate format with real scoring
         from sacv.orchestration.state import StrategyCandidate
-        new_candidates = [
-            StrategyCandidate(
+        from sacv.nodes._scoring import score_strategy
+
+        blast = state.get("blast_radius_map") or {}
+        blast_risk = float(blast.get("risk_score", 0.0))
+        all_file_sets = [set(r.get("affected_files", [])) for r in raw]
+
+        new_candidates = []
+        for i, r in enumerate(raw):
+            files = r.get("affected_files", [])
+            # Compute collision_ratio: fraction of files shared with other candidates
+            my_files = set(files)
+            other_files = set().union(*[fs for j, fs in enumerate(all_file_sets) if j != i])
+            collision = len(my_files & other_files) / max(len(my_files), 1)
+            composite = score_strategy(
+                affected_files=files,
+                collision_ratio=collision,
+                blast_radius_impact=blast_risk,
+                config=cfg,
+            )
+            new_candidates.append(StrategyCandidate(
                 strategy_id=r.get("strategy_id", f"r{i+1}"),
                 description=r.get("description", "") + f" [avoids: {r.get('avoids','')}]",
-                affected_files=r.get("affected_files", []),
-                token_depth_score=0.5,   # placeholder — value_node will rescore
-                collision_score=0.5,
-                blast_radius_score=0.5,
-                composite_score=0.5,
-            )
-            for i, r in enumerate(raw)
-        ]
+                affected_files=files,
+                token_depth_score=max(0.0, 1.0 - len(files) / max(cfg.max_blast_files, 1)),
+                collision_score=max(0.0, 1.0 - collision),
+                blast_radius_score=max(0.0, 1.0 - blast_risk),
+                composite_score=composite,
+            ))
 
         log.info("replan.complete", new_candidates=len(new_candidates))
 
