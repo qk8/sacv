@@ -154,11 +154,26 @@ class BranchManager(GitProvider):
     # ── Speculative branch isolation ──────────────────────────────────────
 
     def create_worktree(self, branch_name: str, worktree_path: Path) -> Path:
-        """Create an isolated worktree for speculative evaluation."""
+        """Create an isolated worktree for speculative evaluation.
+
+        If the branch already exists (e.g., from a prior crashed run),
+        reuse it without creating a new branch.
+        """
         worktree_path.mkdir(parents=True, exist_ok=True)
-        self._run([
-            "git", "worktree", "add", str(worktree_path), "-b", branch_name,
-        ])
+        # Check if branch already exists
+        check = subprocess.run(
+            ["git", "branch", "--list", branch_name],
+            cwd=str(self._root), capture_output=True, text=True, timeout=10,
+        )
+        branch_exists = bool(check.stdout.strip())
+
+        if branch_exists:
+            # Reuse existing branch — worktree add without -b
+            self._run(["git", "worktree", "add", str(worktree_path), branch_name])
+        else:
+            # Create new branch
+            self._run(["git", "worktree", "add", str(worktree_path), "-b", branch_name])
+
         log.info("git.worktree_created", branch=branch_name, path=str(worktree_path))
         return worktree_path
 
