@@ -22,6 +22,7 @@ The node ALWAYS routes to Actor afterwards — even partial observations help.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import shlex
@@ -300,7 +301,6 @@ async def _run_jdwp_session(
     await deps.sandbox.exec_in_container(handle, start_cmd, timeout=5)
 
     # Brief pause for JVM to start
-    import asyncio
     await asyncio.sleep(2)
 
     try:
@@ -374,8 +374,6 @@ async def _run_cdp_session(
     first_frame = pruned[0]
     target_line = max(1, first_frame.line + strategy.breakpoint_offset)
     target_file = first_frame.file
-
-    import asyncio
 
     # Start Node in inspect-brk mode
     # Search common build output locations in priority order:
