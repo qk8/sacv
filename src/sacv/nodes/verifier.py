@@ -255,7 +255,8 @@ async def _query_otel(handle, task_id: str, deps) -> dict | None:
     """Query OTel/Jaeger for traces correlated with this test run (approach 1)."""
     result = await deps.sandbox.exec_in_container(
         handle,
-        f"curl -sf '{cfg.otel_query_url}?service=sacv-sandbox&limit=5' 2>/dev/null "
+        f"curl -sf '{cfg.otel_query_url}"
+        f"?service=sacv-sandbox&limit=5&lookback={120_000_000}' 2>/dev/null "
         "|| echo 'NO_OTEL'",
         timeout=8,
     )
