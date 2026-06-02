@@ -20,8 +20,16 @@ else
     echo "[sacv-sandbox] Jaeger not found — OTel trace correlation disabled"
 fi
 
-# ── Wait for ports to be ready ────────────────────────────────────────────────
-sleep 1
+# ── Wait for Jaeger HTTP query port to be ready ───────────────────────────
+if command -v jaeger &>/dev/null; then
+    for i in $(seq 1 30); do
+        if curl -sf http://localhost:16686/ &>/dev/null; then
+            echo "[sacv-sandbox] Jaeger query API ready"
+            break
+        fi
+        sleep 0.5
+    done
+fi
 
 # Signal that the container is ready to receive docker exec commands.
 # DockerContainerManager._wait_for_ready() polls for this file.
