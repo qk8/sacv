@@ -40,7 +40,18 @@ class VCRAgentProvider(AgentProvider):
         return result
 
     async def create_subagent(self, config: AgentConfig) -> "VCRAgentProvider":
-        return VCRAgentProvider(None, f"{self._cassette.stem}_sub", self._mode)
+        """
+        VCRAgentProvider does not support subagents in isolation.
+        Subagent calls are recorded inline in the parent cassette.
+        Returns a new VCR provider pointing at the same cassette.
+        """
+        child = VCRAgentProvider.__new__(VCRAgentProvider)
+        child._provider     = None
+        child._cassette     = self._cassette
+        child._mode         = self._mode
+        child._recordings   = self._recordings
+        child._replay_index = self._replay_index
+        return child
 
     def save_cassette(self) -> None:
         FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
