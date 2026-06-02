@@ -220,7 +220,7 @@ def _build_hints(
             automated=False,
         ))
 
-   # TDD gate failure: oracle couldn't produce red-phase evidence
+    # TDD gate failure: oracle couldn't produce red-phase evidence
     if (
         state.get("tdd_gate_attempts", 0) >= config.max_tdd_gate_attempts
         and not state.get("red_phase_evidence_path")
