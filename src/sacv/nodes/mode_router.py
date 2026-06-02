@@ -70,7 +70,12 @@ def make_mode_router_node(deps: "NodeDeps"):
         if provided in (ProjectMode.GREENFIELD.value, ProjectMode.BROWNFIELD.value):
             mode_str = provided
         else:
-            mode     = await asyncio.to_thread(_detect_mode, Path.cwd())
+            # Use git root from BranchManager, not process CWD
+            if hasattr(deps.git, "_root"):
+                project_root = deps.git._root
+            else:
+                project_root = Path.cwd()  # fallback only
+            mode     = await asyncio.to_thread(_detect_mode, project_root)
             mode_str = mode.value
 
         log.info("mode_router.resolved", mode=mode_str, task_id=state["task_id"])
