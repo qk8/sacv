@@ -186,16 +186,13 @@ async def _evaluate_branch(
 
         # ── Isolated deps per worktree ───────────────────────────────────
         from sacv.git.branch_manager import BranchManager
-        from sacv.adapters.sandbox import DockerContainerManager
         from sacv.git.diff_engine import DiffEngine
         from sacv.orchestration.deps import NodeDeps
 
         branch_git = BranchManager(repo_root=worktree_path)
-        branch_sandbox = DockerContainerManager(
-            host_mount=str(worktree_path),
-            jdwp_port=deps.sandbox._jdwp_port if hasattr(deps.sandbox, "_jdwp_port") else 5005,
-            cdp_port=deps.sandbox._cdp_port if hasattr(deps.sandbox, "_cdp_port") else 9229,
-        )
+        # Use factory method to preserve port configuration without
+        # accessing private attributes (HIGH-005, MED-006 fix).
+        branch_sandbox = deps.sandbox.create_isolated_instance(str(worktree_path))
         branch_diff = DiffEngine(repo_root=worktree_path)
 
         branch_deps = NodeDeps(

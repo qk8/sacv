@@ -151,6 +151,20 @@ class DockerContainerManager(SandboxProvider):
         await _run_docker(["docker", "rm", "-f", handle.container_id])
         log.info("docker.destroyed", id=handle.container_id[:12])
 
+    def create_isolated_instance(self, host_mount: str) -> "DockerContainerManager":
+        """
+        Create a new DockerContainerManager with a different host mount
+        but the same port configuration. Used by speculative branching
+        to create isolated sandbox instances for parallel evaluation.
+        """
+        return DockerContainerManager(
+            image=self._image,
+            host_mount=host_mount,
+            network=self._network,
+            jdwp_port=self._jdwp_port,
+            cdp_port=self._cdp_port,
+        )
+
     # ── Internal helpers ──────────────────────────────────────────────────
 
     async def _start_container(self) -> str:

@@ -273,3 +273,10 @@ class StubSandboxProvider(SandboxProvider):
 
     async def destroy_container(self, handle: SandboxHandle) -> None:
         pass
+
+    def create_isolated_instance(self, host_mount: str) -> "StubSandboxProvider":
+        return StubSandboxProvider(
+            default_exit_code=self._default.exit_code,
+            default_stdout=self._default.stdout,
+            default_stderr=self._default.stderr,
+        )
