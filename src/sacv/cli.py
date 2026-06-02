@@ -105,7 +105,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
             "module_type":      args.module,
             "session_id":       "",
             "current_phase":    WorkflowPhase.BOOTSTRAP.value,
-            "check_profile":    "standard",    # BUG-010: required WorkflowState field
+            "check_profile":    args.check_profile,
             # All remaining fields initialised to None/[] by bootstrap
             "context_skeleton":       None, "blast_radius_map": None,
             "agents_md_context":      None, "strategy_candidates": [],
@@ -194,6 +194,16 @@ def main() -> None:
             "infrastructure", "cross-cutting",
         ],
         default="backend-domain",
+    )
+    run_p.add_argument(
+        "--check-profile",
+        choices=["standard", "full"],
+        default="standard",
+        help=(
+            "Preflight check profile. 'standard' runs LSP + architecture "
+            "checks. 'full' additionally runs cross-stack type safety, "
+            "performance delta, and visual diff checks."
+        ),
     )
 
     res_p = sub.add_parser("resume", help="Resume a paused HITL escalation")
