@@ -7,9 +7,9 @@ Tests cover:
 1. _feature_id — ID generation from task IDs
 2. _canonicalise_test_path — permanent path enforcement
 3. _test_command_for — test command selection
-4. Strategy absence handling in tdd_gate_node
-5. JSON parse failure handling
-6. Unexpected test pass detection
+
+Full tdd_gate_node integration (agent call → sandbox → red phase)
+is tested in test_tdd_gate.py.
 """
 from __future__ import annotations
 
