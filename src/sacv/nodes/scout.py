@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_FILE_PATTERN = re.compile(r"[\w/\-]+\.(java|ts|tsx|sql|yaml|yml|json|xml)")
+_FILE_PATTERN = re.compile(r"[\w/\-]+\.(?:tsx|ts|java|sql|yaml|yml|json|xml)")
 _AGENTS_MD    = Path("AGENTS.md")
 _MAX_AGENTS_MD_CHARS = 4_000   # truncate to avoid context bloat
 
