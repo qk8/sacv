@@ -101,10 +101,19 @@ def make_value_node(deps: "NodeDeps"):
 
         # ── 2. Parse LLM JSON response ────────────────────────────────────
         try:
-            raw_strategies: list[dict] = json.loads(result.content)
+            parsed = json.loads(result.content)
         except (json.JSONDecodeError, ValueError) as exc:
             log.error("value_node.parse_error", error=str(exc))
-            raw_strategies = []
+            parsed = None
+
+        if not isinstance(parsed, list):
+            log.warning(
+                "value_node.non_list_response",
+                type=type(parsed).__name__,
+            )
+            parsed = None
+
+        raw_strategies: list[dict] = parsed if parsed is not None else []
 
         # ── 3. Score each strategy (deterministic) ────────────────────────
         blast_files = set(blast["affected_files"]) if blast else set()

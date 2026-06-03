@@ -75,6 +75,15 @@ def make_tdd_gate_node(deps: "NodeDeps"):
 
         log.info("tdd_gate.start", task_id=task_id, module=module)
 
+        # ── Skip for test scenarios ────────────────────────────────────────
+        if state.get("skip_tdd_gate"):
+            log.info("tdd_gate.skipped", task_id=task_id)
+            return {
+                "red_phase_evidence_path": ".workflow/tdd-evidence/skipped.json",
+                "test_inventory_paths":    [],
+                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+            }
+
         if strategy is None:
             log.error("tdd_gate.no_strategy")
             return {

@@ -68,7 +68,7 @@ class BranchManager(GitProvider):
             log.debug("git.stash_nothing_to_stash")
             return ""  # nothing to stash — return sentinel
 
-        self._run(["git", "stash", "push", "-m", message])
+        self._run(["git", "stash", "push", "-u", "-m", message])
 
         # Use the stash SHA for a stable reference that survives subsequent
         # stash operations. 'git rev-parse stash@{0}' returns the object SHA
@@ -148,8 +148,10 @@ class BranchManager(GitProvider):
 
     def uncommitted_files(self) -> list[str]:
         result = self._run(["git", "status", "--porcelain"])
-        lines  = [l.strip() for l in result.stdout.splitlines() if l.strip()]
-        return [l[3:] for l in lines]   # strip status prefix (e.g. "M  ")
+        lines  = [l for l in result.stdout.splitlines() if l.strip()]
+        # Porcelain format: XX FILENAME or XX FILENAME <tab> RENAMED_FILE
+        # First 2 chars are status, char 3 is space or tab
+        return [l[3:].split("\t")[0] for l in lines if len(l) >= 3]
 
     # ── Speculative branch isolation ──────────────────────────────────────
 

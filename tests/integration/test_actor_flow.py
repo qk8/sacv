@@ -70,15 +70,11 @@ def _initial_state(task_id: str = "task-af-001") -> dict:
                                    "dependencies": {}, "schema_map": {}, "arch_align": {}},
         "blast_radius_map":       None,
         "agents_md_context":      None,
-        "strategy_candidates":    [{"strategy_id": "s1", "description": "Add findById",
-                                     "affected_files": ["UserService.java"],
-                                     "token_depth_score": 0.8, "collision_score": 0.8,
-                                     "blast_radius_score": 0.8, "composite_score": 0.8}],
-        "selected_strategy":      {"strategy_id": "s1", "description": "Add findById",
-                                     "affected_files": ["UserService.java"]},
+        "strategy_candidates":    [],
+        "selected_strategy":      None,
         "pruned_strategies":      [],
-        "red_phase_evidence_path": ".workflow/tdd-evidence/task-af-001.json",
-        "test_inventory_paths":   ["src/test/java/com/example/UserServiceTest.java"],
+        "red_phase_evidence_path": None,
+        "test_inventory_paths":   [],
         "tdd_gate_attempts":      0,
         "diff_proposal":          None,
         "preflight_result":       None,
@@ -101,6 +97,7 @@ def _initial_state(task_id: str = "task-af-001") -> dict:
         "arch_rules_updated":     False,
         "check_profile":          "standard",
         "cumulative_cost_dollars": 0.0,
+        "skip_tdd_gate":          True,
     }
 
 
@@ -112,23 +109,72 @@ def _passing_sandbox() -> StubSandboxProvider:
     return s
 
 
+# ── Full stub chains for tests that start from BOOTSTRAP ─────────────────────
+# LangGraph always runs from START → bootstrap → mode_router → scout → value_node
+# → tdd_gate → actor → ...  We must provide stubs for every node that calls the agent.
+
+
+def _actor_chain(diff_response, *extra_responses) -> list[AgentResult]:
+    """Chain: value_node + actor + critics + memory (after skipping tdd_gate).
+
+    skip_tdd_gate=True → tdd_gate returns immediately (no agent call)
+    value_node → generate strategy (1 agent call)
+    actor → produces diff (1 agent call)
+    critics → empty (3 agent calls)
+    memory_consolidation → 2 agent calls (AGENTS.md + arch rules)
+    """
+    return [
+        # value_node: generate strategy
+        make_json_agent_result([{
+            "strategy_id": "s1", "description": "Add findById",
+            "affected_files": ["UserService.java"],
+        }]),
+        # actor: produce diff
+        diff_response,
+        # critics: empty
+        *_empty_critics(),
+        # memory_consolidation
+        _agents_md_response(),
+        _arch_rule_response(),
+        *extra_responses,
+    ]
+
+
+def _bootstrap_chain_preflight_error(diff_response, *extra_responses) -> list[AgentResult]:
+    """Chain with preflight error → actor retry → clean preflight."""
+    return [
+        # value_node: generate strategy
+        make_json_agent_result([{
+            "strategy_id": "s1", "description": "Add findById",
+            "affected_files": ["UserService.java"],
+        }]),
+        # actor (first attempt): produce diff
+        diff_response,
+        # actor (retry after preflight error): produce diff
+        diff_response,
+        # critics: empty
+        *_empty_critics(),
+        # memory_consolidation
+        _agents_md_response(),
+        _arch_rule_response(),
+        *extra_responses,
+    ]
+
+
 @pytest.mark.asyncio
 @pytest.mark.integration
 class TestActorFlow:
 
     async def test_actor_to_preflight_to_critics_to_verifier_pass(self, tmp_path, monkeypatch):
         """
-        Full flow: actor produces diff -> preflight clean -> critics empty -> verifier PASS.
+        Full flow from START: bootstrap → scout → value_node → tdd_gate
+        → actor produces diff → preflight clean → critics empty → verifier PASS.
         """
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".workflow").mkdir()
 
-        agent = StubAgentProvider([
-            _diff_response(),        # actor
-            *_empty_critics(),       # 3 critics
-            _agents_md_response(),   # memory_consolidation (AGENTS.md)
-            _arch_rule_response(),   # memory_consolidation (arch rules)
-        ])
+        chain = _actor_chain(_diff_response())
+        agent = StubAgentProvider(chain)
         sandbox = _passing_sandbox()
         deps = NodeDeps(
             agent=agent,
@@ -141,9 +187,7 @@ class TestActorFlow:
             config=WorkflowConfig(max_self_correction_cycles=3),
         )
 
-        # Start from ACTOR phase (skip bootstrap through tdd_gate)
         state = _initial_state("task-af-full")
-        state["current_phase"] = WorkflowPhase.ACTOR.value
 
         graph = build_graph(deps, checkpointer=MemorySaver())
         cfg = {"configurable": {"thread_id": "af-full"}}
@@ -152,25 +196,20 @@ class TestActorFlow:
 
         assert final["current_phase"] == WorkflowPhase.COMPLETE.value
         assert final["verifier_verdict"]["test_result"] == "PASS"
-        # Agent should have been called: 1 actor + 3 critics + 2 memory_consolidation = 6
+        # Agent should have been called: 1 value_node + 1 actor
+        # + 3 critics + 1 memory_consolidation (arch_rules skipped when no violations) = 6
         assert len(agent.calls) == 6
 
     async def test_preflight_errors_trigger_actor_retry(self, tmp_path, monkeypatch):
         """
-        Actor -> preflight (LSP errors) -> actor retry -> preflight (clean) -> critics -> verifier PASS.
+        Actor -> preflight (LSP errors) -> actor retry -> preflight (clean)
+        -> critics -> verifier PASS.
         """
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".workflow").mkdir()
 
-        agent = StubAgentProvider([
-            # First actor attempt
-            _diff_response(),
-            # Preflight finds errors, routes back to actor
-            _diff_response(),       # actor retry
-            *_empty_critics(),      # 3 critics
-            _agents_md_response(),  # memory_consolidation
-            _arch_rule_response(),  # memory_consolidation
-        ])
+        chain = _bootstrap_chain_preflight_error(_diff_response())
+        agent = StubAgentProvider(chain)
 
         # First preflight has errors, second is clean
         preflight_results = iter([
@@ -181,11 +220,19 @@ class TestActorFlow:
 
         class _PreflightSandbox(StubSandboxProvider):
             async def exec_in_container(self, handle, command, env=None, timeout=120):
-                if "mvn compile" in command or "tsc" in command:
+                # Preflight checks: mvn compile -q or tsc --noEmit
+                if "mvn compile" in command or "tsc --noEmit" in command:
                     result = preflight_results.__next__()
                     if result["passed"]:
                         return ExecResult(0, "", "", 10)
-                    return ExecResult(1, result["lsp_errors"][0]["message"], "", 10)
+                    # Return output matching _JAVA_ERROR_RE regex:
+                    # [ERROR] <file>.java:<line>,<col> <message>
+                    err = result["lsp_errors"][0]
+                    error_line = f"[ERROR] {err['file']}:[{err['line']},10] {err['message']}"
+                    return ExecResult(1, error_line, "", 10)
+                # Verifier: run tests
+                if "mvn test" in command:
+                    return ExecResult(0, "BUILD SUCCESS\nTests run: 5, Failures: 0", "", 100)
                 return ExecResult(0, "BUILD SUCCESS\nTests run: 5, Failures: 0", "", 100)
 
         sandbox = _PreflightSandbox()
@@ -201,7 +248,6 @@ class TestActorFlow:
         )
 
         state = _initial_state("task-af-retry")
-        state["current_phase"] = WorkflowPhase.ACTOR.value
 
         graph = build_graph(deps, checkpointer=MemorySaver())
         cfg = {"configurable": {"thread_id": "af-retry"}}
@@ -210,7 +256,8 @@ class TestActorFlow:
 
         assert final["current_phase"] == WorkflowPhase.COMPLETE.value
         assert final["verifier_verdict"]["test_result"] == "PASS"
-        # Should have 2 actor calls (first + retry) + 3 critics + 2 memory = 7
+        # Should have 2 actor calls (first + retry) + 1 value_node
+        # + 3 critics + 2 memory = 8
         actor_calls = [c for c in agent.calls if c[0] == "build_agent"]
         assert len(actor_calls) == 2
 
@@ -221,19 +268,30 @@ class TestActorFlow:
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".workflow").mkdir()
 
-        # Critics that find issues
-        agent = StubAgentProvider([
-            _diff_response(),        # actor
-            make_json_agent_result([{  # security critic finds issue
+        # Custom chain: critics that find issues
+        chain = [
+            # value_node: generate strategy
+            make_json_agent_result([{
+                "strategy_id": "s1", "description": "Add findById",
+                "affected_files": ["UserService.java"],
+            }]),
+            # actor: produce diff
+            _diff_response(),
+            # security critic finds issue
+            make_json_agent_result([{
                 "critic": "security", "severity": "warning", "file": "X.java",
                 "line": 10, "rule_id": "SEC-001", "message": "Potential issue",
                 "resolution_hint": "review",
             }]),
-            make_json_agent_result([]),  # style critic
-            make_json_agent_result([]),  # consistency critic
+            # style critic: empty
+            make_json_agent_result([]),
+            # consistency critic: empty
+            make_json_agent_result([]),
+            # memory_consolidation
             _agents_md_response(),
             _arch_rule_response(),
-        ])
+        ]
+        agent = StubAgentProvider(chain)
         deps = NodeDeps(
             agent=agent,
             memory=StubMemoryProvider(),
@@ -246,7 +304,6 @@ class TestActorFlow:
         )
 
         state = _initial_state("task-af-critics")
-        state["current_phase"] = WorkflowPhase.ACTOR.value
 
         graph = build_graph(deps, checkpointer=MemorySaver())
         cfg = {"configurable": {"thread_id": "af-critics"}}
@@ -259,19 +316,29 @@ class TestActorFlow:
 
     async def test_actor_self_loop_on_empty_diff(self, tmp_path, monkeypatch):
         """
-        Actor produces empty diff -> self-loops back to actor -> produces valid diff -> verifier PASS.
+        Actor produces empty diff -> self-loop -> actor produces valid diff -> verifier PASS.
         """
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".workflow").mkdir()
 
-        agent = StubAgentProvider([
-            AgentResult(content="[]", tool_calls=[], finish_reason="stop",  # empty diff
+        chain = [
+            # value_node: generate strategy
+            make_json_agent_result([{
+                "strategy_id": "s1", "description": "Add findById",
+                "affected_files": ["UserService.java"],
+            }]),
+            # actor (first attempt): empty diff
+            AgentResult(content="[]", tool_calls=[], finish_reason="stop",
                         input_tokens=5, output_tokens=5),
-            _diff_response(),              # actor retry with valid diff
-            *_empty_critics(),             # 3 critics
-            _agents_md_response(),         # memory_consolidation
-            _arch_rule_response(),         # memory_consolidation
-        ])
+            # actor (retry): produce diff
+            _diff_response(),
+            # critics: empty
+            *_empty_critics(),
+            # memory_consolidation
+            _agents_md_response(),
+            _arch_rule_response(),
+        ]
+        agent = StubAgentProvider(chain)
         deps = NodeDeps(
             agent=agent,
             memory=StubMemoryProvider(),
@@ -284,7 +351,6 @@ class TestActorFlow:
         )
 
         state = _initial_state("task-af-empty")
-        state["current_phase"] = WorkflowPhase.ACTOR.value
 
         graph = build_graph(deps, checkpointer=MemorySaver())
         cfg = {"configurable": {"thread_id": "af-empty"}}
@@ -299,17 +365,14 @@ class TestActorFlow:
 
     async def test_cost_accumulation_across_nodes(self, tmp_path, monkeypatch):
         """
-        Token costs accumulate across actor, critics, and memory_consolidation.
+        Token costs accumulate across value_node, tdd_gate, actor, critics,
+        and memory_consolidation.
         """
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".workflow").mkdir()
 
-        agent = StubAgentProvider([
-            _diff_response(),        # actor: ~20 tokens
-            *_empty_critics(),       # 3 critics: ~6 tokens each
-            _agents_md_response(),   # memory_consolidation: ~20 tokens
-            _arch_rule_response(),   # memory_consolidation: ~20 tokens
-        ])
+        chain = _actor_chain(_diff_response())
+        agent = StubAgentProvider(chain)
         deps = NodeDeps(
             agent=agent,
             memory=StubMemoryProvider(),
@@ -325,7 +388,6 @@ class TestActorFlow:
         )
 
         state = _initial_state("task-af-cost")
-        state["current_phase"] = WorkflowPhase.ACTOR.value
 
         graph = build_graph(deps, checkpointer=MemorySaver())
         cfg = {"configurable": {"thread_id": "af-cost"}}

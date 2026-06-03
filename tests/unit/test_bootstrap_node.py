@@ -141,7 +141,7 @@ class TestBootstrapNode:
         assert event.payload["task_id"] == "task-bs-001"
         assert event.payload["module_type"] == "backend-domain"
         assert event.payload["mode"] == "greenfield"
-        assert "timestamp" in event
+        assert event.timestamp is not None
 
     async def test_all_state_fields_initialised(self):
         """Bootstrap must initialise every field in WorkflowState."""

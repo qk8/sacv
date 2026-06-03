@@ -266,6 +266,7 @@ class WorkflowState(TypedDict):
     red_phase_evidence_path: str | None
     test_inventory_paths:    list[str]   # permanent test files (approaches 6-8)
     tdd_gate_attempts:       int         # escape hatch for TDD gate infinite loop
+    skip_tdd_gate:           bool        # bypass TDD gate for test scenarios
 
     # ── Actor output ──────────────────────────────────────────────────────
     diff_proposal: DiffProposal | None

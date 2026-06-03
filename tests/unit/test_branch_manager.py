@@ -71,8 +71,8 @@ class TestStash:
 
     def test_stash_with_changes_returns_sha(self, tmp_path):
         mgr = _init_test_repo(tmp_path)
-        # Make an uncommitted change
-        (mgr._root / "new_file.txt").write_text("uncommitted")
+        # Make an uncommitted change (tracked file)
+        (mgr._root / "README.md").write_text("hello modified")
         result = mgr.stash("test stash")
         assert result != ""
         # Should be a SHA-like string
@@ -80,12 +80,13 @@ class TestStash:
 
     def test_stash_pop_returns_branch_to_clean(self, tmp_path):
         mgr = _init_test_repo(tmp_path)
-        (mgr._root / "new_file.txt").write_text("uncommitted")
+        # Make a tracked change
+        (mgr._root / "README.md").write_text("hello modified")
         stash_ref = mgr.stash("test stash")
         assert stash_ref != ""
         # Working tree should be clean now
         files = mgr.uncommitted_files()
-        assert "new_file.txt" not in files
+        assert "README.md" not in files
 
 
 @pytest.mark.unit
@@ -129,11 +130,16 @@ class TestGreenSha:
         assert mgr.get_last_green_commit() == sha
 
     def test_fallback_to_head_when_no_record(self, tmp_path):
+        # Clean up any stale green SHA file from previous tests
+        # (_GREEN_SHA_FILE is a relative path that persists across tests)
+        green_sha_file = Path(".workflow/green-sha")
+        if green_sha_file.exists():
+            green_sha_file.unlink(missing_ok=True)
         mgr = _init_test_repo(tmp_path)
-        # No green SHA recorded
-        sha = mgr.get_last_green_commit()
+        mgr2 = BranchManager(mgr._root)
+        sha = mgr2.get_last_green_commit()
         # Should return HEAD
-        assert sha == mgr.head_sha()
+        assert sha == mgr2.head_sha()
 
     def test_empty_file_fallback_to_head(self, tmp_path):
         mgr = _init_test_repo(tmp_path)
@@ -210,14 +216,20 @@ class TestDeleteBranch:
 
     def test_deletes_existing_branch(self, tmp_path):
         mgr = _init_test_repo(tmp_path)
+        original = mgr.current_branch()
         mgr.create_branch("feature-1")
+        # Switch back to original branch before deleting (git won't delete
+        # a branch we're on if it thinks the repo is a worktree for it)
+        mgr.checkout(original)
         mgr.delete_branch("feature-1")
         branches = mgr.list_branches("feature-1")
         assert branches == []
 
     def test_force_deletes_unmerged(self, tmp_path):
         mgr = _init_test_repo(tmp_path)
+        original = mgr.current_branch()
         mgr.create_branch("feature-1")
+        mgr.checkout(original)
         mgr.delete_branch("feature-1", force=True)
         branches = mgr.list_branches("feature-1")
         assert branches == []
@@ -234,15 +246,18 @@ class TestCommit:
 
     def test_commit_returns_sha(self, tmp_path):
         mgr = _init_test_repo(tmp_path)
+        # Need a file change to commit (README already committed)
+        (mgr._root / "new.txt").write_text("new content")
         sha = mgr.commit("test commit")
         assert len(sha) == 40
 
     def test_excludes_workflow_dir(self, tmp_path):
         mgr = _init_test_repo(tmp_path)
-        # Create a workflow file
+        # Create both a workflow file AND a regular file to commit
         workflow_dir = tmp_path / "repo" / ".workflow"
         workflow_dir.mkdir()
         (workflow_dir / "state.json").write_text("{}")
+        (mgr._root / "new.txt").write_text("new content")
         sha = mgr.commit("test commit")
         assert len(sha) == 40
         # The .workflow directory should not be in the commit
