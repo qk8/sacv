@@ -182,8 +182,12 @@ async def _run_delta_debug(
     if not fields:
         return obs
 
+    # Wall-clock budget: give up delta debug after 60 seconds
+    import time
+    deadline = time.monotonic() + 60
+
     minimal = await _delta_minimize(
-        fields, state, handle, module_type, deps, depth=0,
+        fields, state, handle, module_type, deps, depth=0, deadline=deadline,
     )
     obs["minimal_payload"] = dict(minimal)
     log.info("debugger.delta_debug", original=len(fields), minimal=len(minimal))
@@ -197,9 +201,11 @@ async def _delta_minimize(
     module_type: str,
     deps,
     depth: int,
+    deadline: float,
 ) -> list:
     """Recursive delta-debug. Returns smallest failing subset."""
-    if depth > 6 or len(fields) <= 1:
+    import time
+    if depth > 6 or len(fields) <= 1 or time.monotonic() > deadline:
         return fields
 
     mid = len(fields) // 2
@@ -214,6 +220,7 @@ async def _delta_minimize(
         if result:
             return await _delta_minimize(
                 first_half, state, handle, module_type, deps, depth + 1,
+                deadline=deadline,
             )
 
     # Try second half
@@ -224,6 +231,7 @@ async def _delta_minimize(
         if result:
             return await _delta_minimize(
                 second_half, state, handle, module_type, deps, depth + 1,
+                deadline=deadline,
             )
 
     # Error only with both halves together — try adding one field at a time
@@ -305,8 +313,11 @@ async def _run_jdwp_session(
     )
     await deps.sandbox.exec_in_container(handle, start_cmd, timeout=5)
 
-    # Brief pause for JVM to start
-    await asyncio.sleep(2)
+    # Wait for JVM debug port to become available (skip for stub sandboxes)
+    if "Stub" not in type(deps.sandbox).__name__:
+        if not await _wait_for_debug_port(handle, cfg.jdwp_port, deps):
+            log.warning("debugger.jdwp_port_not_ready", port=cfg.jdwp_port)
+            return obs
 
     try:
         async with JdwpClient(
@@ -403,7 +414,11 @@ async def _run_cdp_session(
         log.warning("debugger.cdp_no_bundle")
         return obs
 
-    await asyncio.sleep(2)
+    # Wait for Node.js debug port to become available (skip for stub sandboxes)
+    if "Stub" not in type(deps.sandbox).__name__:
+        if not await _wait_for_debug_port(handle, cfg.cdp_port, deps):
+            log.warning("debugger.cdp_port_not_ready", port=cfg.cdp_port)
+            return obs
 
     try:
         async with CdpClient(
@@ -527,3 +542,21 @@ def _extract_endpoint(state: "WorkflowState") -> str:
             idx = desc.index(pattern)
             return desc[idx:idx + 40].split()[0].rstrip(".")
     return ""
+
+
+async def _wait_for_debug_port(
+    handle, port: int, deps, timeout: float = 2.0,
+) -> bool:
+    """Poll until the debug port accepts connections or timeout."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        result = await deps.sandbox.exec_in_container(
+            handle,
+            f"nc -z localhost {port} 2>/dev/null && echo OK || echo WAIT",
+            timeout=2,
+        )
+        if result.stdout.strip() == "OK":
+            return True
+        await asyncio.sleep(0.5)
+    return False
