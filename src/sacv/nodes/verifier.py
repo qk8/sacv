@@ -219,6 +219,25 @@ def _classify(
     failure_text = " ".join(f.get("message", "") for f in failures).lower()
     if not p1_passed:
         return DiagnosticVerdict.FIX_IMPL.value
+
+    # ── FIX_TEST detection (p1 passed, p2 failed) ─────────────────────
+    # p2 tests are the NEW tests written by TDD gate. If they fail with
+    # assertion mismatches (not compilation), the oracle may have written
+    # tests that don't match the actual spec.
+    if not p2_passed:
+        assertion_keywords = (
+            "assertionerror", "expected", "received", "but was",
+            "expected:<", "junit.framework.assertionerror",
+            "expect(received).tobe", "toequal", "tomatch",
+        )
+        compile_keywords = (
+            "compilat", "syntax", "cannot find symbol", "module not found",
+        )
+        has_assertion_fail = any(kw in failure_text for kw in assertion_keywords)
+        has_compile_fail   = any(kw in failure_text for kw in compile_keywords)
+        if has_assertion_fail and not has_compile_fail:
+            return DiagnosticVerdict.FIX_TEST.value
+
     if any(kw in failure_text for kw in ("compilat", "syntax", "cannot find symbol", "module not found")):
         return DiagnosticVerdict.FIX_IMPL.value
     if state.get("red_phase_evidence_path"):
