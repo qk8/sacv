@@ -8,7 +8,7 @@ class AgentConfig:
     system_prompt: str
     max_turns: int
     allowed_tools: list[str] = field(default_factory=list)
-    # temperature removed: not supported by claude-code-sdk
+    # temperature removed: not supported by claude-agent-sdk
 
 @dataclass
 class AgentResult:

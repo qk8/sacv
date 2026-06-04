@@ -2,8 +2,7 @@
 adapters/claude/claude_agent_adapter.py
 =======================================
 Concrete implementation of AgentProvider using the Claude Agent SDK
-(package: claude-code-sdk, formerly claude-code-sdk, being renamed to
-claude-agent-sdk).
+(package: claude-agent-sdk).
 
 Key design decisions:
 - Each ``run_task`` call creates a fresh agent context (no cross-call leakage).
@@ -17,7 +16,6 @@ import asyncio
 import json
 from typing import AsyncIterator
 
-import anthropic
 import structlog
 from tenacity import (
     retry,
@@ -26,13 +24,11 @@ from tenacity import (
     wait_exponential,
 )
 
-# Claude Agent SDK — package name: claude-code-sdk
-# Import path may change as the SDK is renamed to claude-agent-sdk.
-# Adjust the import below if the package name changes.
+# Claude Agent SDK — package: claude-agent-sdk
 try:
-    from claude_code_sdk import (
+    from claude_agent_sdk import (
         query,
-        ClaudeCodeOptions,
+        ClaudeAgentOptions,
         AssistantMessage,
         TextBlock,
         ToolUseBlock,
@@ -44,7 +40,7 @@ except ImportError:
     # (e.g. in environments that only run tests via VCR stubs).
     class query:  # type: ignore[no-redef]
         pass
-    class ClaudeCodeOptions:  # type: ignore[no-redef]
+    class ClaudeAgentOptions:  # type: ignore[no-redef]
         pass
 
 from sacv.interfaces.agent_provider import AgentProvider, AgentConfig, AgentResult
@@ -68,23 +64,20 @@ class ClaudeAgentAdapter(AgentProvider):
     ) -> None:
         if not _SDK_AVAILABLE:
             raise ImportError(
-                "claude-code-sdk is required. Install with: "
-                "pip install claude-code-sdk"
+                "claude-agent-sdk is required. Install with: "
+                "pip install claude-agent-sdk"
             )
         self._cwd     = cwd
         self._timeout = timeout
         # Model is controlled by ANTHROPIC_MODEL env var (SDK convention)
 
-    # The claude-code-sdk may raise various connection/API errors.
+    # The claude-agent-sdk may raise various connection/API errors.
     # Retry on anything that looks transient; let programming errors through.
     @retry(
         retry=retry_if_exception_type((
             TimeoutError,
             ConnectionError,
             OSError,
-            anthropic.RateLimitError,
-            anthropic.InternalServerError,
-            anthropic.APIConnectionError,
         )),
         wait=wait_exponential(multiplier=2, min=4, max=120),
         stop=stop_after_attempt(5),
@@ -110,7 +103,7 @@ class ClaudeAgentAdapter(AgentProvider):
         input_tokens   = 0
         output_tokens  = 0
 
-        options = ClaudeCodeOptions(
+        options = ClaudeAgentOptions(
             system_prompt=config.system_prompt,
             max_turns=config.max_turns,
             allowed_tools=config.allowed_tools or [],
@@ -134,9 +127,9 @@ class ClaudeAgentAdapter(AgentProvider):
                                 })
                     # Accumulate token usage if available on message
                     usage = getattr(message, "usage", None)
-                    if usage:
-                        input_tokens  += getattr(usage, "input_tokens",  0)
-                        output_tokens += getattr(usage, "output_tokens", 0)
+                    if isinstance(usage, dict):
+                        input_tokens  += usage.get("input_tokens",  0)
+                        output_tokens += usage.get("output_tokens", 0)
 
         except asyncio.TimeoutError:
             log.error(
