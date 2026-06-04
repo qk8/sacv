@@ -244,7 +244,10 @@ def _classify(
         return DiagnosticVerdict.FIX_IMPL.value
     if any(f["severity"] == "critical" for f in findings):
         return DiagnosticVerdict.FIX_IMPL.value
-    # If we have no user-code frames and no clear signal → AMBIGUOUS → route to debugger
+    # Prefer FIX_IMPL over AMBIGUOUS when failure messages exist but don't
+    # match any known keyword — there IS a failure, just not a clear signal
+    if failure_text.strip():
+        return DiagnosticVerdict.FIX_IMPL.value
     return DiagnosticVerdict.AMBIGUOUS.value
 
 

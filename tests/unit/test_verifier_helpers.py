@@ -158,11 +158,19 @@ class TestClassify:
         ], {})
         assert result == DiagnosticVerdict.FIX_IMPL.value
 
-    def test_ambiguous_when_no_clear_signal(self):
+    def test_ambiguous_when_no_failure_messages(self):
+        # AMBIGUOUS only when failure_text is empty (no failure messages at all)
+        result = _classify(True, False, [
+            {"message": ""},
+        ], [], {})
+        assert result == DiagnosticVerdict.AMBIGUOUS.value
+
+    def test_fix_impl_when_failure_but_no_keyword_match(self):
+        # Non-empty failure messages that don't match known keywords → FIX_IMPL
         result = _classify(True, False, [
             {"message": "flaky test timed out"},
         ], [], {})
-        assert result == DiagnosticVerdict.AMBIGUOUS.value
+        assert result == DiagnosticVerdict.FIX_IMPL.value
 
 
 # ── _fallback_parse ───────────────────────────────────────────────────────────
