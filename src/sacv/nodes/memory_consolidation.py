@@ -392,6 +392,13 @@ def _inject_depcruiser_rule(config_file: Path, new_rule: str) -> None:
     except json.JSONDecodeError:
         config = {"forbidden": []}
 
+    # ── IDEMPOTENCY: skip if rule with same name already exists ─────────
+    existing_names = {r.get("name") for r in config.get("forbidden", [])}
+    if rule.get("name") in existing_names:
+        log.info("memory_consolidation.depcruiser_rule_already_exists",
+                 name=rule.get("name"))
+        return
+
     config.setdefault("forbidden", []).append(rule)
     config_file.write_text(json.dumps(config, indent=2))
 
@@ -423,6 +430,18 @@ def _inject_archunit_rule(
         return
 
     content = config_file.read_text()
+
+    # ── IDEMPOTENCY: extract rule name and check for duplicates ────────
+    import re
+    name_match = re.search(r"public\s+static\s+final\s+Arch[Rr]ule\s+(\w+)", new_rule)
+    if name_match:
+        rule_name = name_match.group(1)
+        # Check if a rule with the same name already exists in the file
+        if re.search(rf"public\s+static\s+final\s+Arch[Rr]ule\s+{re.escape(rule_name)}", content):
+            log.info("memory_consolidation.archunit_rule_already_exists",
+                     name=rule_name)
+            return
+
     # Insert before the last closing brace
     content = content.rstrip()
     if content.endswith("}"):
