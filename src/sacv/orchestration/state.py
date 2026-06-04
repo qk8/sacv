@@ -112,11 +112,22 @@ def _merge_lists(existing: list | None, new: list | _CriticReset | None) -> list
     """
     if new is None:
         return existing or []
-    if new == CRITIC_RESET:          # ONLY the explicit sentinel resets
-        return []
-    if isinstance(new, list) and len(new) == 0:
-        return existing or []        # empty list = no findings = no change
-    return (existing or []) + new
+    # Explicit sentinel check — works for both StrEnum instance and
+    # deserialized plain str from msgpack checkpoint serialization
+    if isinstance(new, str):
+        if new == CRITIC_RESET:
+            return []
+        # Non-CRITIC_RESET string is unexpected; log and ignore
+        import structlog
+        structlog.get_logger(__name__).warning(
+            "_merge_lists.unexpected_string_value", value=new[:50]
+        )
+        return existing or []
+    if isinstance(new, list):
+        if len(new) == 0:
+            return existing or []        # empty list = no findings = no change
+        return (existing or []) + new
+    return existing or []
 
 
 # ── Sub-state TypedDicts ──────────────────────────────────────────────────────
