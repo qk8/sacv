@@ -35,6 +35,7 @@ def route_after_preflight(state: WorkflowState) -> str:
         result.get("lsp_errors")
         or result.get("arch_violations")
         or result.get("cross_stack_errors")
+        or result.get("blast_errors")
     ):
         return "actor"
     return "all_critics"
