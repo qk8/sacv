@@ -18,7 +18,7 @@ from sacv.testing.stub_providers import (
 
 
 def _deps(agent, config=None):
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     return NodeDeps(
         agent=agent, memory=StubMemoryProvider(),
         code_graph=StubCodeGraphProvider(), cross_domain=StubCrossDomainProvider(),

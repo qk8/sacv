@@ -31,7 +31,7 @@ from sacv.interfaces.code_graph_provider import CallGraph, BlastRadiusMap
 def _deps(
     code_graph=None, cross_domain=None, **kw
 ):
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     return NodeDeps(
         agent=StubAgentProvider(),
         memory=StubMemoryProvider(),

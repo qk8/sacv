@@ -89,7 +89,7 @@ def base_deps():
     Override via kwarg: base_deps(agent=custom_agent)
     """
     def _make(**kw):
-        from sacv.orchestration.graph import NodeDeps
+        from sacv.orchestration.deps import NodeDeps
         defaults = {
             "agent": StubAgentProvider(),
             "memory": StubMemoryProvider(),

@@ -27,7 +27,7 @@ from sacv.interfaces.memory_provider import ProceduralConstraint
 
 
 def _deps(memory=None, **kw):
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     return NodeDeps(
         agent=StubAgentProvider(),
         memory=memory or StubMemoryProvider(),

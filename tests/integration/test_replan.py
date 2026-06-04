@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from sacv.nodes.replan import make_replan_node
-from sacv.orchestration.graph import NodeDeps
+from sacv.orchestration.deps import NodeDeps
 from sacv.orchestration.config import WorkflowConfig
 from sacv.testing.stub_providers import (
     StubAgentProvider, StubMemoryProvider, StubCodeGraphProvider,

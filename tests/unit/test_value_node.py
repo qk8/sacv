@@ -29,7 +29,7 @@ from sacv.nodes.value_node import make_value_node
 
 
 def _deps(agent=None):
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     return NodeDeps(
         agent=agent or StubAgentProvider(),
         memory=StubMemoryProvider(),

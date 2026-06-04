@@ -35,7 +35,7 @@ def _deps(
     agent=None, git=None, diff=None,
     config=None, sandbox=None,
 ):
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     return NodeDeps(
         agent=agent or StubAgentProvider(),
         memory=StubMemoryProvider(),

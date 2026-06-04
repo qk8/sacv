@@ -35,7 +35,7 @@ def _make_deps(
     sandbox:  StubSandboxProvider,
     config:   WorkflowConfig,
 ) -> object:
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     return NodeDeps(
         agent=agent,
         memory=StubMemoryProvider(),

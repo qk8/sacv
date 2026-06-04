@@ -24,7 +24,7 @@ from sacv.interfaces.sandbox_provider import ExecResult
 
 
 def _deps(sandbox):
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.config import WorkflowConfig
     return NodeDeps(
         agent=StubAgentProvider(), memory=StubMemoryProvider(),
@@ -120,7 +120,7 @@ class TestPreflightNode:
         """Preflight must never invoke the LLM."""
         agent   = StubAgentProvider()
         sandbox = StubSandboxProvider(default_exit_code=0)
-        from sacv.orchestration.graph import NodeDeps
+        from sacv.orchestration.deps import NodeDeps
         from sacv.orchestration.config import WorkflowConfig
         deps = NodeDeps(
             agent=agent, memory=StubMemoryProvider(),

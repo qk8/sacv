@@ -27,7 +27,7 @@ from sacv.interfaces.sandbox_provider import ExecResult
 
 
 def _deps(sandbox, config=None):
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     return NodeDeps(
         agent=StubAgentProvider(), memory=StubMemoryProvider(),
         code_graph=StubCodeGraphProvider(), cross_domain=StubCrossDomainProvider(),

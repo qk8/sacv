@@ -55,7 +55,7 @@ def _mock_jdwp():
 
 
 def _deps(sandbox=None, agent=None, config=None):
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     return NodeDeps(
         agent=agent or StubAgentProvider([
             make_json_agent_result("The variable `user` is null at line 42.")

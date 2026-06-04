@@ -27,7 +27,7 @@ from sacv.testing.stub_providers import (
 
 
 def _deps(git=None, **kw):
-    from sacv.orchestration.graph import NodeDeps
+    from sacv.orchestration.deps import NodeDeps
     return NodeDeps(
         agent=StubAgentProvider(),
         memory=StubMemoryProvider(),
