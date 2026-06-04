@@ -121,6 +121,17 @@ def make_speculative_branch_node(deps: "NodeDeps"):
                 await asyncio.to_thread(deps.git.checkout, branch_name)
                 await asyncio.to_thread(deps.git.stash, f"sacv-failed-{branch_name}")
 
+        # Delete failed speculative branches (keep only the winner)
+        for exhausted_branch in new_exhausted:
+            try:
+                await asyncio.to_thread(
+                    deps.git.delete_branch, exhausted_branch, force=True
+                )
+                log.info("speculative_branch.branch_deleted", branch=exhausted_branch)
+            except Exception as exc:
+                log.warning("speculative_branch.branch_delete_failed",
+                            branch=exhausted_branch, error=str(exc))
+
         if winning_branch:
             log.info("speculative_branch.winner", branch=winning_branch)
             await asyncio.to_thread(deps.git.checkout, winning_branch)
