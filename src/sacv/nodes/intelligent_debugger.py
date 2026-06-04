@@ -545,18 +545,19 @@ def _extract_endpoint(state: "WorkflowState") -> str:
 
 
 async def _wait_for_debug_port(
-    handle, port: int, deps, timeout: float = 2.0,
+    handle, port: int, deps, timeout: float | None = None,
 ) -> bool:
     """Poll until the debug port accepts connections or timeout."""
+    effective_timeout = timeout if timeout is not None else deps.config.debug.debug_port_wait_sec
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
+    deadline = loop.time() + effective_timeout
     while loop.time() < deadline:
         result = await deps.sandbox.exec_in_container(
             handle,
             f"nc -z localhost {port} 2>/dev/null && echo OK || echo WAIT",
-            timeout=2,
+            timeout=5,
         )
         if result.stdout.strip() == "OK":
             return True
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
     return False

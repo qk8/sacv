@@ -56,11 +56,12 @@ class DebugConfig:
     user_ts_src_root:   str  = "src"
     jdwp_port:          int  = 5005
     cdp_port:           int  = 9229
-    debug_timeout_sec:  int  = 30
-    max_debug_steps:    int  = 10
-    actuator_base_url:  str  = "http://localhost:8080/actuator"
-    openapi_spec_path:  str  = "contracts/openapi/api.yaml"
-    otel_query_url:     str  = "http://localhost:16686/api/traces"
+    debug_timeout_sec:   int  = 30
+    debug_port_wait_sec: float = 30.0
+    max_debug_steps:     int  = 10
+    actuator_base_url:   str  = "http://localhost:8080/actuator"
+    openapi_spec_path:   str  = "contracts/openapi/api.yaml"
+    otel_query_url:      str  = "http://localhost:16686/api/traces"
 
 
 @dataclass(frozen=True)
@@ -120,6 +121,7 @@ class WorkflowConfig:
                 jdwp_port=dbg.get("jdwp_port", 5005),
                 cdp_port=dbg.get("cdp_port", 9229),
                 debug_timeout_sec=dbg.get("debug_timeout_sec", 30),
+                debug_port_wait_sec=dbg.get("debug_port_wait_sec", 30.0),
                 max_debug_steps=dbg.get("max_debug_steps", 10),
                 actuator_base_url=dbg.get("actuator_base_url", "http://localhost:8080/actuator"),
                 openapi_spec_path=dbg.get("openapi_spec_path", "contracts/openapi/api.yaml"),
