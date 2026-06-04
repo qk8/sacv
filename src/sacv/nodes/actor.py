@@ -121,8 +121,16 @@ def make_actor_node(deps: "NodeDeps"):
         branch_name = correction.get("branch_name") or (
             f"agent-task-{sanitize_branch_name(task_id[:8])}-a{attempt}"
         )
-        if not correction.get("branch_name"):
+
+        # Guard: branch may have been deleted by speculative_branch cleanup.
+        # Check existence and create fresh if missing.
+        existing_branches = await asyncio.to_thread(deps.git.list_branches, branch_name)
+        branch_exists = branch_name in existing_branches
+
+        if not correction.get("branch_name") or not branch_exists:
+            branch_name = f"agent-task-{sanitize_branch_name(task_id[:8])}-a{attempt}"
             await asyncio.to_thread(deps.git.create_branch, branch_name)
+
         await asyncio.to_thread(deps.git.checkout, branch_name)
 
         # ── 2. Build prompt ───────────────────────────────────────────────
