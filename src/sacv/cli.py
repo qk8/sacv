@@ -86,7 +86,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
 
     from sacv.orchestration.graph import build_graph
     from sacv.orchestration.state import WorkflowPhase
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from langgraph_checkpoint_sqlite import AsyncSqliteSaver
     from sacv.adapters.sandbox import DockerContainerManager
 
     deps = _build_deps()
@@ -144,7 +144,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
 async def cmd_resume(args: argparse.Namespace) -> None:
     """Resume a graph that was paused at HITL escalation."""
     from sacv.orchestration.graph import build_graph
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from langgraph_checkpoint_sqlite import AsyncSqliteSaver
 
     esc_path = Path(f".workflow/escalations/{args.escalation_id}.json")
     if not esc_path.exists():
