@@ -42,8 +42,6 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_AGENTS_MD = Path("AGENTS.md")
-
 _AGENTS_MD_UPDATER_SYSTEM = """\
 You are a technical writer. Based on the new lesson learned, output ONLY the
 updated content for two sections as a JSON object with keys
@@ -235,7 +233,8 @@ async def _update_agents_md(
     """
     cost = state.get("cumulative_cost_dollars", 0.0)
     try:
-        current = _AGENTS_MD.read_text(encoding="utf-8") if _AGENTS_MD.exists() else _default_agents_md()
+        agents_md_path = deps.repo_root / "AGENTS.md"
+        current = agents_md_path.read_text(encoding="utf-8") if agents_md_path.exists() else _default_agents_md()
 
         result = await deps.agent.run_task(
             prompt=(
@@ -268,9 +267,9 @@ async def _update_agents_md(
             return False, cost
 
         updated = _splice_sections(current, updates)
-        _AGENTS_MD.write_text(updated, encoding="utf-8")
+        agents_md_path.write_text(updated, encoding="utf-8")
 
-        await asyncio.to_thread(deps.git.stage_file, str(_AGENTS_MD))
+        await asyncio.to_thread(deps.git.stage_file, str(agents_md_path))
         await asyncio.to_thread(
             deps.git.commit,
             f"sacv: update AGENTS.md after {state['task_id']} [skip ci]",

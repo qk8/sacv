@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 log = structlog.get_logger(__name__)
 
 _FILE_PATTERN = re.compile(r"[\w/\-]+\.(?:tsx|ts|java|sql|yaml|yml|json|xml)")
-_AGENTS_MD    = Path("AGENTS.md")
 _MAX_AGENTS_MD_CHARS = 4_000   # truncate to avoid context bloat
 
 
@@ -86,8 +85,9 @@ def make_scout_node(deps: "NodeDeps"):
 
         # ── 6. Read AGENTS.md (approach 3, 11) ────────────────────────────
         agents_md_context: str | None = None
-        if _AGENTS_MD.exists():
-            raw = _AGENTS_MD.read_text(encoding="utf-8")
+        agents_md_path = deps.repo_root / "AGENTS.md"
+        if agents_md_path.exists():
+            raw = agents_md_path.read_text(encoding="utf-8")
             agents_md_context = raw[:_MAX_AGENTS_MD_CHARS]
             if len(raw) > _MAX_AGENTS_MD_CHARS:
                 agents_md_context += "\n\n[...truncated — see AGENTS.md for full content]"

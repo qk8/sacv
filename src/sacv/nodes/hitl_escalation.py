@@ -36,7 +36,6 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_ESCALATION_DIR = Path(".workflow/escalations")
 _WORKFLOW_VERSION = "sacv-1.0"
 
 
@@ -140,8 +139,9 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
         )
 
         # ── 4. Persist payload ────────────────────────────────────────────
-        _ESCALATION_DIR.mkdir(parents=True, exist_ok=True)
-        payload_path = _ESCALATION_DIR / f"{esc_id}.json"
+        esc_dir = deps.repo_root / ".workflow" / "escalations"
+        esc_dir.mkdir(parents=True, exist_ok=True)
+        payload_path = esc_dir / f"{esc_id}.json"
         payload_path.write_text(json.dumps(payload, indent=2))
 
         log.warning("hitl.payload_written", path=str(payload_path))

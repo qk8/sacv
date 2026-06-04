@@ -49,7 +49,6 @@ def sanitize_branch_name(name: str) -> str:
     # Default to safe fallback
     return sanitized or "branch"
 
-_GREEN_SHA_FILE = Path(".workflow/green-sha")
 
 
 class BranchManager(GitProvider):
@@ -159,8 +158,9 @@ class BranchManager(GitProvider):
         Returns the last commit SHA recorded by ``record_green_commit``.
         Falls back to HEAD if no record exists.
         """
-        if _GREEN_SHA_FILE.exists():
-            sha = _GREEN_SHA_FILE.read_text().strip()
+        green_sha_file = self._root / ".workflow" / "green-sha"
+        if green_sha_file.exists():
+            sha = green_sha_file.read_text().strip()
             if sha:
                 return sha
         # Fallback: use HEAD
@@ -168,8 +168,9 @@ class BranchManager(GitProvider):
         return result.stdout.strip()
 
     def record_green_commit(self, sha: str) -> None:
-        _GREEN_SHA_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _GREEN_SHA_FILE.write_text(sha.strip())
+        green_sha_file = self._root / ".workflow" / "green-sha"
+        green_sha_file.parent.mkdir(parents=True, exist_ok=True)
+        green_sha_file.write_text(sha.strip())
         log.info("git.green_commit_recorded", sha=sha[:12])
 
     def current_branch(self) -> str:

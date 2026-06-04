@@ -34,8 +34,6 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_EVIDENCE_DIR = Path(".workflow/tdd-evidence")
-
 _ORACLE_BACKEND_SYSTEM = """\
 You are a Test Oracle for backend services (Java/Spring Boot or TypeScript/Node).
 Write FAILING tests that will pass once the implementation is complete.
@@ -175,8 +173,9 @@ def make_tdd_gate_node(deps: "NodeDeps"):
                 }
 
             # ── 4. Serialise evidence ────────────────────────────────────
-            _EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-            evidence_path = _EVIDENCE_DIR / f"{task_id}.json"
+            evidence_dir = deps.repo_root / ".workflow" / "tdd-evidence"
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            evidence_path = evidence_dir / f"{task_id}.json"
             evidence = {
                 "task_id":          task_id,
                 "permanent_paths":  permanent_paths,

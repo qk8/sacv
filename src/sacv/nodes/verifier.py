@@ -47,8 +47,6 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_EVIDENCE_DIR = Path(".workflow/tdd-evidence")
-_TRACE_DIR    = Path(".workflow/playwright-traces")
 
 # OTel collector endpoint — now configurable via DebugConfig.otel_query_url
 

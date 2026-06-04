@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
+from pathlib import Path
+
 from sacv.interfaces.agent_provider      import AgentProvider
 from sacv.interfaces.memory_provider     import MemoryProvider
 from sacv.interfaces.code_graph_provider import CodeGraphProvider
@@ -39,6 +41,11 @@ class NodeDeps:
     # Per-instance semaphore — prevents module-level sharing across
     # parallel graph invocations and pytest workers (BUG-012 fix).
     critic_semaphore: asyncio.Semaphore = field(init=False)
+
+    @property
+    def repo_root(self) -> Path:
+        """Canonical repo root. All workflow file I/O must be relative to this."""
+        return self.git.repo_root
 
     def __post_init__(self) -> None:
         self.critic_semaphore = asyncio.Semaphore(
