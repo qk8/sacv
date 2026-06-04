@@ -38,12 +38,12 @@ General:
 
 def make_style_critic_node(deps: "NodeDeps"):
     async def style_critic_node(state: "WorkflowState") -> dict:
-        findings = await _run_critic(
+        findings, new_cost = await _run_critic(
             role="principal engineer enforcing DDD and Clean Architecture",
             critic_name="style",
             extra_rules=_STYLE_RULES,
             state=state,
             deps=deps,
         )
-        return {"critic_findings": findings}
+        return {"critic_findings": findings, "cumulative_cost_dollars": new_cost}
     return style_critic_node

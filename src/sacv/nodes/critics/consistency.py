@@ -46,12 +46,12 @@ def make_consistency_critic_node(deps: "NodeDeps"):
             if mode == "brownfield"
             else _CONSISTENCY_RULES_GREENFIELD
         )
-        findings = await _run_critic(
+        findings, new_cost = await _run_critic(
             role="senior developer enforcing codebase consistency",
             critic_name="consistency",
             extra_rules=rules,
             state=state,
             deps=deps,
         )
-        return {"critic_findings": findings}
+        return {"critic_findings": findings, "cumulative_cost_dollars": new_cost}
     return consistency_critic_node

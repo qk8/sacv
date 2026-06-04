@@ -36,12 +36,12 @@ Common:
 
 def make_security_critic_node(deps: "NodeDeps"):
     async def security_critic_node(state: "WorkflowState") -> dict:
-        findings = await _run_critic(
+        findings, new_cost = await _run_critic(
             role="security engineer specialising in OWASP Top 10",
             critic_name="security",
             extra_rules=_SECURITY_RULES,
             state=state,
             deps=deps,
         )
-        return {"critic_findings": findings}
+        return {"critic_findings": findings, "cumulative_cost_dollars": new_cost}
     return security_critic_node

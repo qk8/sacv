@@ -22,6 +22,7 @@ from typing import Literal, TYPE_CHECKING
 import structlog
 
 from sacv.orchestration.state import CriticFinding, WorkflowPhase
+from sacv.orchestration.verifier_utils import add_agent_cost
 from sacv.interfaces.agent_provider import AgentConfig
 
 if TYPE_CHECKING:
@@ -52,11 +53,14 @@ async def _run_critic(
     extra_rules: str,
     state:       "WorkflowState",
     deps:        "NodeDeps",
-) -> list[CriticFinding]:
-    """Shared critic execution logic — acquires semaphore before running."""
+) -> tuple[list[CriticFinding], float]:
+    """Shared critic execution logic — acquires semaphore before running.
+
+    Returns (findings, updated_cumulative_cost).
+    """
     proposal = state.get("diff_proposal")
     if not proposal:
-        return []
+        return [], state.get("cumulative_cost_dollars", 0.0)
 
     diff_text = "\n\n".join(
         f"--- {d['file_path']} ({d['operation']}) ---\n{d['diff_content']}"
@@ -103,11 +107,15 @@ async def _run_critic(
         if isinstance(r, dict)
     ]
 
+    new_cost = add_agent_cost(
+        result, state.get("cumulative_cost_dollars", 0.0), deps.config,
+    )
+
     log.info(
         f"{critic_name}.complete",
         findings=len(findings),
         critical=sum(1 for f in findings if f["severity"] == "critical"),
     )
-    return findings
+    return findings, new_cost
 
 
