@@ -42,9 +42,24 @@ _WORKFLOW_VERSION = "sacv-1.0"
 
 def make_hitl_escalation_node(deps: "NodeDeps"):
 
+    # Module-level flag to track whether setup has run for this task.
+    # LangGraph reuses the same node instance across interrupt boundaries
+    # within the same process, so this flag survives the interrupt.
+    _setup_done: dict[str, bool] = {}
+
     async def hitl_escalation_node(state: "WorkflowState") -> dict:
+        task_id = state["task_id"]
+        done = _setup_done.get(task_id, False)
+
+        # ── Resume guard: skip setup if already completed ─────────────────
+        if done:
+            return {
+                "current_phase":    WorkflowPhase.HITL_ESCALATION.value,
+                "escalation_payload": state.get("escalation_payload"),
+            }
+
+        # ── First execution: perform all one-time setup ───────────────────
         esc_id     = str(uuid.uuid4())
-        task_id    = state["task_id"]
         correction = state["correction_state"]
         verdict    = state.get("verifier_verdict")
         exhausted  = state.get("exhausted_branches", [])
@@ -139,14 +154,13 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
             timestamp=datetime.now(timezone.utc).isoformat(),
         ))
 
-        # ── 6. Pause graph — developer must manually resume ───────────────
-        # ``interrupt()`` raises an internal LangGraph signal; the graph
-        # checkpoint is saved at this exact state and execution stops.
+        # ── 6. Mark setup as done, THEN suspend ───────────────────────────
+        _setup_done[task_id] = True
+
         from langgraph.types import interrupt
         interrupt(payload)
 
-        # Code below is unreachable during normal execution but satisfies
-        # the type checker and will run when the graph is resumed.
+        # Unreachable during first execution; runs on resume.
         return {
             "current_phase":    WorkflowPhase.HITL_ESCALATION.value,
             "escalation_payload": payload,
