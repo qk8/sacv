@@ -160,8 +160,11 @@ class ClaudeAgentAdapter(AgentProvider):
         )
 
     async def create_subagent(self, config: AgentConfig) -> "ClaudeAgentAdapter":
-        """Create a new ClaudeAgentAdapter sharing cwd/timeout but not config."""
-        return ClaudeAgentAdapter(cwd=self._cwd, timeout=self._timeout)
+        """Create a pre-configured sub-agent. The config is stored and applied
+        as default AgentConfig when run_task is called without an explicit config."""
+        sub = ClaudeAgentAdapter(cwd=self._cwd, timeout=self._timeout)
+        sub._default_config = config  # stored, not ignored
+        return sub
 
 
 def _build_prompt(prompt: str, context: dict) -> str:
