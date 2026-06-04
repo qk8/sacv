@@ -166,12 +166,12 @@ def make_speculative_branch_node(deps: "NodeDeps"):
                 test_failures=[{"message": "All evaluated branches failed"}],
                 performance_delta=None,
                 visual_diff_result=None,
-                critic_findings=[],
                 docker_exit_code=-1,
                 playwright_trace_path=None,
                 otel_trace=None,
                 actuator_snapshot=None,
             ),
+            "critic_findings": CRITIC_RESET,
         }
 
     return speculative_branch_node
