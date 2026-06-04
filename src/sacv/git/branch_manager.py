@@ -46,6 +46,10 @@ class BranchManager(GitProvider):
     def __init__(self, repo_root: str | Path = ".") -> None:
         self._root = Path(repo_root).resolve()
 
+    @property
+    def repo_root(self) -> Path:
+        return self._root
+
     # ── GitProvider interface ─────────────────────────────────────────────
 
     def create_branch(self, name: str, from_ref: str = "HEAD") -> str:

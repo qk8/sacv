@@ -3,6 +3,12 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 class GitProvider(ABC):
+    @property
+    @abstractmethod
+    def repo_root(self) -> Path:
+        """Return the absolute root of the git repository."""
+        ...
+
     @abstractmethod
     def create_branch(self, name: str, from_ref: str = "HEAD") -> str: ...
 

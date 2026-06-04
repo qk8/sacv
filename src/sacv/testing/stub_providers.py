@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from sacv.interfaces.agent_provider      import AgentProvider, AgentConfig, AgentResult
 from sacv.interfaces.memory_provider     import (
@@ -179,6 +180,10 @@ class StubGitProvider(GitProvider):
         self._branch = current_branch_name
         self._green  = green_sha
         self.calls:  list[tuple[str, ...]] = []
+
+    @property
+    def repo_root(self) -> Path:
+        return Path.cwd()
 
     def _rec(self, *args: str) -> None:
         self.calls.append(args)
