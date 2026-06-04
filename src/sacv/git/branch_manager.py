@@ -19,6 +19,7 @@ reliable hard-reset target even after multiple speculative branches.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -31,6 +32,22 @@ if TYPE_CHECKING:
     pass
 
 log = structlog.get_logger(__name__)
+
+
+def sanitize_branch_name(name: str) -> str:
+    """Sanitize a string for safe use as a git branch name.
+
+    Replaces characters forbidden or problematic in git branch names
+    (per git-check-ref-format) with dashes: / \\ ~ ^ ? * [ ] spaces
+    consecutive dots, leading/trailing dots.
+    """
+    sanitized = re.sub(r"[^\w.\-]", "-", name)
+    # Collapse multiple dashes
+    sanitized = re.sub(r"-{2,}", "-", sanitized)
+    # Strip leading/trailing dashes
+    sanitized = sanitized.strip("-")
+    # Default to safe fallback
+    return sanitized or "branch"
 
 _GREEN_SHA_FILE = Path(".workflow/green-sha")
 

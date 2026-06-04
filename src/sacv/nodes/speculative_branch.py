@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from sacv.git.branch_manager import sanitize_branch_name
 from sacv.orchestration.state import WorkflowPhase, VerifierVerdict, DiagnosticVerdict, CRITIC_RESET
 
 if TYPE_CHECKING:
@@ -68,7 +69,7 @@ def make_speculative_branch_node(deps: "NodeDeps"):
         # Sort remaining candidates by composite_score (highest priority first)
         strategies_to_try = [
             c for c in candidates
-            if f"agent-task-{task_id[:8]}-{c['strategy_id']}" not in exhausted
+            if f"agent-task-{sanitize_branch_name(task_id[:8])}-{c['strategy_id']}" not in exhausted
         ]
         strategies_to_try.sort(key=lambda x: x["composite_score"], reverse=True)
 
@@ -144,7 +145,7 @@ def make_speculative_branch_node(deps: "NodeDeps"):
 
         # Queue remaining strategies for next speculative cycle (if any)
         queued_names = [
-            f"agent-task-{task_id[:8]}-{s['strategy_id']}"
+            f"agent-task-{sanitize_branch_name(task_id[:8])}-{s['strategy_id']}"
             for s in remaining
         ]
 
@@ -188,7 +189,7 @@ async def _evaluate_branch(
     Docker container mount to prevent concurrent filesystem races.
     """
     task_id     = state["task_id"]
-    branch_name = f"agent-task-{task_id[:8]}-{strategy['strategy_id']}"
+    branch_name = f"agent-task-{sanitize_branch_name(task_id[:8])}-{strategy['strategy_id']}"
     worktree_path = Path(tempfile.mkdtemp(prefix=f"sacv-spec-{branch_name}-"))
 
     try:

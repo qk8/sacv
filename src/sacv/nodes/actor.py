@@ -24,6 +24,7 @@ from sacv.orchestration.state import (
 )
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.interfaces.diff_provider import UnifiedDiff
+from sacv.git.branch_manager import sanitize_branch_name
 from sacv.nodes._stagnation import check_stagnation
 from sacv.orchestration.verifier_utils import add_agent_cost
 
@@ -119,7 +120,7 @@ def make_actor_node(deps: "NodeDeps"):
         # ── 1. Git branch ─────────────────────────────────────────────────
         attempt     = correction["attempt_count"]
         branch_name = correction.get("branch_name") or (
-            f"agent-task-{task_id[:8]}-a{attempt}"
+            f"agent-task-{sanitize_branch_name(task_id[:8])}-a{attempt}"
         )
         if not correction.get("branch_name"):
             await asyncio.to_thread(deps.git.create_branch, branch_name)
