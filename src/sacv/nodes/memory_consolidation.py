@@ -304,8 +304,14 @@ def _splice_sections(content: str, updates: dict) -> str:
         if not new_content:
             continue
         pattern = rf"(## {re.escape(section_name)}\s*\n)(.*?)(?=## |\Z)"
-        replacement = f"\\g<1>{new_content.strip()}\n"
-        content = re.sub(pattern, replacement, content, count=1, flags=re.DOTALL)
+        # Use lambda to avoid regex backreference interpretation of new_content
+        content = re.sub(
+            pattern,
+            lambda m: m.group(1) + new_content.strip() + "\n",
+            content,
+            count=1,
+            flags=re.DOTALL,
+        )
     return content
 
 
