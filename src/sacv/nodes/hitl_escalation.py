@@ -41,21 +41,20 @@ _WORKFLOW_VERSION = "sacv-1.0"
 
 def make_hitl_escalation_node(deps: "NodeDeps"):
 
-    # Module-level flag to track whether setup has run for this task.
-    # LangGraph reuses the same node instance across interrupt boundaries
-    # within the same process, so this flag survives the interrupt.
-    _setup_done: dict[str, bool] = {}
-
     async def hitl_escalation_node(state: "WorkflowState") -> dict:
         task_id = state["task_id"]
-        done = _setup_done.get(task_id, False)
 
-        # ── Resume guard: skip setup if already completed ─────────────────
-        if done:
-            return {
-                "current_phase":    WorkflowPhase.HITL_ESCALATION.value,
-                "escalation_payload": state.get("escalation_payload"),
-            }
+        # ── Resume guard: file-backed check survives process restarts ─────
+        esc_id_marker = deps.repo_root / ".workflow" / "escalations" / f"task-{task_id}.esc_id"
+        if esc_id_marker.exists():
+            esc_id = esc_id_marker.read_text().strip()
+            payload_path = deps.repo_root / ".workflow" / "escalations" / f"{esc_id}.json"
+            if payload_path.exists():
+                payload = json.loads(payload_path.read_text())
+                return {
+                    "current_phase":      WorkflowPhase.HITL_ESCALATION.value,
+                    "escalation_payload": payload,
+                }
 
         # ── First execution: perform all one-time setup ───────────────────
         esc_id     = str(uuid.uuid4())
@@ -138,11 +137,14 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
             },
         )
 
-        # ── 4. Persist payload ────────────────────────────────────────────
+        # ── 4. Persist payload and esc_id marker (before interrupt) ────────
         esc_dir = deps.repo_root / ".workflow" / "escalations"
         esc_dir.mkdir(parents=True, exist_ok=True)
         payload_path = esc_dir / f"{esc_id}.json"
         payload_path.write_text(json.dumps(payload, indent=2))
+        # Marker file: enables resume detection across process restarts
+        esc_id_marker = esc_dir / f"task-{task_id}.esc_id"
+        esc_id_marker.write_text(esc_id)
 
         log.warning("hitl.payload_written", path=str(payload_path))
 
@@ -153,9 +155,6 @@ def make_hitl_escalation_node(deps: "NodeDeps"):
             payload={"escalation_id": esc_id, "task_id": task_id},
             timestamp=datetime.now(timezone.utc).isoformat(),
         ))
-
-        # ── 6. Mark setup as done, THEN suspend ───────────────────────────
-        _setup_done[task_id] = True
 
         from langgraph.types import interrupt
         interrupt(payload)
