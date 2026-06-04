@@ -75,11 +75,34 @@ class McpStdioTransport:
         }
         self._proc.stdin.write((json.dumps(init_request) + "\n").encode())
         await asyncio.wait_for(self._proc.stdin.drain(), timeout=self._TIMEOUT_SEC)
-        await asyncio.wait_for(self._proc.stdout.readline(), timeout=self._TIMEOUT_SEC)
+        raw = await asyncio.wait_for(
+            self._proc.stdout.readline(), timeout=self._TIMEOUT_SEC,
+        )
+        try:
+            response = json.loads(raw.decode())
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"{self._log_prefix}: MCP initialize response was not JSON: "
+                f"{raw[:200]!r}"
+            ) from exc
+        if "error" in response:
+            raise RuntimeError(
+                f"{self._log_prefix}: MCP initialize failed: {response['error']}"
+            )
+        if "result" not in response:
+            raise RuntimeError(
+                f"{self._log_prefix}: MCP initialize response missing 'result': "
+                f"{response}"
+            )
+        server_info = response["result"].get("serverInfo", {})
+        log.info(
+            f"{self._log_prefix}.initialized",
+            server_name=server_info.get("name", "unknown"),
+            server_version=server_info.get("version", "unknown"),
+        )
         initialized_notif = {"jsonrpc": "2.0", "method": "initialized", "params": {}}
         self._proc.stdin.write((json.dumps(initialized_notif) + "\n").encode())
         await asyncio.wait_for(self._proc.stdin.drain(), timeout=self._TIMEOUT_SEC)
-        log.info(f"{self._log_prefix}.initialized")
 
     async def stop(self) -> None:
         if self._proc:
