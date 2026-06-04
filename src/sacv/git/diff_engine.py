@@ -83,7 +83,7 @@ class DiffEngine(DiffProvider):
                 else:
                     await asyncio.to_thread(self._apply_patch, diff)
                 applied.append(diff.file_path)
-            except RuntimeError as exc:
+            except (RuntimeError, FileNotFoundError, OSError) as exc:
                 conflicts.append({"file": diff.file_path, "error": str(exc)})
 
         success = len(conflicts) == 0
