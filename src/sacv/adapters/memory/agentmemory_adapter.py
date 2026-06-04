@@ -18,97 +18,28 @@ degrades gracefully to a no-op in-memory fallback.
 from __future__ import annotations
 
 import json
-import subprocess
-import asyncio
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
-import structlog
-
+from sacv.adapters.mcp_transport import McpStdioTransport
 from sacv.interfaces.memory_provider import (
     MemoryProvider,
     EpisodicEvent,
     ProceduralConstraint,
 )
 
-log = structlog.get_logger(__name__)
-
-# MCP server command — assumes agentmemory is installed and on PATH
-_SERVER_CMD  = ["agentmemory", "serve", "--transport", "stdio"]
-_TIMEOUT_SEC = 10
+_SERVER_CMD = ["agentmemory", "serve", "--transport", "stdio"]
 
 
-class AgentMemoryAdapter(MemoryProvider):
-    """
-    Routes memory operations to the agentmemory MCP server.
+class AgentMemoryAdapter(McpStdioTransport, MemoryProvider):
 
-    Lifecycle:
-        adapter = AgentMemoryAdapter()
-        await adapter.start()
-        ...
-        await adapter.stop()
+    _log_prefix = "agentmemory"
+    _default_cmd = _SERVER_CMD
+    _TIMEOUT_SEC = 10
 
-    Or use as an async context manager:
-        async with AgentMemoryAdapter() as mem:
-            ...
-    """
-
-    def __init__(self, server_cmd: list[str] = _SERVER_CMD) -> None:
-        self._server_cmd = server_cmd
-        self._proc:  asyncio.subprocess.Process | None = None
-        self._lock   = asyncio.Lock()
-        self._req_id = 0
-
-    # ── Lifecycle ──────────────────────────────────────────────────────────
-
-    async def start(self) -> None:
-        self._proc = await asyncio.create_subprocess_exec(
-            *self._server_cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        log.info("agentmemory.started", pid=self._proc.pid)
-        await self._initialize()
-
-    async def _initialize(self) -> None:
-        """Perform the MCP initialize / initialized lifecycle handshake."""
-        if not self._proc or not self._proc.stdin or not self._proc.stdout:
-            return
-        # Step 1: send initialize request
-        init_request = {
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "sacv", "version": "0.1.0"},
-            },
-        }
-        self._proc.stdin.write((json.dumps(init_request) + "\n").encode())
-        await asyncio.wait_for(self._proc.stdin.drain(), timeout=_TIMEOUT_SEC)
-        # Step 2: read server's initialize response
-        await asyncio.wait_for(self._proc.stdout.readline(), timeout=_TIMEOUT_SEC)
-        # Step 3: send initialized notification (no response expected)
-        initialized_notif = {"jsonrpc": "2.0", "method": "initialized", "params": {}}
-        self._proc.stdin.write((json.dumps(initialized_notif) + "\n").encode())
-        await asyncio.wait_for(self._proc.stdin.drain(), timeout=_TIMEOUT_SEC)
-        log.info("agentmemory.initialized")
-
-    async def stop(self) -> None:
-        if self._proc:
-            self._proc.terminate()
-            await self._proc.wait()
-            log.info("agentmemory.stopped")
-
-    async def __aenter__(self) -> "AgentMemoryAdapter":
-        await self.start()
-        return self
-
-    async def __aexit__(self, *_: Any) -> None:
-        await self.stop()
+    def _on_failure(self) -> None:
+        return None
 
     # ── MemoryProvider interface ───────────────────────────────────────────
 
@@ -145,7 +76,6 @@ class AgentMemoryAdapter(MemoryProvider):
             except Exception:
                 pass
 
-        log.debug("agentmemory.retrieved_procedural", count=len(constraints))
         return constraints
 
     async def purge_noise(self, session_id: str) -> None:
@@ -156,80 +86,14 @@ class AgentMemoryAdapter(MemoryProvider):
                 "event_type": {"$in": ["actor_attempt", "critic_finding_temp"]},
             }
         })
-        log.debug("agentmemory.noise_purged", session_id=session_id)
 
-    # ── MCP JSON-RPC transport ────────────────────────────────────────────
-
-    async def _ensure_running(self) -> bool:
-        """Return True if the subprocess is alive; attempt one reconnect if not."""
-        if self._proc and self._proc.returncode is None:
-            return True
-        log.error("agentmemory.process_dead",
-                  returncode=self._proc.returncode if self._proc else None)
-        try:
-            await self.start()
-            log.info("agentmemory.reconnected")
-            return True
-        except Exception as exc:
-            log.error("agentmemory.reconnect_failed", error=str(exc))
-            return False
+    # ── Custom _call_tool: AgentMemory returns raw text for some tools ────
 
     async def _call_tool(self, tool_name: str, arguments: dict) -> Any:
         """
-        Sends a ``tools/call`` JSON-RPC request to the MCP server
-        and returns the parsed result.
+        Wrapper around ``_call`` that logs the tool name in degraded mode.
 
-        Attempts one reconnect if the subprocess is dead. Falls back to None
-        on any error (degraded mode — no crash).
+        The base ``_call`` returns ``None`` on failure (from ``_on_failure``);
+        domain methods handle ``None`` gracefully.
         """
-        alive = await self._ensure_running()
-        if not alive:
-            log.error("agentmemory.degraded_mode", tool=tool_name,
-                      impact="memory operations are no-ops this session")
-            return None
-
-        async with self._lock:
-            self._req_id += 1
-            request = {
-                "jsonrpc": "2.0",
-                "id":      self._req_id,
-                "method":  "tools/call",
-                "params":  {
-                    "name":      tool_name,
-                    "arguments": arguments,
-                },
-            }
-
-            try:
-                payload = json.dumps(request) + "\n"
-                self._proc.stdin.write(payload.encode())
-                await asyncio.wait_for(
-                    self._proc.stdin.drain(), timeout=_TIMEOUT_SEC
-                )
-
-                raw = await asyncio.wait_for(
-                    self._proc.stdout.readline(), timeout=_TIMEOUT_SEC
-                )
-                response = json.loads(raw.decode())
-
-                if "error" in response:
-                    log.error(
-                        "agentmemory.rpc_error",
-                        tool=tool_name,
-                        error=response["error"],
-                    )
-                    return None
-
-                # MCP tool result is in result.content[0].text (JSON string)
-                content = response.get("result", {}).get("content", [])
-                if content and isinstance(content, list):
-                    text = content[0].get("text", "")
-                    try:
-                        return json.loads(text)
-                    except json.JSONDecodeError:
-                        return text
-                return None
-
-            except (asyncio.TimeoutError, json.JSONDecodeError, OSError) as exc:
-                log.error("agentmemory.transport_error", tool=tool_name, error=str(exc))
-                return None
+        return await self._call(tool_name, arguments)
