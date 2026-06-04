@@ -198,7 +198,6 @@ async def _evaluate_branch(
         # ── Isolated deps per worktree ───────────────────────────────────
         from sacv.git.branch_manager import BranchManager
         from sacv.git.diff_engine import DiffEngine
-        from sacv.orchestration.deps import NodeDeps
 
         branch_git = BranchManager(repo_root=worktree_path)
         # Use factory method to preserve port configuration without
@@ -206,15 +205,10 @@ async def _evaluate_branch(
         branch_sandbox = deps.sandbox.create_isolated_instance(str(worktree_path))
         branch_diff = DiffEngine(repo_root=worktree_path)
 
-        branch_deps = NodeDeps(
-            agent=deps.agent,
-            memory=deps.memory,
-            code_graph=deps.code_graph,
-            cross_domain=deps.cross_domain,
+        branch_deps = deps.with_git_and_sandbox(
             git=branch_git,
             sandbox=branch_sandbox,
             diff=branch_diff,
-            config=deps.config,
         )
 
         # Inline mini-workflow: actor → preflight → critics → verifier
