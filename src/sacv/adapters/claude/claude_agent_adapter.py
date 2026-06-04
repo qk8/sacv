@@ -17,6 +17,7 @@ import asyncio
 import json
 from typing import AsyncIterator
 
+import anthropic
 import structlog
 from tenacity import (
     retry,
@@ -77,9 +78,16 @@ class ClaudeAgentAdapter(AgentProvider):
     # The claude-code-sdk may raise various connection/API errors.
     # Retry on anything that looks transient; let programming errors through.
     @retry(
-        retry=retry_if_exception_type((TimeoutError, ConnectionError, OSError)),
-        wait=wait_exponential(multiplier=1, min=2, max=60),
-        stop=stop_after_attempt(4),
+        retry=retry_if_exception_type((
+            TimeoutError,
+            ConnectionError,
+            OSError,
+            anthropic.RateLimitError,
+            anthropic.InternalServerError,
+            anthropic.APIConnectionError,
+        )),
+        wait=wait_exponential(multiplier=2, min=4, max=120),
+        stop=stop_after_attempt(5),
         reraise=True,
     )
     async def run_task(
