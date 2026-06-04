@@ -56,6 +56,7 @@ def make_preflight_node(deps: "NodeDeps"):
                     passed=True, lsp_errors=[], arch_violations=[],
                     cross_stack_errors=[], duration_ms=0
                 ),
+                "critic_findings": CRITIC_RESET,
             }
 
         active_checks: list[CheckSpec] = get_checks(module, profile)
