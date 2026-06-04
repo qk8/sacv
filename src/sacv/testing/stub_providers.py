@@ -240,6 +240,13 @@ class StubGitProvider(GitProvider):
     def head_sha(self) -> str:
         return self._green
 
+    def delete_branch(self, name: str, force: bool = False) -> None:
+        self._rec("delete_branch", name, str(force))
+
+    def list_branches(self, pattern: str = "agent-*") -> list[str]:
+        self._rec("list_branches", pattern)
+        return []
+
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────
 

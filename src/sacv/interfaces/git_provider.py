@@ -52,3 +52,14 @@ class GitProvider(ABC):
 
     @abstractmethod
     def head_sha(self) -> str: ...
+
+    @abstractmethod
+    def delete_branch(self, name: str, force: bool = False) -> None:
+        """Delete a local git branch. Raises RuntimeError if branch does not exist
+        and force=False."""
+        ...
+
+    @abstractmethod
+    def list_branches(self, pattern: str = "agent-*") -> list[str]:
+        """Return branch names matching the given glob pattern."""
+        ...
