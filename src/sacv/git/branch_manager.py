@@ -95,6 +95,15 @@ class BranchManager(GitProvider):
         positional = self._sha_to_stash_ref(ref)
         if positional:
             self._run(["git", "stash", "pop", positional])
+
+    def stash_drop(self, ref: str) -> None:
+        """Drop a specific stash entry by its SHA."""
+        if not ref:
+            log.debug("git.stash_drop_skipped", reason="empty ref")
+            return
+        positional = self._sha_to_stash_ref(ref)
+        if positional:
+            self._run(["git", "stash", "drop", positional])
             log.info("git.stash_pop", ref=positional)
         else:
             log.warning("git.stash_pop_not_found", sha=ref[:12])

@@ -208,6 +208,9 @@ class StubGitProvider(GitProvider):
     def stash_pop(self, ref: str) -> None:
         self._rec("stash_pop", ref)
 
+    def stash_drop(self, ref: str) -> None:
+        self._rec("stash_drop", ref)
+
     def reset_hard(self, ref: str) -> None:
         self._rec("reset_hard", ref)
 

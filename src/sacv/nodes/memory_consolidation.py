@@ -142,11 +142,15 @@ def make_memory_consolidation_node(deps: "NodeDeps"):
         stash_ref = state.get("speculative_stash_ref")
         if stash_ref:
             try:
-                await asyncio.to_thread(deps.git.stash_pop, stash_ref)
-                log.info("memory_consolidation.stash_cleaned", ref=stash_ref)
+                # DROP the stash — do not reapply. The spec branch work is
+                # superseded by the committed production code. Reapplying
+                # would reintroduce rejected changes on top of the green
+                # baseline.
+                await asyncio.to_thread(deps.git.stash_drop, stash_ref)
+                log.info("memory_consolidation.stash_dropped", ref=stash_ref)
             except Exception as exc:
                 # Non-fatal: log and continue (stash may already be gone)
-                log.warning("memory_consolidation.stash_pop_failed",
+                log.warning("memory_consolidation.stash_drop_failed",
                             error=str(exc))
 
         log.info(

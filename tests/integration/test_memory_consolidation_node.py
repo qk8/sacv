@@ -328,7 +328,7 @@ class TestMemoryConsolidationNode:
         assert out["lesson_learned"]["correction_type"] == "self_correction"
 
     async def test_stash_cleanup_on_speculative_stash_ref(self, tmp_path, monkeypatch):
-        """When speculative_stash_ref is set, stash_pop is called."""
+        """When speculative_stash_ref is set, stash_drop is called (not stash_pop)."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".workflow").mkdir()
 
@@ -340,9 +340,9 @@ class TestMemoryConsolidationNode:
         state = _base_state(speculative_stash_ref="stash@{0}")
         await make_memory_consolidation_node(deps)(state)
 
-        stash_pops = [c for c in git.calls if c[0] == "stash_pop"]
-        assert len(stash_pops) >= 1
-        assert stash_pops[0][1] == "stash@{0}"
+        stash_drops = [c for c in git.calls if c[0] == "stash_drop"]
+        assert len(stash_drops) >= 1
+        assert stash_drops[0][1] == "stash@{0}"
 
     async def test_lesson_pattern_reflects_state(self, tmp_path, monkeypatch):
         """Lesson pattern includes module, mode, attempt count, stagnation, replan."""
