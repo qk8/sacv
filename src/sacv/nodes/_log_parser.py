@@ -48,7 +48,6 @@ _TS_AT_RE = re.compile(
     r"\s+at (?:[\w.<>]+\s+)?\(?((?:src|components|pages|features|lib|app)/[^\s:)]+):(\d+):(\d+)\)?"
 )
 # Node bundle path (to detect unmapped lines)
-_TS_BUNDLE_RE = re.compile(r"at .+/dist/|at .+/\.next/|at .+/node_modules/")
 
 
 @dataclass
@@ -118,9 +117,7 @@ def prune_typescript_stack(
         line_no  = int(match.group(2))
 
         # Skip bundle/dist/node_modules
-        if _TS_BUNDLE_RE.search(f"at ({filepath})"):
-            continue
-        if "node_modules" in filepath:
+        if any(seg in filepath for seg in ("/dist/", "/.next/", "/node_modules/")):
             continue
 
         frames.append(ParsedFrame(

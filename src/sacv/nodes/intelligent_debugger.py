@@ -266,7 +266,7 @@ async def _test_payload(
     endpoint = endpoint.lstrip()
     if not endpoint.startswith("/"):
         endpoint = "/" + endpoint
-    endpoint = re.sub(r"[^a-zA-Z0-9/_\-.]", "", endpoint)
+    endpoint = re.sub(r"[^a-zA-Z0-9/_\-.:{}]", "", endpoint)
 
     # Attempt the curl directly — if the server isn't running, curl will
     # return exit code 7 (connection refused), which we treat as "error
