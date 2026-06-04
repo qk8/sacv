@@ -80,12 +80,13 @@ class AgentMemoryAdapter(McpStdioTransport, MemoryProvider):
 
     async def purge_noise(self, session_id: str) -> None:
         """Delete intermediate failed-attempt events to prevent memory pollution."""
-        await self._call_tool("delete_memory", {
-            "filter": {
-                "session_id": session_id,
-                "event_type": {"$in": ["actor_attempt", "critic_finding_temp"]},
-            }
-        })
+        for event_type in ("actor_attempt", "critic_finding_temp"):
+            await self._call_tool("delete_memory", {
+                "filter": {
+                    "session_id": session_id,
+                    "event_type": event_type,
+                }
+            })
 
     # ── Custom _call_tool: AgentMemory returns raw text for some tools ────
 
