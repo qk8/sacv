@@ -44,7 +44,13 @@ class DiffEngine(DiffProvider):
         errors: list[DiffValidationError] = []
         for diff in diffs:
             if diff.operation == "create":
-                continue   # new file creation is always allowed
+                # Validate that the target does NOT already exist
+                if (self._root / diff.file_path).exists():
+                    errors.append(DiffValidationError(
+                        file_path=diff.file_path,
+                        reason="'create' operation targets an existing file. Use 'modify'.",
+                    ))
+                continue
             if diff.operation == "delete":
                 continue   # deletion is allowed (no overwrite concern)
 
@@ -137,6 +143,11 @@ class DiffEngine(DiffProvider):
 
     def _create_file(self, diff: UnifiedDiff) -> None:
         target = self._root / diff.file_path
+        if target.exists():
+            raise RuntimeError(
+                f"Cannot create '{diff.file_path}': file already exists. "
+                "Use operation='modify' with a diff patch instead."
+            )
         target.parent.mkdir(parents=True, exist_ok=True)
         # For create operations, diff_content may be raw file content
         # or a unified diff starting with "+++" — handle both.

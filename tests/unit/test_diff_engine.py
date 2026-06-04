@@ -220,12 +220,15 @@ class TestApplyDiffs:
     async def test_mixed_success_and_failure(self, tmp_path):
         """One success + one failure = partial success."""
         engine = DiffEngine(tmp_path)
+        # Existing file for modify (with proper unified diff)
         good_target = tmp_path / "Good.java"
-        good_target.write_text("good")
-        bad_target = tmp_path / "Bad.java"
-        bad_target.write_text("bad")
+        good_target.write_text("good\n")
+        # File that does NOT exist — create will succeed
         diffs = [
-            UnifiedDiff(file_path="Good.java", diff_content="new content",
+            UnifiedDiff(file_path="Good.java",
+                        diff_content="--- a/Good.java\n+++ b/Good.java\n@@ -1 +1 @@\n-good\n+new content\n",
+                        operation="modify", language="java"),
+            UnifiedDiff(file_path="New.java", diff_content="new content",
                         operation="create", language="java"),
             UnifiedDiff(file_path="Bad.java", diff_content="@@ -1 +1 @@\n-old\n+new",
                         operation="modify", language="java"),
@@ -233,6 +236,7 @@ class TestApplyDiffs:
         result = await engine.apply_diffs(diffs)
         assert not result.success  # has conflicts
         assert "Good.java" in result.applied_files
+        assert "New.java" in result.applied_files
         assert len(result.conflicts) == 1
 
     async def test_apply_diffs_uses_asyncio_to_thread(self, tmp_path):
