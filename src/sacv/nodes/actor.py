@@ -197,9 +197,10 @@ def make_actor_node(deps: "NodeDeps"):
             return {
                 "correction_state": {
                     **correction,
-                    "attempt_count": correction["attempt_count"] + 1,
+                    # Do NOT increment attempt_count — this is not a correction cycle
                 },
                 "diff_proposal": None,
+                "empty_diff_retries": state.get("empty_diff_retries", 0) + 1,
                 "critic_findings": CRITIC_RESET,   # clear stale findings to avoid misleading next prompt
                 "cumulative_cost_dollars": new_cost,
             }
@@ -212,9 +213,10 @@ def make_actor_node(deps: "NodeDeps"):
             return {
                 "correction_state": {
                     **correction,
-                    "attempt_count": correction["attempt_count"] + 1,
+                    # Do NOT increment attempt_count — this is not a correction cycle
                 },
-               "diff_proposal":   None,
+                "diff_proposal":   None,
+                "empty_diff_retries": state.get("empty_diff_retries", 0) + 1,
                 "critic_findings": CRITIC_RESET,  # clear stale critic feedback from prior diff
                 "cumulative_cost_dollars": new_cost,
             }

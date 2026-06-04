@@ -295,7 +295,8 @@ class WorkflowState(TypedDict):
     skip_tdd_gate:           bool        # bypass TDD gate for test scenarios
 
     # ── Actor output ──────────────────────────────────────────────────────
-    diff_proposal: DiffProposal | None
+    diff_proposal:      DiffProposal | None
+    empty_diff_retries: int         # no-diff Actor loops (separate from attempt_count)
 
     # ── Preflight output (NEW — approaches 1, 9, 10) ──────────────────────
     preflight_result: PreflightResult | None

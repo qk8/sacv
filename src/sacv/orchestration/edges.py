@@ -76,12 +76,16 @@ def route_after_actor(state: WorkflowState) -> str:
     If actor produced no diff (overwrite rejected or apply failed), loop back
     to actor directly — skip the full pipeline to avoid wasting Docker/critic
     cycles and prevent silent completion with no code applied.
+
+    Safety valve: prevent infinite empty-diff loops (MED-004).
     """
     correction = state["correction_state"]
     if correction.get("stagnation_pattern", "none") != "none":
         return "hitl_escalation"
     # If actor produced no diff, retry without wasting Docker/critic cycles
     if state.get("diff_proposal") is None:
+        if state.get("empty_diff_retries", 0) >= 3:
+            return "hitl_escalation"
         return "actor"
     return "preflight_node"
 

@@ -58,6 +58,7 @@ def make_bootstrap_node(deps: "NodeDeps"):
             "pruned_strategies":       [],     # set by ValueNode
             "red_phase_evidence_path": None,   # set by TDDGate
             "diff_proposal":           None,   # set by Actor
+            "empty_diff_retries":      0,      # MED-004: no-diff Actor loop counter
             "verifier_verdict":        None,   # set by Verifier
             "speculative_stash_ref":   None,   # set by SpeculativeBranch
             "escalation_payload":      None,   # set by HITL
