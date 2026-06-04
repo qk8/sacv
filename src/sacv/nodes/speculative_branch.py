@@ -87,7 +87,6 @@ def make_speculative_branch_node(deps: "NodeDeps"):
                     test_failures=[{"message": "All strategies exhausted"}],
                     performance_delta=None,
                     visual_diff_result=None,
-                    critic_findings=[],
                     docker_exit_code=-1,
                     playwright_trace_path=None,
                     otel_trace=None,

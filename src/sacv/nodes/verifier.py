@@ -423,7 +423,7 @@ def _fallback_parse(output: str, module_type: str) -> list[dict]:
 def _make_verdict(
     test_result: str, diagnostic: str,
     phase1_passed: bool, phase2_passed: bool,
-    failures: list[dict], findings: list[dict],
+    failures: list[dict], findings: list[dict],  # noqa: F841 — kept for API compat
     performance_delta:    dict | None = None,
     visual_diff_result:   dict | None = None,
     playwright_trace_path: str | None = None,
@@ -435,7 +435,7 @@ def _make_verdict(
         test_result=test_result, diagnostic=diagnostic,
         phase1_passed=phase1_passed, phase2_passed=phase2_passed,
         test_failures=failures, performance_delta=performance_delta,
-        visual_diff_result=visual_diff_result, critic_findings=findings,
+        visual_diff_result=visual_diff_result,
         docker_exit_code=docker_exit_code,
         playwright_trace_path=playwright_trace_path,
         otel_trace=otel_trace,
