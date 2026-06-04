@@ -23,7 +23,7 @@ import subprocess
 import pytest
 from pathlib import Path
 
-from sacv.git.branch_manager import BranchManager, _GREEN_SHA_FILE
+from sacv.git.branch_manager import BranchManager
 
 
 def _init_test_repo(tmp_path: Path) -> BranchManager:
@@ -131,8 +131,7 @@ class TestGreenSha:
 
     def test_fallback_to_head_when_no_record(self, tmp_path):
         # Clean up any stale green SHA file from previous tests
-        # (_GREEN_SHA_FILE is a relative path that persists across tests)
-        green_sha_file = Path(".workflow/green-sha")
+        green_sha_file = Path(tmp_path) / "repo" / ".workflow" / "green-sha"
         if green_sha_file.exists():
             green_sha_file.unlink(missing_ok=True)
         mgr = _init_test_repo(tmp_path)
@@ -143,9 +142,10 @@ class TestGreenSha:
 
     def test_empty_file_fallback_to_head(self, tmp_path):
         mgr = _init_test_repo(tmp_path)
-        # Write empty green SHA file
-        _GREEN_SHA_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _GREEN_SHA_FILE.write_text("")
+        # Write empty green SHA file using the instance's path
+        green_sha_file = mgr._root / ".workflow" / "green-sha"
+        green_sha_file.parent.mkdir(parents=True, exist_ok=True)
+        green_sha_file.write_text("")
         mgr2 = BranchManager(mgr._root)
         sha = mgr2.get_last_green_commit()
         assert sha == mgr2.head_sha()
@@ -153,7 +153,9 @@ class TestGreenSha:
     def test_whitespace_in_file_handled(self, tmp_path):
         mgr = _init_test_repo(tmp_path)
         sha = mgr.head_sha()
-        _GREEN_SHA_FILE.write_text(f"  {sha}  \n")
+        green_sha_file = mgr._root / ".workflow" / "green-sha"
+        green_sha_file.parent.mkdir(parents=True, exist_ok=True)
+        green_sha_file.write_text(f"  {sha}  \n")
         mgr2 = BranchManager(mgr._root)
         assert mgr2.get_last_green_commit() == sha
 
