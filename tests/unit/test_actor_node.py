@@ -60,7 +60,8 @@ def _state(**kw):
         "selected_strategy": {"strategy_id": "s1", "description": "Add findById", "affected_files": ["UserService.java"]},
         "pruned_strategies": [],
         "red_phase_evidence_path": None, "test_inventory_paths": [],
-        "diff_proposal": None, "preflight_result": None,
+        "diff_proposal": None, "empty_diff_retries": 0,
+        "preflight_result": None,
         "critic_findings": [], "verifier_verdict": None,
         "debug_observations": None,
         "correction_state": {
@@ -105,9 +106,10 @@ class TestActorNode:
         assert out["critic_findings"] is CRITIC_RESET
         assert out["preflight_result"] is None
         assert out["debug_observations"] is None
-        # Verify git calls
-        assert deps.git.calls[0] == ("create_branch", "agent-task-task-act-a0", "HEAD")
-        assert deps.git.calls[1] == ("checkout", "agent-task-task-act-a0")
+        # Verify git calls (list_branches guard from HIGH-004)
+        assert deps.git.calls[0] == ("list_branches", "agent-task-task-act-a0")
+        assert deps.git.calls[1] == ("create_branch", "agent-task-task-act-a0", "HEAD")
+        assert deps.git.calls[2] == ("checkout", "agent-task-task-act-a0")
 
     async def test_stagnation_short_circuits_to_hitl(self):
         """When stagnation detected, returns synthetic failing verdict without LLM call."""
@@ -147,7 +149,9 @@ class TestActorNode:
         out = await node(_state())
 
         assert out["diff_proposal"] is None
-        assert out["correction_state"]["attempt_count"] == 1
+        # attempt_count stays 0 — empty diffs use dedicated counter
+        assert out["correction_state"]["attempt_count"] == 0
+        assert out["empty_diff_retries"] == 1
         assert out["critic_findings"] is CRITIC_RESET
 
     async def test_diff_validation_rejected_on_full_overwrite(self):
@@ -168,7 +172,9 @@ class TestActorNode:
         out = await node(_state())
 
         assert out["diff_proposal"] is None
-        assert out["correction_state"]["attempt_count"] == 1
+        # attempt_count stays 0 — overwrite rejection uses dedicated counter
+        assert out["correction_state"]["attempt_count"] == 0
+        assert out["empty_diff_retries"] == 1
         assert out["critic_findings"] is CRITIC_RESET
 
     async def test_diff_apply_failure_returns_branch_name(self):
@@ -196,6 +202,9 @@ class TestActorNode:
             "diff_content": "@@ -10 +10 @@\n+method",
             "operation": "modify", "language": "java",
         }])])
+        git = StubGitProvider()
+        # Pre-populate the branch so list_branches finds it (HIGH-004 guard)
+        git._branches.add("agent-task-actor-001-a1")
         state = _state(
             correction_state={
                 "attempt_count": 1, "branch_name": "agent-task-actor-001-a1",
@@ -203,13 +212,15 @@ class TestActorNode:
                 "stagnation_pattern": "none",
             }
         )
-        deps = _deps(agent=agent)
+        deps = _deps(agent=agent, git=git)
         node = make_actor_node(deps)
 
         await node(state)
 
+        # list_branches guard (HIGH-004) checks existence, then checkouts
+        assert deps.git.calls[0] == ("list_branches", "agent-task-actor-001-a1")
         # Should checkout existing branch, NOT create a new one
-        assert deps.git.calls[0] == ("checkout", "agent-task-actor-001-a1")
+        assert deps.git.calls[1] == ("checkout", "agent-task-actor-001-a1")
         # create_branch should NOT be called
         create_calls = [c for c in deps.git.calls if c[0] == "create_branch"]
         assert len(create_calls) == 0
@@ -286,7 +297,9 @@ class TestActorNode:
         out = await node(_state())
 
         assert out["diff_proposal"] is None
-        assert out["correction_state"]["attempt_count"] == 1
+        # attempt_count stays 0 — empty diffs use dedicated counter
+        assert out["correction_state"]["attempt_count"] == 0
+        assert out["empty_diff_retries"] == 1
 
     async def test_missing_strategy_falls_back_to_unknown(self):
         """When selected_strategy is None, DiffProposal uses 'unknown' strategy_id."""

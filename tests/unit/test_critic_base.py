@@ -85,7 +85,7 @@ class TestRunCritic:
         """When diff_proposal is absent, critic returns immediately."""
         agent = StubAgentProvider([])
         state = _state(diff_proposal=None)
-        findings = await _run_critic(
+        findings, _ = await _run_critic(
             role="test engineer", critic_name="security",
             extra_rules="test rules", state=state, deps=_deps(agent),
         )
@@ -109,7 +109,7 @@ class TestRunCritic:
         ]
         agent = StubAgentProvider([make_json_agent_result(findings_json)])
         state = _state()
-        result = await _run_critic(
+        result, _ = await _run_critic(
             role="security engineer", critic_name="security",
             extra_rules="OWASP rules", state=state, deps=_deps(agent),
         )
@@ -126,7 +126,7 @@ class TestRunCritic:
                         input_tokens=5, output_tokens=5),
         ])
         state = _state()
-        result = await _run_critic(
+        result, _ = await _run_critic(
             role="security engineer", critic_name="security",
             extra_rules="", state=state, deps=_deps(agent),
         )
@@ -140,7 +140,7 @@ class TestRunCritic:
                         input_tokens=5, output_tokens=5),
         ])
         state = _state()
-        result = await _run_critic(
+        result, _ = await _run_critic(
             role="security engineer", critic_name="security",
             extra_rules="", state=state, deps=_deps(agent),
         )
@@ -219,7 +219,7 @@ class TestRunCritic:
                         input_tokens=5, output_tokens=5),
         ])
         state = _state()
-        result = await _run_critic(
+        result, _ = await _run_critic(
             role="test", critic_name="style",
             extra_rules="", state=state, deps=_deps(agent),
         )
@@ -238,7 +238,7 @@ class TestRunCritic:
                         input_tokens=5, output_tokens=5),
         ])
         state = _state()
-        result = await _run_critic(
+        result, _ = await _run_critic(
             role="test", critic_name="style",
             extra_rules="", state=state, deps=_deps(agent),
         )

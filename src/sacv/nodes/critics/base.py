@@ -91,7 +91,7 @@ async def _run_critic(
         raw: list[dict] = json.loads(result.content)
     except (json.JSONDecodeError, ValueError):
         log.error(f"{critic_name}.parse_error", content=result.content[:200])
-        return []
+        return [], state.get("cumulative_cost_dollars", 0.0)
 
     findings: list[CriticFinding] = [
         CriticFinding(

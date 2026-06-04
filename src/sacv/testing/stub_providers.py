@@ -179,6 +179,7 @@ class StubGitProvider(GitProvider):
     ) -> None:
         self._branch = current_branch_name
         self._green  = green_sha
+        self._branches: set[str] = {current_branch_name}
         self.calls:  list[tuple[str, ...]] = []
 
     @property
@@ -191,6 +192,7 @@ class StubGitProvider(GitProvider):
     def create_branch(self, name: str, from_ref: str = "HEAD") -> str:
         self._rec("create_branch", name, from_ref)
         self._branch = name
+        self._branches.add(name)
         return name
 
     def commit(self, message: str, add_all: bool = True) -> str:
@@ -200,6 +202,7 @@ class StubGitProvider(GitProvider):
     def checkout(self, branch_name: str) -> None:
         self._rec("checkout", branch_name)
         self._branch = branch_name
+        self._branches.add(branch_name)
 
     def stash(self, message: str) -> str:
         self._rec("stash", message)
@@ -242,10 +245,11 @@ class StubGitProvider(GitProvider):
 
     def delete_branch(self, name: str, force: bool = False) -> None:
         self._rec("delete_branch", name, str(force))
+        self._branches.discard(name)
 
     def list_branches(self, pattern: str = "agent-*") -> list[str]:
         self._rec("list_branches", pattern)
-        return []
+        return list(self._branches)
 
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────

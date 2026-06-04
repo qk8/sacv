@@ -52,6 +52,7 @@ def _state(**kw):
         "selected_strategy": None, "pruned_strategies": [],
         "red_phase_evidence_path": None, "test_inventory_paths": [],
         "diff_proposal": None, "preflight_result": None,
+        "empty_diff_retries": 0,
         "critic_findings": [], "verifier_verdict": None,
         "debug_observations": None,
         "correction_state": {
@@ -137,7 +138,7 @@ class TestModeRouterNode:
 @pytest.mark.unit
 class TestDetectMode:
 
-    def test_pom_xml_detected_as_brownfield(self, tmp_path, monkeypatch):
+    async def test_pom_xml_detected_as_brownfield(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "pom.xml").write_text("<project/>")
         import subprocess
@@ -150,9 +151,9 @@ class TestDetectMode:
             subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
             subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=tmp_path, capture_output=True, check=True)
 
-        assert _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
+        assert await _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
 
-    def test_package_lock_json_detected_as_brownfield(self, tmp_path, monkeypatch):
+    async def test_package_lock_json_detected_as_brownfield(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "package-lock.json").write_text("{}")
         import subprocess
@@ -164,9 +165,9 @@ class TestDetectMode:
             subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
             subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=tmp_path, capture_output=True, check=True)
 
-        assert _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
+        assert await _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
 
-    def test_git_refs_heads_detected_as_brownfield(self, tmp_path, monkeypatch):
+    async def test_git_refs_heads_detected_as_brownfield(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         import subprocess
         subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
@@ -180,30 +181,28 @@ class TestDetectMode:
             subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
             subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=tmp_path, capture_output=True, check=True)
 
-        assert _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
+        assert await _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
 
-    def test_no_signals_defaults_to_greenfield(self, tmp_path, monkeypatch):
+    async def test_no_signals_defaults_to_greenfield(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "README.md").write_text("hello")
 
-        assert _detect_mode(tmp_path) == ProjectMode.GREENFIELD
+        assert await _detect_mode(tmp_path) == ProjectMode.GREENFIELD
 
-    def test_no_git_repo_defaults_to_greenfield(self, tmp_path, monkeypatch):
+    async def test_no_git_repo_defaults_to_greenfield(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "pom.xml").write_text("<project/>")
         # No .git directory — signals without git should default to greenfield
         # for .git-specific signals, but pom.xml alone should still detect brownfield
-        # Actually pom.xml is not git-specific, so it should detect brownfield
-        # Let's test with only .git-specific signal
-        assert _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
+        assert await _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
 
-    def test_no_git_with_pom_xml_still_brownfield(self, tmp_path, monkeypatch):
+    async def test_no_git_with_pom_xml_still_brownfield(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "pom.xml").write_text("<project/>")
         # pom.xml is not git-specific, so should detect brownfield even without .git
-        assert _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
+        assert await _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
 
-    def test_greenfield_commit_count_below_threshold(self, tmp_path, monkeypatch):
+    async def test_greenfield_commit_count_below_threshold(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".git").mkdir()
         (tmp_path / ".git" / "refs").mkdir(parents=True)
@@ -218,10 +217,10 @@ class TestDetectMode:
             subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
             subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=tmp_path, capture_output=True, check=True)
 
-        # Has git history but few commits → GREENFIELD
-        assert _detect_mode(tmp_path) == ProjectMode.GREENFIELD
+        # Has git history but few commits -> GREENFIELD
+        assert await _detect_mode(tmp_path) == ProjectMode.GREENFIELD
 
-    def test_greenfield_max_commits_boundary(self, tmp_path, monkeypatch):
+    async def test_greenfield_max_commits_boundary(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".git").mkdir()
         (tmp_path / ".git" / "refs").mkdir(parents=True)
@@ -237,9 +236,9 @@ class TestDetectMode:
             subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=tmp_path, capture_output=True, check=True)
 
         # Exactly 5 commits = <= 5 = GREENFIELD
-        assert _detect_mode(tmp_path) == ProjectMode.GREENFIELD
+        assert await _detect_mode(tmp_path) == ProjectMode.GREENFIELD
 
-    def test_brownfield_commit_count_above_threshold(self, tmp_path, monkeypatch):
+    async def test_brownfield_commit_count_above_threshold(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".git").mkdir()
         (tmp_path / ".git" / "refs").mkdir(parents=True)
@@ -254,10 +253,10 @@ class TestDetectMode:
             subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
             subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=tmp_path, capture_output=True, check=True)
 
-        # Has git history and > 5 commits → BROWNFIELD
-        assert _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
+        # Has git history and > 5 commits -> BROWNFIELD
+        assert await _detect_mode(tmp_path) == ProjectMode.BROWNFIELD
 
-    def test_git_specific_signal_skipped_without_git(self, tmp_path, monkeypatch):
+    async def test_git_specific_signal_skipped_without_git(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         # .git/refs/heads exists but no .git dir
         (tmp_path / ".git" if False else None)  # won't create .git
@@ -267,6 +266,6 @@ class TestDetectMode:
         (tmp_path / ".git" / "refs" / "heads").mkdir()
         # No git repo init — the signal file exists but git commands will fail
         # The _detect_mode should handle this gracefully
-        result = _detect_mode(tmp_path)
+        result = await _detect_mode(tmp_path)
         # Should return GREENFIELD since git rev-list will fail and we fall through
         assert result in (ProjectMode.GREENFIELD, ProjectMode.BROWNFIELD)
