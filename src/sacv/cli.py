@@ -111,7 +111,8 @@ async def cmd_run(args: argparse.Namespace) -> None:
             "agents_md_context":      None, "strategy_candidates": [],
             "selected_strategy":      None, "pruned_strategies": [],
             "red_phase_evidence_path": None, "test_inventory_paths": [],
-            "tdd_gate_attempts":      0, "diff_proposal": None,
+            "tdd_gate_attempts":      0, "skip_tdd_gate": False,
+            "diff_proposal":          None,
             "preflight_result":       None, "critic_findings": [],
             "verifier_verdict":       None, "debug_observations": None,
             "correction_state": {

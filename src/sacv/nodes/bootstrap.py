@@ -44,6 +44,7 @@ def make_bootstrap_node(deps: "NodeDeps"):
             "agents_md_context":      None,
             "debug_observations":     None,
             "tdd_gate_attempts":      0,
+            "skip_tdd_gate":          state.get("skip_tdd_gate", False),
             "correction_state": {
                 "attempt_count": 0, "branch_name": None,
                 "last_error_hash": None, "error_history": [],
