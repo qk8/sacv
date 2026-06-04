@@ -8,10 +8,10 @@ version = "0.1.0"
 description = "Scout-Actor-Critic-Verifier coding workflow"
 requires-python = ">=3.12"
 dependencies = [
-    "langgraph>=0.2.0",
-    "langchain-core>=0.3.0",
+    "langgraph>=0.2.0,<0.3.0",
+    "langchain-core>=0.3.0,<0.4.0",
     "anthropic>=0.40.0",
-    "claude-code-sdk>=0.0.13",   # Claude Agent SDK — verify name on PyPI if install fails
+    "claude-code-sdk>=0.0.13,<1.0",
     "pydantic>=2.9.0",
     "docker>=7.1.0",
     "gitpython>=3.1.0",
@@ -20,7 +20,7 @@ dependencies = [
     "tenacity>=9.0.0",           # retry logic for adapters
     "playwright>=1.47.0",        # visual diff
     "websockets>=12.0",          # CDP debugger (cdp_client.py)
-    "langgraph-checkpoint-sqlite>=2.0",  # persistent checkpointer for HITL
+    "langgraph-checkpoint-sqlite>=2.0,<3.0",
 ]
 
 [project.scripts]

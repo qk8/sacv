@@ -151,7 +151,7 @@ def make_actor_node(deps: "NodeDeps"):
                     debug_feedback=debug_fb or "None (no debug session yet).",
                     critic_feedback=critic_fb or "None.",
                 ),
-                max_turns=10,
+                max_turns=deps.config.iteration_limits.implement_loop,
                 # Valid Claude Code SDK tool names (PascalCase).
                 # Read/Glob/Grep allow the agent to inspect the codebase;
                 # Bash is needed for running git diff and checking context.

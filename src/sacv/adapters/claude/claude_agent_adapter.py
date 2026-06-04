@@ -106,7 +106,7 @@ class ClaudeAgentAdapter(AgentProvider):
             system_prompt=config.system_prompt,
             max_turns=config.max_turns,
             allowed_tools=config.allowed_tools or [],
-            cwd=self._cwd,
+            **({"cwd": self._cwd} if self._cwd is not None else {}),
         )
 
         try:
