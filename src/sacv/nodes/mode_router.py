@@ -36,7 +36,7 @@ _BROWNFIELD_SIGNALS: list[str] = [
 _GREENFIELD_MAX_COMMITS = 5   # fewer than this = likely new project
 
 
-def _detect_mode(cwd: Path) -> ProjectMode:
+async def _detect_mode(cwd: Path) -> ProjectMode:
     """
     Heuristic detection: pure function, no I/O beyond filesystem stat calls.
     Returns BROWNFIELD if any signal file exists and commit count exceeds
@@ -58,12 +58,14 @@ def _detect_mode(cwd: Path) -> ProjectMode:
         # If we have git, consult commit count before declaring brownfield
         if has_git:
             try:
-                import subprocess
-                result = subprocess.run(
-                    ["git", "rev-list", "--count", "HEAD"],
-                    capture_output=True, text=True, cwd=str(cwd), timeout=5,
+                proc = await asyncio.create_subprocess_exec(
+                    "git", "rev-list", "--count", "HEAD",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(cwd),
                 )
-                commit_count = int(result.stdout.strip() or "0")
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+                commit_count = int(stdout.decode().strip() or "0")
                 if commit_count <= _GREENFIELD_MAX_COMMITS:
                     return ProjectMode.GREENFIELD
             except Exception:
@@ -84,7 +86,7 @@ def make_mode_router_node(deps: "NodeDeps"):
         else:
             # Use git root from BranchManager, not process CWD
             project_root = deps.git.repo_root
-            mode     = await asyncio.to_thread(_detect_mode, project_root)
+            mode     = await _detect_mode(project_root)
             mode_str = mode.value
 
         log.info("mode_router.resolved", mode=mode_str, task_id=state["task_id"])
