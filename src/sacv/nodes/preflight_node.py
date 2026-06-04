@@ -54,7 +54,8 @@ def make_preflight_node(deps: "NodeDeps"):
                 "current_phase":  WorkflowPhase.PREFLIGHT.value,
                 "preflight_result": PreflightResult(
                     passed=True, lsp_errors=[], arch_violations=[],
-                    cross_stack_errors=[], duration_ms=0
+                    cross_stack_errors=[], blast_errors=[],
+                    duration_ms=0
                 ),
                 "critic_findings": CRITIC_RESET,
             }
@@ -94,6 +95,21 @@ def make_preflight_node(deps: "NodeDeps"):
                     handle, cfg, deps,
                 )
 
+            # ── Check 4: Blast-radius file count guard ─────────────────────
+            blast_errors: list[dict] = []
+            if "blast_radius" in check_names:
+                blast_map = state.get("blast_radius_map") or {}
+                affected_count = len(blast_map.get("affected_files", []))
+                max_files = cfg.max_blast_files
+                if affected_count > max_files:
+                    blast_errors.append({
+                        "rule": "blast_radius_limit",
+                        "message": (
+                            f"Change affects {affected_count} files "
+                            f"(limit: {max_files}). Consider splitting the task."
+                        ),
+                    })
+
             duration_ms = int((time.monotonic() - t0) * 1000)
             # For "required=False" checks, don't fail the gate — just report.
             lsp_spec  = next((c for c in active_checks if c.name == "lsp"),  CheckSpec("lsp"))
@@ -114,6 +130,7 @@ def make_preflight_node(deps: "NodeDeps"):
                 lsp_errors=lsp_errors,
                 arch_violations=arch_errs,
                 cross_stack_errors=cross_stack_errors,
+                blast_errors=blast_errors,
                 duration_ms=duration_ms,
             )
             log.info(

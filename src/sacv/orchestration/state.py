@@ -151,6 +151,7 @@ class PreflightResult(TypedDict):
     lsp_errors:         type errors + missing imports (approach 1)
     arch_violations:    layer boundary violations (approaches 9-10)
     cross_stack_errors: Java DTO changed but TypeScript types stale (approach 3A)
+    blast_errors:       blast-radius file count exceeded (approach 3B)
     passed:             True only when all checks produce zero findings
     duration_ms:        total elapsed time (should be <5 000ms)
     """
@@ -158,6 +159,7 @@ class PreflightResult(TypedDict):
     lsp_errors:         list[dict]   # {file, line, message, code}
     arch_violations:    list[dict]   # {rule, source_file, target_file, message}
     cross_stack_errors: list[dict]   # {file, line, code, message, source}
+    blast_errors:       list[dict]   # {rule, message}
     duration_ms:        int
 
 class VerifierVerdict(TypedDict):
