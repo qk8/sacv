@@ -80,6 +80,19 @@ class _CriticReset(StrEnum):
 CRITIC_RESET = _CriticReset.RESET
 
 
+def _merge_correction_state(
+    existing: CorrectionCycleState | None, new: dict | None,
+) -> CorrectionCycleState:
+    """Reducer for correction_state — shallow-merges node updates into existing state."""
+    if new is None:
+        return existing or {
+            "attempt_count": 0, "branch_name": None,
+            "last_error_hash": None, "error_history": [],
+            "stagnation_pattern": "none",
+        }
+    return {**(existing or {}), **new}
+
+
 def _merge_lists(existing: list | None, new: list | _CriticReset | None) -> list:
     """
     Reducer for critic fan-in.
@@ -283,7 +296,7 @@ class WorkflowState(TypedDict):
     verifier_verdict: VerifierVerdict | None
 
     # ── Correction loop ───────────────────────────────────────────────────
-    correction_state:  CorrectionCycleState
+    correction_state:  Annotated[CorrectionCycleState, _merge_correction_state]
     confidence_score:  float    # computed after each verifier run (approach 4)
 
     # ── Replan (NEW — approach 2, 4) ──────────────────────────────────────
