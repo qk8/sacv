@@ -129,7 +129,7 @@ class TestActorNode:
         assert len(agent.calls) == 0
         # Should return synthetic failing verdict
         assert out["verifier_verdict"]["test_result"] == "FAIL"
-        assert out["verifier_verdict"]["diagnostic"] == "FIX_IMPL"
+        assert out["verifier_verdict"]["diagnostic"] == "STAGNATION"
         assert out["correction_state"]["attempt_count"] == 3  # set to max_self_correction_cycles
         assert out["correction_state"]["stagnation_pattern"] == "iteration"
         assert out["diff_proposal"] is None

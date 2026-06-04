@@ -101,7 +101,7 @@ def make_actor_node(deps: "NodeDeps"):
                 },
                 "verifier_verdict": VerifierVerdict(
                     test_result="FAIL",
-                    diagnostic=DiagnosticVerdict.FIX_IMPL.value,
+                    diagnostic=DiagnosticVerdict.STAGNATION.value,
                     phase1_passed=False,
                     phase2_passed=False,
                     test_failures=[{"message": f"stagnation_detected: {stagnation}"}],

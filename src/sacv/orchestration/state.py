@@ -50,10 +50,11 @@ class WorkflowPhase(str, Enum):
     COMPLETE              = "complete"
 
 class DiagnosticVerdict(str, Enum):
-    FIX_IMPL  = "FIX_IMPL"
-    FIX_TEST  = "FIX_TEST"
-    AMBIGUOUS = "AMBIGUOUS"
-    PASS      = "PASS"
+    FIX_IMPL    = "FIX_IMPL"
+    FIX_TEST    = "FIX_TEST"
+    AMBIGUOUS   = "AMBIGUOUS"
+    STAGNATION  = "STAGNATION"
+    PASS        = "PASS"
 
 class StagnationPattern(str, Enum):
     NONE      = "none"
