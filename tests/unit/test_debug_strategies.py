@@ -133,3 +133,34 @@ class TestGetStrategy:
         s = get_strategy(ErrorType.OPTIMISTIC_LOCK)
         assert any("Version" in expr or "version" in expr
                    for expr in s.evaluate_expressions)
+
+    def test_all_error_types_return_a_strategy(self):
+        """Every ErrorType enum value returns a non-None strategy."""
+        for et in ErrorType:
+            s = get_strategy(et)
+            assert s is not None
+            assert isinstance(s.focus_hint, str)
+            assert len(s.focus_hint) > 0
+
+    def test_all_strategies_have_nonzero_max_steps_or_none(self):
+        """Strategies that use JDWP/CDP have max_steps > 0."""
+        for et in ErrorType:
+            s = get_strategy(et)
+            if needs_jdwp(s) or needs_cdp(s):
+                assert s.max_steps > 0 or s.step_type == "none"
+
+    def test_classified_error_types_have_strategies(self):
+        """All Java-classified error types have strategies."""
+        for _, et in _JAVA_CLASSIFICATION:
+            s = get_strategy(et)
+            assert s is not None
+
+    def test_ts_classified_error_types_have_strategies(self):
+        """All TS-classified error types have strategies."""
+        for _, et in _TS_CLASSIFICATION:
+            s = get_strategy(et)
+            assert s is not None
+
+
+# Need to import classification rules for the new tests
+from sacv.nodes._debug_strategies import _JAVA_CLASSIFICATION, _TS_CLASSIFICATION

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from sacv.orchestration.edges import (
     route_after_verifier, route_after_value_node, route_after_tdd_gate,
+    route_after_actor, route_after_replan,
 )
 from sacv.orchestration.config import WorkflowConfig
 
@@ -130,3 +131,55 @@ class TestRouteAfterTddGate:
     def test_one_below_max_still_retries(self):
         s = _s(red_phase_evidence_path=None, tdd_gate_attempts=2)
         assert route_after_tdd_gate(s) == "tdd_gate"
+
+
+class TestRouteAfterActor:
+
+    def test_with_diff_routes_to_preflight(self):
+        s = _s(diff_proposal={"strategy_id": "s1", "diffs": []})
+        assert route_after_actor(s) == "preflight_node"
+
+    def test_no_diff_self_loops(self):
+        s = _s(diff_proposal=None, empty_diff_retries=0)
+        assert route_after_actor(s) == "actor"
+
+    def test_empty_diff_retries_exhausted_routes_to_hitl(self):
+        s = _s(diff_proposal=None, empty_diff_retries=3)
+        assert route_after_actor(s) == "hitl_escalation"
+
+    def test_empty_diff_below_max_self_loops(self):
+        s = _s(diff_proposal=None, empty_diff_retries=2)
+        assert route_after_actor(s) == "actor"
+
+    def test_stagnation_routes_to_hitl(self):
+        s = _s(
+            diff_proposal={"strategy_id": "s1", "diffs": []},
+            correction_state=_corr(1, stagnation="semantic"),
+        )
+        assert route_after_actor(s) == "hitl_escalation"
+
+    def test_stagnation_takes_priority_over_no_diff(self):
+        """Stagnation detection overrides empty-diff retry."""
+        s = _s(
+            diff_proposal=None, empty_diff_retries=0,
+            correction_state=_corr(1, stagnation="iteration"),
+        )
+        assert route_after_actor(s) == "hitl_escalation"
+
+
+class TestRouteAfterReplan:
+
+    def test_with_candidates_routes_to_tdd(self):
+        c = {"strategy_id": "r1", "description": "x", "affected_files": [],
+             "token_depth_score": 0.8, "collision_score": 0.8,
+             "blast_radius_score": 0.8, "composite_score": 0.8}
+        s = _s(strategy_candidates=[c])
+        assert route_after_replan(s) == "tdd_gate"
+
+    def test_empty_candidates_routes_to_hitl(self):
+        s = _s(strategy_candidates=[])
+        assert route_after_replan(s) == "hitl_escalation"
+
+    def test_none_candidates_routes_to_hitl(self):
+        s = _s(strategy_candidates=None)
+        assert route_after_replan(s) == "hitl_escalation"

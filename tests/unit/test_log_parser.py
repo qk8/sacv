@@ -87,6 +87,100 @@ class TestPruneJavaStack:
             assert f.line > 0
             assert f.method
 
+    def test_filters_hibernate_internals(self):
+        raw = """
+java.lang.RuntimeException
+	at org.hibernate.internal.SessionImpl.fireSave(SessionImpl.java:113)
+	at com.example.repo.UserRepository.save(UserRepository.java:25)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 1
+        assert "UserRepository" in frames[0].method
+
+    def test_filters_junit_internals(self):
+        raw = """
+java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:47)
+	at org.junit.jupiter.api.AssertEquals.fail(AssertEquals.java:42)
+	at com.example.service.UserServiceTest.testFindById(UserServiceTest.java:15)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 1
+        assert "UserServiceTest" in frames[0].method
+
+    def test_filters_mockito_internals(self):
+        raw = """
+org.mockito.exceptions.base.MockitoException
+	at org.mockito.internal.runners.DefaultInternalRunner.run(DefaultInternalRunner.java:35)
+	at com.example.service.UserServiceTest.testMock(UserServiceTest.java:30)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 1
+        assert "UserServiceTest" in frames[0].method
+
+    def test_filters_bytebuddy_internals(self):
+        raw = """
+java.lang.Exception
+	at net.bytebuddy.asm.Advice$Token$Scope$Independent.open(Advice.java:322)
+	at com.example.util.Helper.doWork(Helper.java:10)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 1
+        assert "Helper" in frames[0].method
+
+    def test_filters_hikaricp_internals(self):
+        raw = """
+java.sql.SQLException
+	at com.zaxxer.hikari.pool.PoolBase.checkDeadPool(PoolBase.java:123)
+	at com.example.repo.ConnectionPoolTest.testPool(ConnectionPoolTest.java:20)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 1
+        assert "ConnectionPoolTest" in frames[0].method
+
+    def test_filters_logback_internals(self):
+        raw = """
+java.lang.IllegalStateException
+	at ch.qos.logback.core.spi.ContextBase.addListener(ContextBase.java:100)
+	at com.example.config.LogConfig.setup(LogConfig.java:15)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 1
+        assert "LogConfig" in frames[0].method
+
+    def test_filters_micrometer_internals(self):
+        raw = """
+io.micrometer.core.instrument.internal.TimedRunnable.run(TimedRunnable.java:50)
+	at com.example.monitoring.MonitorService.check(MonitorService.java:25)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 1
+        assert "MonitorService" in frames[0].method
+
+    def test_filters_tomcat_internals(self):
+        raw = """
+java.io.IOException
+	at org.apache.tomcat.util.net.NioEndpoint$NioSocketWrapper.fillReadBuffer(NioEndpoint.java:123)
+	at com.example.http.HttpHandler.handle(HttpHandler.java:40)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 1
+        assert "HttpHandler" in frames[0].method
+
+    def test_multiple_user_frames_sorted(self):
+        raw = """
+java.lang.RuntimeException
+	at com.example.service.UserService.findById(UserService.java:42)
+	at com.example.controller.UserController.getUser(UserController.java:28)
+	at com.example.filter.AuthFilter.doFilter(AuthFilter.java:15)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 3
+        # Innermost frame first (UserService), then outer (UserController)
+        assert "UserService" in frames[0].method
+        assert "UserController" in frames[1].method
+        assert "AuthFilter" in frames[2].method
+
 
 class TestPruneTypeScriptStack:
 
@@ -109,6 +203,35 @@ class TestPruneTypeScriptStack:
 
     def test_empty_output_returns_empty(self):
         assert prune_typescript_stack("", "src") == []
+
+    def test_filters_dist_paths(self):
+        raw = "Error: test\n    at fn (dist/bundle.js:10:5)"
+        frames = prune_typescript_stack(raw, "src")
+        assert all("/dist/" not in f.file for f in frames)
+
+    def test_filters_next_build_paths(self):
+        raw = "Error: test\n    at fn (.next/server.js:20:10)"
+        frames = prune_typescript_stack(raw, "src")
+        assert all("/.next/" not in f.file for f in frames)
+
+    def test_custom_src_root(self):
+        raw = "Error: test\n    at fn (app/components/Button.tsx:5:10)"
+        frames = prune_typescript_stack(raw, "app")
+        assert len(frames) >= 1
+        assert any("Button.tsx" in f.file for f in frames)
+
+    def test_mixed_valid_and_invalid_paths(self):
+        raw = (
+            "Error: test\n"
+            "    at User (src/features/User.tsx:10:5)\n"
+            "    at /node_modules/react/index.js:20:15\n"
+            "    at Auth (src/features/Auth.tsx:30:10)\n"
+        )
+        frames = prune_typescript_stack(raw, "src")
+        assert len(frames) == 2
+        files = [f.file for f in frames]
+        assert any("User.tsx" in f for f in files)
+        assert any("Auth.tsx" in f for f in files)
 
 
 class TestDispatch:
@@ -142,3 +265,32 @@ class TestFormatting:
     def test_format_for_actor_empty(self):
         output = format_for_actor([])
         assert "no user-code frames" in output
+
+    def test_format_for_actor_includes_message_on_first_frame_only(self):
+        frames = prune_java_stack(_JAVA_NPE, "com.example")
+        output = format_for_actor(frames)
+        # First frame has message
+        assert "NullPointerException" in output
+        # Second frame does NOT have the message
+        lines = output.split("\n")
+        assert len(lines) >= 2
+        # The message should only appear once (on the first line)
+        assert output.count("NullPointerException") == 1
+
+    def test_format_for_actor_multiple_frames(self):
+        frames = prune_java_stack(_JAVA_NPE, "com.example")
+        output = format_for_actor(frames)
+        assert "UserService" in output
+        assert "UserController" in output
+
+    def test_frames_to_dict_empty_list(self):
+        assert frames_to_dict([]) == []
+
+    def test_format_for_actor_preserves_order(self):
+        """Frames are formatted in the order returned by pruner (innermost first)."""
+        frames = prune_java_stack(_JAVA_NPE, "com.example")
+        output = format_for_actor(frames)
+        # UserService.java:42 should appear before UserController.java:28
+        pos1 = output.find("UserService.java:42")
+        pos2 = output.find("UserController.java:28")
+        assert pos1 < pos2
