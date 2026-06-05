@@ -43,9 +43,9 @@ def _make_all_critics_node(deps: "NodeDeps"):
     Single node that runs all 3 critics concurrently and returns merged findings.
 
     Replaces the broken Send()-based fan-out pattern where each critic had
-    add_edge → aggregate_critics → verifier, causing verifier to run 3×.
+    add_edge -> aggregate_critics -> verifier, causing verifier to run 3x.
     Now all critics run inside one node via asyncio.gather, fan-in here,
-    and a single edge → verifier ensures it runs exactly once.
+    and a single edge -> verifier ensures it runs exactly once.
     """
     from sacv.nodes.critics.security    import make_security_critic_node
     from sacv.nodes.critics.style       import make_style_critic_node
@@ -68,7 +68,7 @@ def _make_all_critics_node(deps: "NodeDeps"):
             + con_out.get("critic_findings", [])
         )
         # Each critic receives the same state snapshot; each returns
-        # baseline + its own cost. Sum all three outputs and subtract 3×
+        # baseline + its own cost. Sum all three outputs and subtract 3x
         # the baseline to isolate the incremental cost. Add baseline back
         # so the cumulative total (including prior nodes' costs) is preserved.
         baseline = state.get("cumulative_cost_dollars", 0.0)
@@ -95,8 +95,45 @@ def _inject_confidence(deps: NodeDeps):
     return verifier_with_confidence
 
 
+def build_branch_subgraph(deps: "NodeDeps") -> "StateGraph":
+    """
+    Build the mini-workflow used by speculative branches.
+
+    Each speculative branch runs: actor -> preflight -> critics -> verifier.
+
+    Returns an uncompiled StateGraph -- each branch compiles its own copy
+    with its own checkpointer (WORKER-001).
+
+    This function is shared between build_graph() (for the main graph's
+    actor->preflight->critics->verifier path) and speculative_branch
+    (_evaluate_branch), ensuring both stay in sync when nodes change.
+    """
+    from sacv.nodes.actor                import make_actor_node
+    from sacv.nodes.preflight_node       import make_preflight_node
+    from sacv.nodes.critics.security     import make_security_critic_node
+    from sacv.nodes.critics.style        import make_style_critic_node
+    from sacv.nodes.critics.consistency  import make_consistency_critic_node
+    from sacv.orchestration.verifier_utils import (
+        run_verifier_with_confidence as _run_verifier_with_confidence,
+    )
+
+    builder = StateGraph(WorkflowState)
+
+    builder.add_node("actor",            make_actor_node(deps))
+    builder.add_node("preflight_node",   make_preflight_node(deps))
+    builder.add_node("all_critics",      _make_all_critics_node(deps))
+    builder.add_node("verifier",         _inject_confidence(deps))
+
+    # Direct edges: actor -> preflight -> critics -> verifier
+    builder.add_edge("actor", "preflight_node")
+    builder.add_edge("preflight_node", "all_critics")
+    builder.add_edge("all_critics", "verifier")
+
+    return builder
+
+
 def build_graph(
-    deps:         NodeDeps,
+    deps:         "NodeDeps",
     checkpointer: object | None = None,
 ) -> "CompiledStateGraph":
     from sacv.nodes.bootstrap            import make_bootstrap_node
@@ -115,7 +152,7 @@ def build_graph(
     cfg     = deps.config
     builder = StateGraph(WorkflowState)
 
-    # ── Register nodes ────────────────────────────────────────────────────
+    # -- Register nodes --
     builder.add_node("bootstrap",            make_bootstrap_node(deps))
     builder.add_node("mode_router",          make_mode_router_node(deps))
     builder.add_node("scout",                make_scout_node(deps))
@@ -131,12 +168,12 @@ def build_graph(
     builder.add_node("hitl_escalation",      make_hitl_escalation_node(deps))
     builder.add_node("memory_consolidation", make_memory_consolidation_node(deps))
 
-    # ── Direct edges ──────────────────────────────────────────────────────
+    # -- Direct edges --
     builder.add_edge(START,                  "bootstrap")
     builder.add_edge("bootstrap",            "mode_router")
     builder.add_edge("mode_router",          "scout")
     builder.add_edge("scout",                "value_node")
-    builder.add_conditional_edges(
+    builder.add_edge(
         "actor",
         route_after_actor,
         {
@@ -151,7 +188,7 @@ def build_graph(
     builder.add_edge("hitl_escalation",      "memory_consolidation")  # HIGH-002: persist failure lessons after HITL resume
     builder.add_edge("all_critics",          "verifier")
 
-    # ── Conditional edges ─────────────────────────────────────────────────
+    # -- Conditional edges --
     builder.add_conditional_edges(
         "value_node",
         route_after_value_node,
@@ -204,7 +241,7 @@ def build_graph(
         raise ValueError(
             "build_graph() requires an explicit checkpointer (got None). "
             "For production use: AsyncSqliteSaver.from_conn_string('.workflow/sacv.db') "
-            "For testing use: MemorySaver() — note that MemorySaver does not persist "
+            "For testing use: MemorySaver() -- note that MemorySaver does not persist "
             "across process restarts and cannot resume after HITL interrupts."
         )
     return builder.compile(checkpointer=checkpointer)

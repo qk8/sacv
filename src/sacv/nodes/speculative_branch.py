@@ -215,15 +215,9 @@ async def _evaluate_branch(
             diff=branch_diff,
         )
 
-        # Inline mini-workflow: actor → preflight → critics → verifier
-        from sacv.nodes.actor       import make_actor_node
-        from sacv.nodes.preflight_node import make_preflight_node
-        from sacv.orchestration.verifier_utils import (
-            run_verifier_with_confidence as _run_verifier_with_confidence,
-        )
-        from sacv.nodes.critics.security    import make_security_critic_node
-        from sacv.nodes.critics.style       import make_style_critic_node
-        from sacv.nodes.critics.consistency import make_consistency_critic_node
+        # Shared branch subgraph: actor → preflight → critics → verifier
+        from langgraph.checkpoint.memory import MemorySaver
+        from sacv.orchestration.graph import build_branch_subgraph
 
         branch_state = {
             **state,
@@ -239,15 +233,16 @@ async def _evaluate_branch(
             "critic_findings": CRITIC_RESET,
         }
 
-        actor_out   = await make_actor_node(branch_deps)(branch_state)
-        if not actor_out.get("diff_proposal"):
-            return branch_name, None
+        # Build, compile, and run the shared mini-workflow for this branch.
+        # The subgraph is compiled with an isolated MemorySaver so each
+        # branch runs independently without state bleed (WORKER-001).
+        subgraph = build_branch_subgraph(branch_deps)
+        compiled = subgraph.compile(checkpointer=MemorySaver())
 
-        branch_state = _merge_branch_state(branch_state, actor_out)
+        result = await compiled.ainvoke(branch_state)
 
-        # Run preflight — if it fails, skip this branch (LSP/compile/arch checks)
-        preflight_out = await make_preflight_node(branch_deps)(branch_state)
-        preflight_result = preflight_out.get("preflight_result") or {}
+        verdict = result.get("verifier_verdict")
+        preflight_result = (result.get("preflight_result") or {}).copy()
         if not preflight_result.get("passed", True):
             log.info(
                 "speculative_branch.preflight_failed",
@@ -256,41 +251,7 @@ async def _evaluate_branch(
             )
             return branch_name, None  # treat as failed branch
 
-        branch_state = _merge_branch_state(branch_state, preflight_out)
-
-        # Run critics concurrently — _run_critic already throttles via
-        # deps.critic_semaphore internally; no outer wrapper needed.
-        sec_out, sty_out, con_out = await asyncio.gather(
-            make_security_critic_node(branch_deps)(branch_state),
-            make_style_critic_node(branch_deps)(branch_state),
-            make_consistency_critic_node(branch_deps)(branch_state),
-        )
-
-        # Aggregate critic costs: each critic starts from the same baseline,
-        # so sum all three outputs and subtract 3× baseline to isolate the
-        # incremental cost. Add baseline back so the actor's cost (already
-        # in baseline via _merge_branch_state) is not dropped.
-        baseline = branch_state.get("cumulative_cost_dollars", 0.0)
-        branch_cost = (
-            baseline
-            + sec_out.get("cumulative_cost_dollars", baseline)
-            + sty_out.get("cumulative_cost_dollars", baseline)
-            + con_out.get("cumulative_cost_dollars", baseline)
-            - 3.0 * baseline
-        )
-
-        branch_state = {
-            **branch_state,
-            "critic_findings": (
-                sec_out.get("critic_findings", [])
-                + sty_out.get("critic_findings", [])
-                + con_out.get("critic_findings", [])
-            ),
-            "cumulative_cost_dollars": branch_cost,
-        }
-
-        ver_out = await _run_verifier_with_confidence(branch_state, branch_deps)
-        return branch_name, ver_out.get("verifier_verdict")
+        return branch_name, verdict
 
     except Exception as exc:
         log.error(
