@@ -85,6 +85,7 @@ def make_verifier_node(deps: "NodeDeps"):
                 phase1_passed=False, phase2_passed=False,
                 failures=[{"source": "critic", "finding": f} for f in critical],
                 findings=findings, docker_exit_code=-1,
+                blocked_by_critic=True,
             )
             return _build_return(verdict, correction, "critic_block")
 
@@ -430,6 +431,7 @@ def _make_verdict(
     otel_trace:           dict | None = None,
     actuator_snapshot:    dict | None = None,
     docker_exit_code:     int = 0,
+    blocked_by_critic:    bool = False,
 ) -> VerifierVerdict:
     return VerifierVerdict(
         test_result=test_result, diagnostic=diagnostic,
@@ -440,6 +442,7 @@ def _make_verdict(
         playwright_trace_path=playwright_trace_path,
         otel_trace=otel_trace,
         actuator_snapshot=actuator_snapshot,
+        blocked_by_critic=blocked_by_critic,
     )
 
 

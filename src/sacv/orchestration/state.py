@@ -201,6 +201,10 @@ class VerifierVerdict(TypedDict):
     playwright_trace_path: str | None
     otel_trace:            dict | None
     actuator_snapshot:     dict | None
+    # HIGH-003: True when verifier blocked on critical critic findings
+    # without running Docker. Actor should use critic feedback directly
+    # rather than attempting test-driven debugging.
+    blocked_by_critic:     bool
 
 class ResolutionHint(TypedDict):
     priority:  int
