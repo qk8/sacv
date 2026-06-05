@@ -117,9 +117,13 @@ def make_speculative_branch_node(deps: "NodeDeps"):
                 break
             else:
                 new_exhausted.append(branch_name)
-                # Stash failed branch
-                await asyncio.to_thread(deps.git.checkout, branch_name)
-                await asyncio.to_thread(deps.git.stash, f"sacv-failed-{branch_name}")
+                # _evaluate_branch's finally block already cleaned up the
+                # worktree; no checkout/stash needed here.
+
+        # Prune stale worktree registry so delete_branch doesn't fail on
+        # "branch already checked out at <removed_worktree>" errors.
+        if new_exhausted:
+            await asyncio.to_thread(deps.git.prune_worktrees)
 
         # Delete failed speculative branches (keep only the winner)
         for exhausted_branch in new_exhausted:

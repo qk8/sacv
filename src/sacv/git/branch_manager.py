@@ -215,6 +215,11 @@ class BranchManager(GitProvider):
         self._run(["git", "worktree", "remove", "--force", str(worktree_path)])
         log.info("git.worktree_removed", path=str(worktree_path))
 
+    def prune_worktrees(self) -> None:
+        """Prune stale worktree registry entries left by removed worktrees."""
+        self._run(["git", "worktree", "prune"])
+        log.debug("git.worktrees_pruned")
+
     def stage_file(self, path: str) -> None:
         """Stage a single file for commit (partial staging)."""
         self._run(["git", "add", path])
