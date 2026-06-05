@@ -68,14 +68,15 @@ def _make_all_critics_node(deps: "NodeDeps"):
             + con_out.get("critic_findings", [])
         )
         # Each critic receives the same state snapshot; each returns
-        # baseline + its own cost. Sum all three outputs and subtract 2×
-        # the baseline to avoid triple-counting the shared baseline.
+        # baseline + its own cost. Sum all three outputs and subtract 3×
+        # the baseline to isolate the incremental cost (baseline is already
+        # part of the running total in state).
         baseline = state.get("cumulative_cost_dollars", 0.0)
         final_cost = (
             sec_out.get("cumulative_cost_dollars", baseline)
             + sty_out.get("cumulative_cost_dollars", baseline)
             + con_out.get("cumulative_cost_dollars", baseline)
-            - 2.0 * baseline
+            - 3.0 * baseline
         )
         return {
             "current_phase":           WorkflowPhase.CRITICS.value,

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from sacv.orchestration.config import WorkflowConfig
 from sacv.orchestration.state import WorkflowPhase, ProjectMode
-from sacv.nodes.scout import make_scout_node, _FILE_PATTERN, _MAX_AGENTS_MD_CHARS
+from sacv.nodes.scout import make_scout_node, _FILE_PATTERN
 from sacv.testing.stub_providers import (
     StubAgentProvider, StubMemoryProvider, StubCodeGraphProvider,
     StubCrossDomainProvider, StubDiffProvider, StubGitProvider,
@@ -150,18 +150,19 @@ class TestScoutNode:
         assert out["agents_md_context"] is None
 
     async def test_agents_md_truncated_at_max_chars(self, tmp_path, monkeypatch):
-        """AGENTS.md content is truncated at _MAX_AGENTS_MD_CHARS."""
+        """AGENTS.md content is truncated at config.agents_md_prompt_chars."""
         monkeypatch.chdir(tmp_path)
-        long_content = "x" * (_MAX_AGENTS_MD_CHARS + 1000)
+        max_chars = 2000  # default from WorkflowConfig
+        long_content = "x" * (max_chars + 1000)
         (tmp_path / "AGENTS.md").write_text(long_content)
-        deps = _deps()
+        deps = _deps(agents_md_prompt_chars=max_chars)
         node = make_scout_node(deps)
 
         out = await node(_state())
 
         context = out["agents_md_context"]
         assert context is not None
-        assert len(context) <= _MAX_AGENTS_MD_CHARS + 50  # +truncation message
+        assert len(context) <= max_chars + 50  # +truncation message
         assert "[...truncated" in context
 
     async def test_file_hints_extracted_from_description(self, tmp_path, monkeypatch):

@@ -237,6 +237,9 @@ class StubGitProvider(GitProvider):
     def remove_worktree(self, worktree_path: Path) -> None:
         self._rec("remove_worktree", str(worktree_path))
 
+    def prune_worktrees(self) -> None:
+        self._rec("prune_worktrees")
+
     def stage_file(self, path: str) -> None:
         self._rec("stage_file", path)
 

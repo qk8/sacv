@@ -96,7 +96,7 @@ class TestCriticFanOut:
         deps  = _deps(agent)
         state = {**_state(), "critic_findings": []}
         out   = await _make_all_critics_node(deps)(state)
-        assert out["current_phase"] == WorkflowPhase.VERIFIER.value
+        assert out["current_phase"] == WorkflowPhase.CRITICS.value
 
     async def test_concurrent_execution_no_deadlock(self):
         agent = StubAgentProvider([make_json_agent_result([])] * 3)

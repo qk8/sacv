@@ -267,14 +267,14 @@ async def _evaluate_branch(
         )
 
         # Aggregate critic costs: each critic starts from the same baseline,
-        # so sum all three outputs and subtract 2× baseline to avoid
-        # triple-counting the shared baseline (ISSUE-004 fix).
+        # so sum all three outputs and subtract 3× baseline to isolate the
+        # incremental cost (baseline is already part of the running total).
         baseline = branch_state.get("cumulative_cost_dollars", 0.0)
         branch_cost = (
             sec_out.get("cumulative_cost_dollars", baseline)
             + sty_out.get("cumulative_cost_dollars", baseline)
             + con_out.get("cumulative_cost_dollars", baseline)
-            - 2.0 * baseline
+            - 3.0 * baseline
         )
 
         branch_state = {
