@@ -17,6 +17,7 @@ class AgentResult:
     finish_reason: str
     input_tokens: int
     output_tokens: int
+    total_cost_usd: float | None = None
 
 class AgentProvider(ABC):
     @abstractmethod

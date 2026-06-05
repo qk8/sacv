@@ -18,10 +18,21 @@ def accumulate_cost(
     """
     Calculate the new cumulative cost after adding this result's token usage.
 
+    Prefers SDK-reported cost (total_cost_usd) when available, as it is
+    always accurate and model-agnostic. Falls back to token-count
+    estimation otherwise.
+
     Returns the updated cumulative_cost_dollars value.
     """
     if last_tokens is None:
         return state.get("cumulative_cost_dollars", 0.0)
+
+    # Prefer SDK-reported cost when available (always accurate)
+    sdk_cost = getattr(last_tokens, "total_cost_usd", None)
+    if sdk_cost is not None:
+        return state.get("cumulative_cost_dollars", 0.0) + sdk_cost
+
+    # Fallback: estimate from token counts
     cost = (
         last_tokens.input_tokens  / 1_000_000 * config.token_budget.cost_per_m_input
         + last_tokens.output_tokens / 1_000_000 * config.token_budget.cost_per_m_output

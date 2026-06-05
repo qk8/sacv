@@ -32,6 +32,7 @@ try:
         AssistantMessage,
         TextBlock,
         ToolUseBlock,
+        ResultMessage,
     )
     _SDK_AVAILABLE = True
 except ImportError:
@@ -41,6 +42,8 @@ except ImportError:
     class query:  # type: ignore[no-redef]
         pass
     class ClaudeAgentOptions:  # type: ignore[no-redef]
+        pass
+    class ResultMessage:  # type: ignore[no-redef]
         pass
 
 from sacv.interfaces.agent_provider import AgentProvider, AgentConfig, AgentResult
@@ -102,6 +105,7 @@ class ClaudeAgentAdapter(AgentProvider):
         tool_calls:    list[dict] = []
         input_tokens   = 0
         output_tokens  = 0
+        total_cost_usd: float | None = None
 
         options = ClaudeAgentOptions(
             system_prompt=config.system_prompt,
@@ -125,11 +129,19 @@ class ClaudeAgentAdapter(AgentProvider):
                                     "name":  block.name,
                                     "input": block.input,
                                 })
-                    # Accumulate token usage if available on message
-                    usage = getattr(message, "usage", None)
-                    if isinstance(usage, dict):
-                        input_tokens  += usage.get("input_tokens",  0)
-                        output_tokens += usage.get("output_tokens", 0)
+                        usage = getattr(message, "usage", None)
+                        if isinstance(usage, dict):
+                            input_tokens  += usage.get("input_tokens",  0)
+                            output_tokens += usage.get("output_tokens", 0)
+
+                    # Capture authoritative cost from ResultMessage (ISSUE-005)
+                    elif isinstance(message, ResultMessage):
+                        if message.total_cost_usd is not None:
+                            total_cost_usd = message.total_cost_usd
+                        if isinstance(message.usage, dict):
+                            # Prefer ResultMessage totals when available
+                            input_tokens  = message.usage.get("input_tokens",  input_tokens)
+                            output_tokens = message.usage.get("output_tokens", output_tokens)
 
         except asyncio.TimeoutError:
             log.error(
@@ -158,6 +170,7 @@ class ClaudeAgentAdapter(AgentProvider):
             finish_reason="stop",
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            total_cost_usd=total_cost_usd,
         )
 
     async def create_subagent(self, config: AgentConfig) -> "ClaudeAgentAdapter":
