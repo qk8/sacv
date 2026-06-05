@@ -23,7 +23,7 @@ import subprocess
 import pytest
 from pathlib import Path
 
-from sacv.git.branch_manager import BranchManager
+from sacv.git.branch_manager import BranchManager, sanitize_branch_name
 
 
 def _init_test_repo(tmp_path: Path) -> BranchManager:
@@ -281,3 +281,83 @@ class TestHeadSha:
         mgr.commit("second commit")
         sha2 = mgr.head_sha()
         assert sha1 != sha2
+
+
+class TestSanitizeBranchName:
+
+    def test_alphanumeric_unchanged(self):
+        assert sanitize_branch_name("feature-1") == "feature-1"
+
+    def test_spaces_become_dashes(self):
+        assert sanitize_branch_name("feature one") == "feature-one"
+
+    def test_slashes_become_dashes(self):
+        assert sanitize_branch_name("feature/one") == "feature-one"
+
+    def test_backslashes_become_dashes(self):
+        assert sanitize_branch_name("feature\\one") == "feature-one"
+
+    def test_tildes_become_dashes(self):
+        assert sanitize_branch_name("feature~one") == "feature-one"
+
+    def test_carets_become_dashes(self):
+        assert sanitize_branch_name("feature^one") == "feature-one"
+
+    def test_question_marks_become_dashes(self):
+        assert sanitize_branch_name("feature?one") == "feature-one"
+
+    def test_asterisks_become_dashes(self):
+        assert sanitize_branch_name("feature*one") == "feature-one"
+
+    def test_brackets_become_dashes(self):
+        # [ and ] each become a dash, then collapsed by multi-dash rule
+        assert sanitize_branch_name("feature[one]two") == "feature-one-two"
+
+    def test_multiple_dashes_collapsed(self):
+        assert sanitize_branch_name("feature---one") == "feature-one"
+
+    def test_leading_dashes_stripped(self):
+        assert sanitize_branch_name("---feature") == "feature"
+
+    def test_trailing_dashes_stripped(self):
+        assert sanitize_branch_name("feature---") == "feature"
+
+    def test_all_special_chars(self):
+        result = sanitize_branch_name("feat/ure\\name~v1^beta?final*test[1]")
+        assert "/" not in result
+        assert "\\" not in result
+        assert "~" not in result
+        assert "^" not in result
+        assert "?" not in result
+        assert "*" not in result
+        assert "[" not in result
+        assert "]" not in result
+        assert "--" not in result
+
+    def test_dots_preserved(self):
+        assert sanitize_branch_name("feat.ure") == "feat.ure"
+
+    def test_underscores_preserved(self):
+        assert sanitize_branch_name("feat_ure") == "feat_ure"
+
+    def test_numbers_preserved(self):
+        assert sanitize_branch_name("feat123") == "feat123"
+
+    def test_empty_result_defaults_to_branch(self):
+        assert sanitize_branch_name("---") == "branch"
+
+    def test_special_chars_only_defaults_to_branch(self):
+        assert sanitize_branch_name("???") == "branch"
+
+    def test_unicode_word_chars_preserved(self):
+        # Python \w matches Unicode word characters, so é is preserved
+        result = sanitize_branch_name("featéure")
+        assert "é" in result
+
+    def test_parentheses_become_dashes(self):
+        assert sanitize_branch_name("feat(ure)") == "feat-ure"
+
+    def test_real_world_task_names(self):
+        assert sanitize_branch_name("implement user service") == "implement-user-service"
+        assert sanitize_branch_name("fix @bug in auth") == "fix-bug-in-auth"
+        assert sanitize_branch_name("add new [feature]") == "add-new-feature"
