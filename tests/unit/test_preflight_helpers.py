@@ -9,6 +9,8 @@ import pytest
 from sacv.nodes.preflight_node import (
     _arch_cmd,
     _parse_java_archunit,
+    _parse_lsp,
+    _parse_arch,
 )
 
 
@@ -148,3 +150,141 @@ class TestParseJavaArchunit:
         assert len(violations) == 2
         assert violations[0]["rule"] == "RULE-A"
         assert violations[1]["rule"] == "RULE-B"
+
+
+# ── _parse_lsp ────────────────────────────────────────────────────────────────
+
+class TestParseLsp:
+
+    def test_frontend_parses_ts_error(self):
+        output = "src/Login.tsx(5,10): error TS2322: Type 'string' is not assignable to type 'number'"
+        errors = _parse_lsp(output, "frontend-feature")
+        assert len(errors) == 1
+        assert errors[0]["file"] == "src/Login.tsx"
+        assert errors[0]["line"] == 5
+        assert errors[0]["code"] == "TS2322"
+        assert "Type 'string'" in errors[0]["message"]
+
+    def test_frontend_parses_tsx_error(self):
+        output = "src/App.tsx(10,3): error TS2345: Argument of type 'null'"
+        errors = _parse_lsp(output, "frontend-data")
+        assert len(errors) == 1
+        assert errors[0]["file"] == "src/App.tsx"
+        assert errors[0]["line"] == 10
+
+    def test_frontend_parses_multiple_errors(self):
+        output = (
+            "src/A.tsx(1,2): error TS2322: err1\n"
+            "src/B.tsx(3,4): error TS2345: err2\n"
+        )
+        errors = _parse_lsp(output, "frontend-feature")
+        assert len(errors) == 2
+        assert errors[0]["file"] == "src/A.tsx"
+        assert errors[1]["file"] == "src/B.tsx"
+
+    def test_frontend_limits_to_30(self):
+        lines = [f"src/F{i}.tsx(1,1): error TS2322: err\n" for i in range(40)]
+        errors = _parse_lsp("".join(lines), "frontend-feature")
+        assert len(errors) == 30
+
+    def test_frontend_empty_output(self):
+        assert _parse_lsp("", "frontend-feature") == []
+
+    def test_backend_parses_java_error(self):
+        output = "[ERROR] UserService.java:[15,10] incompatible types"
+        errors = _parse_lsp(output, "backend-domain")
+        assert len(errors) == 1
+        assert errors[0]["file"] == "UserService.java"
+        assert errors[0]["line"] == 15
+        assert errors[0]["code"] == "CE"
+        assert "incompatible types" in errors[0]["message"]
+
+    def test_backend_parses_multiple_java_errors(self):
+        output = (
+            "[ERROR] A.java:[1,2] error a\n"
+            "[ERROR] B.java:[3,4] error b\n"
+        )
+        errors = _parse_lsp(output, "backend-api")
+        assert len(errors) == 2
+        assert errors[0]["file"] == "A.java"
+        assert errors[1]["file"] == "B.java"
+
+    def test_backend_limits_to_30(self):
+        lines = [f"[ERROR] F{i}.java:[1,1] error\n" for i in range(40)]
+        errors = _parse_lsp("".join(lines), "backend-domain")
+        assert len(errors) == 30
+
+    def test_backend_empty_output(self):
+        assert _parse_lsp("", "backend-domain") == []
+
+    def test_frontend_ignores_backend_format(self):
+        output = "[ERROR] A.java:[1,2] error"
+        errors = _parse_lsp(output, "frontend-feature")
+        assert errors == []
+
+    def test_backend_ignores_frontend_format(self):
+        output = "src/A.tsx(1,2): error TS2322: err"
+        errors = _parse_lsp(output, "backend-domain")
+        assert errors == []
+
+
+# ── _parse_arch ────────────────────────────────────────────────────────────────
+
+class TestParseArch:
+
+    def test_frontend_no_arch_test_returns_empty(self):
+        output = "NO_ARCH_TEST"
+        assert _parse_arch(output, "frontend-feature") == []
+
+    def test_frontend_parses_dep_cruise_json(self):
+        import json
+        data = json.dumps([{
+            "source": "src/ui/Login.tsx",
+            "violations": [{
+                "rule": {"name": "no-ui-to-db"},
+                "to": {"resolved": "src/db/UserRepo.ts"},
+            }],
+        }])
+        violations = _parse_arch(data, "frontend-feature")
+        assert len(violations) == 1
+        assert violations[0]["rule"] == "no-ui-to-db"
+        assert violations[0]["source_file"] == "src/ui/Login.tsx"
+        assert violations[0]["target_file"] == "src/db/UserRepo.ts"
+
+    def test_frontend_parses_multiple_violations(self):
+        import json
+        data = json.dumps([{
+            "source": "src/ui/A.tsx",
+            "violations": [
+                {"rule": {"name": "R1"}, "to": {"resolved": "X"}},
+                {"rule": {"name": "R2"}, "to": {"resolved": "Y"}},
+            ],
+        }])
+        violations = _parse_arch(data, "frontend-feature")
+        assert len(violations) == 2
+        assert violations[0]["rule"] == "R1"
+        assert violations[1]["rule"] == "R2"
+
+    def test_frontend_limits_to_20(self):
+        import json
+        violations = [{"rule": {"name": f"R{i}"}, "to": {"resolved": f"F{i}"}} for i in range(30)]
+        data = json.dumps([{"source": "src/A.tsx", "violations": violations}])
+        result = _parse_arch(data, "frontend-feature")
+        assert len(result) == 20
+
+    def test_frontend_invalid_json_returns_empty(self):
+        assert _parse_arch("not json", "frontend-feature") == []
+
+    def test_frontend_non_list_data_returns_empty(self):
+        import json
+        data = json.dumps({"not": "a list"})
+        assert _parse_arch(data, "frontend-feature") == []
+
+    def test_backend_delegates_to_java_archunit(self):
+        output = "Architecture Violation - required rule 'no-layer': msg\n  - frame"
+        violations = _parse_arch(output, "backend-domain")
+        assert len(violations) == 1
+        assert violations[0]["rule"] == "no-layer"
+
+    def test_backend_no_arch_test_returns_empty(self):
+        assert _parse_arch("NO_ARCH_TEST", "backend-domain") == []
