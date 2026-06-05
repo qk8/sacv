@@ -209,12 +209,16 @@ def _classify(
     state:        "WorkflowState",
     overall_pass: bool = True,
 ) -> str:
+    failure_text = " ".join(f.get("message", "") for f in failures).lower()
     if p1_passed and p2_passed:
         if not overall_pass:
-            # Tests pass but perf/visual broke — Actor needs to optimise
+            # Tests pass but perf/visual broke — Actor needs to optimise.
+            # If there are no parseable failure messages, fall through to
+            # AMBIGUOUS (Actor has nothing concrete to optimise).
+            if not failure_text.strip():
+                return DiagnosticVerdict.AMBIGUOUS.value
             return DiagnosticVerdict.FIX_IMPL.value
         return DiagnosticVerdict.PASS.value
-    failure_text = " ".join(f.get("message", "") for f in failures).lower()
     if not p1_passed:
         return DiagnosticVerdict.FIX_IMPL.value
 
@@ -237,8 +241,6 @@ def _classify(
             return DiagnosticVerdict.FIX_TEST.value
 
     if any(kw in failure_text for kw in ("compilat", "syntax", "cannot find symbol", "module not found")):
-        return DiagnosticVerdict.FIX_IMPL.value
-    if state.get("red_phase_evidence_path"):
         return DiagnosticVerdict.FIX_IMPL.value
     if any(f["severity"] == "critical" for f in findings):
         return DiagnosticVerdict.FIX_IMPL.value

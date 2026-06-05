@@ -146,11 +146,38 @@ class TestClassify:
         ], [], {})
         assert result == DiagnosticVerdict.FIX_IMPL.value
 
-    def test_fix_impl_when_red_phase_evidence_exists(self):
+    def test_fix_impl_when_red_phase_evidence_exists_with_failure(self):
+        """red_phase_evidence_path + non-empty failure text → FIX_IMPL."""
         result = _classify(True, False, [{"message": "timeout"}], [], {
             "red_phase_evidence_path": ".workflow/tdd-evidence/e1.json",
         })
         assert result == DiagnosticVerdict.FIX_IMPL.value
+
+    def test_ambiguous_with_red_phase_evidence_but_no_failure_text(self):
+        """red_phase_evidence_path alone should NOT force FIX_IMPL.
+
+        When both phases pass but the test runner exits non-zero with no
+        parseable failure messages, AMBIGUOUS is the correct diagnostic —
+        the Agent has nothing concrete to fix and should escalate to the
+        debugger for root-cause analysis.
+        """
+        result = _classify(True, False, [{"message": ""}], [], {
+            "red_phase_evidence_path": ".workflow/tdd-evidence/e1.json",
+        })
+        assert result == DiagnosticVerdict.AMBIGUOUS.value
+
+    def test_ambiguous_when_both_phases_pass_no_failure_messages(self):
+        """Both phases pass, no failure messages, but overall_pass is False
+        (e.g. visual breakage) → AMBIGUOUS (not FIX_IMPL).
+
+        This is the key regression test: the old code at verifier.py:241
+        unconditionally returned FIX_IMPL when red_phase_evidence_path
+        existed, making AMBIGUOUS unreachable after TDD gate.
+        """
+        result = _classify(True, True, [{"message": ""}], [], {
+            "red_phase_evidence_path": ".workflow/tdd-evidence/e1.json",
+        }, overall_pass=False)
+        assert result == DiagnosticVerdict.AMBIGUOUS.value
 
     def test_fix_impl_with_critical_findings(self):
         result = _classify(True, False, [], [
