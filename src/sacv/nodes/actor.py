@@ -94,6 +94,7 @@ def make_actor_node(deps: "NodeDeps"):
             # sends the graph directly to hitl_escalation (attempt_count
             # == max_self_correction_cycles triggers the max-cycles path).
             return {
+                "current_phase": WorkflowPhase.ACTOR.value,
                 "correction_state": {
                     **correction,
                     "attempt_count":      deps.config.max_self_correction_cycles,

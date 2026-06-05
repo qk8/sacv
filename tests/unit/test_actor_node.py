@@ -135,6 +135,8 @@ class TestActorNode:
         assert out["correction_state"]["attempt_count"] == 3  # set to max_self_correction_cycles
         assert out["correction_state"]["stagnation_pattern"] == "iteration"
         assert out["diff_proposal"] is None
+        # Stagnation guard must return current_phase to avoid state inconsistency
+        assert out["current_phase"] == WorkflowPhase.ACTOR.value
 
     async def test_json_parse_failure_returns_empty_diff(self):
         """LLM returns non-JSON → empty diffs → self-loop retry."""
