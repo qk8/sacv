@@ -294,3 +294,101 @@ class TestFormatting:
         pos1 = output.find("UserService.java:42")
         pos2 = output.find("UserController.java:28")
         assert pos1 < pos2
+
+    def test_filters_java_lang_thread(self):
+        raw = """
+java.lang.Exception
+	at java.lang.Thread.run(Thread.java:748)
+	at com.example.worker.WorkerThread.run(WorkerThread.java:20)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 1
+        assert "WorkerThread" in frames[0].method
+
+    def test_inner_class_name_preserved(self):
+        raw = """
+java.lang.RuntimeException
+	at com.example.service.UserService$Builder.build(UserService.java:55)
+	at com.example.controller.UserController.create(UserController.java:12)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 2
+        assert "UserService" in frames[0].method
+
+
+class TestPruneTypeScriptEdgeCases:
+
+    def test_no_source_frames_returns_empty(self):
+        raw = """
+Error: test
+    at fn (/node_modules/react/index.js:10:5)
+    at fn (/dist/bundle.js:20:10)
+"""
+        frames = prune_typescript_stack(raw, "src")
+        assert frames == []
+
+    def test_components_directory_included(self):
+        raw = "Error: test\n    at Button (src/components/Button.tsx:5:10)"
+        frames = prune_typescript_stack(raw, "src")
+        assert len(frames) == 1
+        assert "Button.tsx" in frames[0].file
+
+    def test_pages_directory_included(self):
+        raw = "Error: test\n    at Page (src/pages/index.tsx:1:1)"
+        frames = prune_typescript_stack(raw, "src")
+        assert len(frames) == 1
+
+    def test_lib_directory_included(self):
+        raw = "Error: test\n    at util (src/lib/utils.ts:10:5)"
+        frames = prune_typescript_stack(raw, "src")
+        assert len(frames) == 1
+
+    def test_app_directory_included(self):
+        raw = "Error: test\n    at layout (src/app/layout.tsx:5:5)"
+        frames = prune_typescript_stack(raw, "src")
+        assert len(frames) == 1
+
+
+class TestDispatchEdgeCases:
+
+    def test_empty_module_type_defaults_to_java(self):
+        """Empty module_type should fall through to Java parser."""
+        frames = prune_stack(_JAVA_NPE, "", "com.example")
+        assert all(".java" in f.file for f in frames)
+
+    def test_module_with_frontend_in_name(self):
+        """Any module_type containing 'frontend' uses TS pruner."""
+        frames = prune_stack(_TS_ERROR, "frontend-data", src_root="src")
+        assert all(".tsx" in f.file or ".ts" in f.file for f in frames)
+
+
+class TestFormattingEdgeCases:
+
+    def test_format_for_actor_single_frame(self):
+        """Single frame formats correctly with message."""
+        raw = """
+java.lang.RuntimeException: single error
+	at com.example.service.SingleService.doWork(SingleService.java:10)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        output = format_for_actor(frames)
+        assert "SingleService" in output
+        assert "RuntimeException" in output
+
+    def test_format_for_actor_with_empty_message(self):
+        """Frames without exception message still format."""
+        raw = """
+	at com.example.service.UserService.findById(UserService.java:42)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        output = format_for_actor(frames)
+        assert "UserService" in output
+
+    def test_frames_to_dict_preserves_all_fields(self):
+        """Every dict key from ParsedFrame is present."""
+        f = ParsedFrame(
+            file="Test.java", line=99,
+            method="com.example.Test.run", message="boom",
+        )
+        d = frames_to_dict([f])
+        assert set(d[0].keys()) == {"file", "line", "method", "message"}
