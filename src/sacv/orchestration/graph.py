@@ -67,15 +67,18 @@ def _make_all_critics_node(deps: "NodeDeps"):
             + sty_out.get("critic_findings", [])
             + con_out.get("critic_findings", [])
         )
-        # Each critic receives the same state snapshot; max() yields the final
-        # running total after add_agent_cost accumulated onto that baseline.
-        final_cost = max(
-            sec_out.get("cumulative_cost_dollars", 0.0),
-            sty_out.get("cumulative_cost_dollars", 0.0),
-            con_out.get("cumulative_cost_dollars", 0.0),
+        # Each critic receives the same state snapshot; each returns
+        # baseline + its own cost. Sum all three outputs and subtract 2×
+        # the baseline to avoid triple-counting the shared baseline.
+        baseline = state.get("cumulative_cost_dollars", 0.0)
+        final_cost = (
+            sec_out.get("cumulative_cost_dollars", baseline)
+            + sty_out.get("cumulative_cost_dollars", baseline)
+            + con_out.get("cumulative_cost_dollars", baseline)
+            - 2.0 * baseline
         )
         return {
-            "current_phase":           WorkflowPhase.VERIFIER.value,
+            "current_phase":           WorkflowPhase.CRITICS.value,
             "critic_findings":         all_findings,
             "cumulative_cost_dollars": final_cost,
         }

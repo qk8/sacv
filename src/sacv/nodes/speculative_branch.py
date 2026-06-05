@@ -266,11 +266,15 @@ async def _evaluate_branch(
             make_consistency_critic_node(branch_deps)(branch_state),
         )
 
-        # Aggregate critic costs (max since each critic starts from same baseline)
-        branch_cost = max(
-            sec_out.get("cumulative_cost_dollars", 0.0),
-            sty_out.get("cumulative_cost_dollars", 0.0),
-            con_out.get("cumulative_cost_dollars", 0.0),
+        # Aggregate critic costs: each critic starts from the same baseline,
+        # so sum all three outputs and subtract 2× baseline to avoid
+        # triple-counting the shared baseline (ISSUE-004 fix).
+        baseline = branch_state.get("cumulative_cost_dollars", 0.0)
+        branch_cost = (
+            sec_out.get("cumulative_cost_dollars", baseline)
+            + sty_out.get("cumulative_cost_dollars", baseline)
+            + con_out.get("cumulative_cost_dollars", baseline)
+            - 2.0 * baseline
         )
 
         branch_state = {
