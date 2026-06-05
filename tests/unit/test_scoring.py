@@ -1,7 +1,10 @@
 """Unit tests for the Value Node pure scoring functions."""
 from __future__ import annotations
 import pytest
-from sacv.nodes._scoring import score_strategy, prune_strategies, detect_collision_pairs, ScoringWeights
+from sacv.nodes._scoring import (
+    score_strategy, prune_strategies, detect_collision_pairs,
+    ScoringWeights, compute_semantic_similarity,
+)
 from sacv.orchestration.config import WorkflowConfig
 
 def _c(sid, score, files=None):
@@ -56,3 +59,46 @@ class TestCollisionDetection:
         pairs = detect_collision_pairs([a,b])
         assert len(pairs)==1
         assert "Shared.java" in pairs[0][2]
+
+
+class TestComputeSemanticSimilarity:
+
+    def test_identical_vectors(self):
+        vec = [1.0, 2.0, 3.0]
+        assert compute_semantic_similarity(vec, vec) == pytest.approx(1.0)
+
+    def test_orthogonal_vectors(self):
+        a = [1.0, 0.0]
+        b = [0.0, 1.0]
+        assert compute_semantic_similarity(a, b) == pytest.approx(0.0)
+
+    def test_negative_similarity(self):
+        a = [1.0, 0.0]
+        b = [-1.0, 0.0]
+        assert compute_semantic_similarity(a, b) == pytest.approx(-1.0)
+
+    def test_empty_vectors(self):
+        assert compute_semantic_similarity([], []) == pytest.approx(0.0)
+
+    def test_one_empty_returns_zero(self):
+        assert compute_semantic_similarity([1.0], []) == pytest.approx(0.0)
+        assert compute_semantic_similarity([], [1.0]) == pytest.approx(0.0)
+
+    def test_different_lengths(self):
+        assert compute_semantic_similarity([1.0, 2.0], [1.0]) == pytest.approx(0.0)
+
+    def test_zero_magnitude(self):
+        a = [0.0, 0.0]
+        b = [1.0, 1.0]
+        assert compute_semantic_similarity(a, b) == pytest.approx(0.0)
+
+    def test_scaled_vectors_same_direction(self):
+        a = [1.0, 2.0, 3.0]
+        b = [2.0, 4.0, 6.0]
+        assert compute_semantic_similarity(a, b) == pytest.approx(1.0)
+
+    def test_high_dimensional_similarity(self):
+        import random
+        random.seed(42)
+        vec = [random.gauss(0, 1) for _ in range(1000)]
+        assert compute_semantic_similarity(vec, vec) == pytest.approx(1.0)
