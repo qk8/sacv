@@ -85,7 +85,7 @@ def make_intelligent_debugger_node(deps: "NodeDeps"):
 
         # ── 3. Classify error + select strategy ───────────────────────────
         error_type = classify_error(raw_failure, module)
-        strategy   = get_strategy(error_type)
+        strategy   = get_strategy(error_type, module)
         log.info("debugger.strategy", error_type=error_type.value,
                  tool=strategy.primary_tool.value)
 

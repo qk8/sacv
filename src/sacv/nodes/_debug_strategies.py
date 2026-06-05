@@ -237,9 +237,29 @@ def classify_error(raw_output: str, module_type: str) -> ErrorType:
     return ErrorType.UNKNOWN
 
 
-def get_strategy(error_type: ErrorType) -> DebugStrategy:
-    """Pure function. Returns the debug strategy for a given error type."""
-    return _STRATEGIES.get(error_type, _DEFAULT_STRATEGY)
+def get_strategy(error_type: ErrorType, module_type: str = "") -> DebugStrategy:
+    """Pure function. Returns the debug strategy for a given error type.
+
+    For frontend/TypeScript modules, Java-only tools (JDWP) are swapped
+    to CDP since the JDWP protocol is not applicable.
+    """
+    strategy = _STRATEGIES.get(error_type, _DEFAULT_STRATEGY)
+
+    # For frontend/TS modules, JDWP is not applicable — use CDP
+    if "frontend" in module_type and strategy.primary_tool == DebugTool.JDWP:
+        return DebugStrategy(
+            error_type=strategy.error_type,
+            primary_tool=DebugTool.CDP,
+            breakpoint_offset=strategy.breakpoint_offset,
+            inspect_all_vars=strategy.inspect_all_vars,
+            step_type=strategy.step_type,
+            max_steps=strategy.max_steps,
+            thread_inspection=strategy.thread_inspection,
+            evaluate_expressions=list(strategy.evaluate_expressions),
+            focus_hint=strategy.focus_hint,
+        )
+
+    return strategy
 
 
 def needs_jdwp(strategy: DebugStrategy) -> bool:

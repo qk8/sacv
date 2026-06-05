@@ -167,13 +167,19 @@ class JdwpClient:
     async def evaluate(self, expression: str) -> str:
         """Evaluate a Java expression in the current scope."""
         output = await self._cmd(f"print {expression}")
-        # JDB returns: "expression = value"
-        parts = output.strip().split(" = ", 1)
+        # JDB returns: "expression = value\n> " — strip trailing prompt
+        output = re.sub(r"\s*>\s*$", "", output)
+        parts = output.split(" = ", 1)
         return parts[1].strip() if len(parts) == 2 else output.strip()
 
     async def get_thread_list(self) -> list[str]:
         output = await self._cmd("threads")
-        return [line.strip() for line in output.splitlines() if line.strip()]
+        # Filter out JDB prompt lines (just ">")
+        return [
+            line.strip()
+            for line in output.splitlines()
+            if line.strip() and not re.match(r"^>\s*$", line.strip())
+        ]
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -206,18 +212,22 @@ class JdwpClient:
 
 def _parse_hit(output: str) -> BreakpointHitInfo | None:
     """Parse JDB output to find a breakpoint/step hit location."""
-    # Pattern: "Breakpoint hit: thread="main", UserService.findById(), line=42 bci=..."
+    # Pattern: "Breakpoint hit: thread=main(t1), UserService.findById(), line=42 bci=..."
+    # Thread name may be quoted or unquoted; captures up to comma/whitespace/paren
     m = re.search(
-        r'thread="([^"]+)".*?([\w.$]+)\.([\w<>]+)\(\).*?line=(\d+)',
+        r'thread="?([^",\s(]+)"?.*?([\w.$]+)\.([\w<>]+)\(\).*?line=(\d+)',
         output, re.DOTALL
     )
     if not m:
         return None
+    class_part = m.group(2).split('.')[-1]
+    # Strip inner class suffix ($Builder → outer class file)
+    class_part = class_part.split('$')[0]
     return BreakpointHitInfo(
         thread_name=m.group(1),
         class_name=m.group(2),
         method_name=m.group(3),
-        file=f"{m.group(2).split('.')[-1]}.java",
+        file=f"{class_part}.java",
         line=int(m.group(4)),
     )
 
@@ -241,8 +251,8 @@ def _parse_where(output: str) -> list[str]:
     """Parse JDB 'where' (stack trace) output."""
     frames = []
     for line in output.splitlines():
-        # Pattern: "  [1] ClassName.method (ClassName.java:42)"
-        m = re.match(r"\s+\[\d+\] (.+)\s+\((.+):(\d+)\)", line)
+        # Pattern: "  [1] ClassName.method(ClassName.java:42)"
+        m = re.match(r"\s+\[\d+\] (.+?)\((.+):(\d+)\)", line)
         if m:
             frames.append(f"{m.group(1)}({m.group(2)}:{m.group(3)})")
     return frames
