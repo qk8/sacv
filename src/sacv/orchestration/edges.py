@@ -47,10 +47,16 @@ def compute_confidence_score(
     state:  WorkflowState,
     config: object = _SENTINEL,
 ) -> float:
-    """Pure function. No I/O."""
+    """Pure function. No I/O.
+
+    Confidence decreases as cumulative cost approaches warning_dollar.
+    The penalty scales linearly between warning_dollar and critical_dollar,
+    reaching 1.0 (full penalty) at critical_dollar.
+    """
     cfg        = _cfg(config)
     correction = state["correction_state"]
     attempt    = correction["attempt_count"]
+    cost       = state.get("cumulative_cost_dollars", 0.0)
 
     attempt_penalty    = min(1.0, attempt / max(cfg.max_self_correction_cycles, 1))
     stagnation_penalty = 0.40 if correction.get("stagnation_pattern", "none") != "none" else 0.0
@@ -60,7 +66,18 @@ def compute_confidence_score(
     critic_penalty     = min(0.30, sum(
         0.10 for f in findings if f.get("severity") == "critical"
     ))
-    return max(0.0, 1.0 - attempt_penalty - stagnation_penalty - blast_penalty - critic_penalty)
+
+    # Cost penalty: linear ramp from 0 at warning_dollar to 1.0 at critical_dollar
+    warning = cfg.token_budget.warning_dollar
+    critical = cfg.token_budget.critical_dollar
+    if cost >= critical:
+        cost_penalty = 1.0
+    elif cost >= warning:
+        cost_penalty = (cost - warning) / (critical - warning)
+    else:
+        cost_penalty = 0.0
+
+    return max(0.0, 1.0 - attempt_penalty - stagnation_penalty - blast_penalty - critic_penalty - cost_penalty)
 
 
 # ── Actor routing ─────────────────────────────────────────────────────────────
