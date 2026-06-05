@@ -128,6 +128,44 @@ class TestClassify:
         result = _classify(False, True, [{"message": "NPE"}], [], {})
         assert result == DiagnosticVerdict.FIX_IMPL.value
 
+    def test_fix_test_when_phase2_assertion_fails(self):
+        """p1 passes, p2 fails with assertion errors but no compile errors → FIX_TEST."""
+        result = _classify(True, False, [
+            {"message": "AssertionError: expected:<2> but was:<3>"},
+        ], [], {})
+        assert result == DiagnosticVerdict.FIX_TEST.value
+
+    def test_fix_test_javascript_expect_to_be(self):
+        """JS assertion style: expect(received).toBe(expected) → FIX_TEST."""
+        result = _classify(True, False, [
+            {"message": "expect(received).toBe(expected) // Object.is equality"},
+        ], [], {})
+        assert result == DiagnosticVerdict.FIX_TEST.value
+
+    def test_fix_test_javascript_to_equal(self):
+        """JS assertion style: toEqual → FIX_TEST."""
+        result = _classify(True, False, [
+            {"message": "Expected value to equal: 42"},
+        ], [], {})
+        # "toequal" is in the assertion keywords
+        assert result == DiagnosticVerdict.FIX_TEST.value
+
+    def test_fix_impl_when_phase2_compile_fails(self):
+        """p1 passes, p2 fails with compile errors → FIX_IMPL (not FIX_TEST)."""
+        result = _classify(True, False, [
+            {"message": "error: cannot find symbol"},
+        ], [], {})
+        assert result == DiagnosticVerdict.FIX_IMPL.value
+
+    def test_fix_impl_when_phase2_has_both_assertion_and_compile(self):
+        """p1 passes, p2 fails with both assertion and compile errors → FIX_IMPL takes priority."""
+        result = _classify(True, False, [
+            {"message": "AssertionError: expected:<2>"},
+            {"message": "error: cannot find symbol"},
+        ], [], {})
+        # has_compile_fail is True, so FIX_TEST is NOT returned
+        assert result == DiagnosticVerdict.FIX_IMPL.value
+
     def test_fix_impl_for_compile_errors(self):
         result = _classify(True, False, [
             {"message": "error: cannot find symbol"},
