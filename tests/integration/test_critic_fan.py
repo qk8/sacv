@@ -98,6 +98,30 @@ class TestCriticFanOut:
         out   = await _make_all_critics_node(deps)(state)
         assert out["current_phase"] == WorkflowPhase.CRITICS.value
 
+    async def test_cost_preserves_baseline_from_prior_nodes(self):
+        """all_critics must preserve the cumulative cost from prior nodes (actor).
+
+        BUG-012 follow-up: The old formula computed sec_cost + sty_cost + con_cost - 3*baseline
+        (incremental only) and returned it as cumulative_cost_dollars, losing the actor's
+        cost that was already in baseline. This made the budget circuit breaker inaccurate.
+
+        Now: final_cost = baseline + (sec + sty + con - 3*baseline), preserving the total.
+        """
+        from sacv.orchestration.graph import _make_all_critics_node
+        agent = StubAgentProvider([
+            make_json_agent_result([]),
+            make_json_agent_result([]),
+            make_json_agent_result([]),
+        ])
+        deps = _deps(agent)
+        # Simulate actor already ran: baseline = $2.00
+        state = {**_state(), "critic_findings": [], "cumulative_cost_dollars": 2.0}
+        out = await _make_all_critics_node(deps)(state)
+        # Each critic starts from baseline (2.0) and adds its own cost (~0.00035)
+        # final_cost = baseline + (inc1 + inc2 + inc3)
+        # The total must be > baseline (actor cost preserved)
+        assert out["cumulative_cost_dollars"] >= 2.0
+
     async def test_concurrent_execution_no_deadlock(self):
         agent = StubAgentProvider([make_json_agent_result([])] * 3)
         deps  = _deps(agent)

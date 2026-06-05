@@ -69,11 +69,12 @@ def _make_all_critics_node(deps: "NodeDeps"):
         )
         # Each critic receives the same state snapshot; each returns
         # baseline + its own cost. Sum all three outputs and subtract 3×
-        # the baseline to isolate the incremental cost (baseline is already
-        # part of the running total in state).
+        # the baseline to isolate the incremental cost. Add baseline back
+        # so the cumulative total (including prior nodes' costs) is preserved.
         baseline = state.get("cumulative_cost_dollars", 0.0)
         final_cost = (
-            sec_out.get("cumulative_cost_dollars", baseline)
+            baseline
+            + sec_out.get("cumulative_cost_dollars", baseline)
             + sty_out.get("cumulative_cost_dollars", baseline)
             + con_out.get("cumulative_cost_dollars", baseline)
             - 3.0 * baseline
