@@ -105,3 +105,99 @@ class TestMergeBranchState:
         assert result["critic_findings"] == []
         assert result["cumulative_cost_dollars"] == 1.5
         assert result["new_key"] == "new_value"
+
+
+class TestSpeculativeBranchCostTracking:
+    """
+    Tests for the cost accumulation pattern used in _evaluate_branch.
+
+    The pattern: actor produces cost C_actor, each critic starts from baseline
+    C_actor and returns C_actor + C_critic_i. The incremental cost is the sum
+    of critic costs minus 3× baseline. The TOTAL cost must be baseline +
+    incremental (i.e. C_actor + sum of critic increments).
+
+    BUG-012: The old code set branch_cost = incremental only, dropping the
+    actor's cost from the final state. This systematically undercounts cost,
+    potentially allowing more branches before the budget circuit breaker fires.
+    """
+
+    def test_total_cost_includes_actor_baseline(self):
+        """
+        When actor costs $2.00 and three critics each cost $1.00,
+        the final cumulative_cost_dollars must be $5.00, not $3.00.
+        """
+        baseline = 2.0  # actor's cost merged into branch_state
+        sec_cost = 3.0  # baseline(2.0) + critic_increment(1.0)
+        sty_cost = 3.0
+        con_cost = 3.0
+
+        # Old buggy formula: only incremental cost
+        buggy_incremental = sec_cost + sty_cost + con_cost - 3.0 * baseline
+        assert buggy_incremental == 3.0  # only critic increments
+
+        # Correct formula: baseline + incremental
+        correct_total = baseline + (sec_cost + sty_cost + con_cost - 3.0 * baseline)
+        assert correct_total == 5.0  # actor + all critics
+
+    def test_total_cost_matches_sum_of_individual_costs(self):
+        """
+        The total cost should equal actor_cost + sum of critic increments.
+        Each critic's cumulative_cost = baseline + its own token cost.
+        """
+        actor_cost = 2.0
+        sec_increment = 1.0
+        sty_increment = 2.0
+        con_increment = 3.0
+        sec_cost = actor_cost + sec_increment
+        sty_cost = actor_cost + sty_increment
+        con_cost = actor_cost + con_increment
+
+        total = actor_cost + (sec_cost + sty_cost + con_cost - 3.0 * actor_cost)
+        assert total == actor_cost + sec_increment + sty_increment + con_increment
+        assert total == 8.0  # 2.0 + 1.0 + 2.0 + 3.0
+
+    def test_zero_actor_cost_still_works(self):
+        """When actor cost is 0, total should still be the critic increments."""
+        baseline = 0.0
+        sec_cost = 1.0
+        sty_cost = 1.0
+        con_cost = 1.0
+
+        total = baseline + (sec_cost + sty_cost + con_cost - 3.0 * baseline)
+        assert total == 3.0
+
+    def test_cost_formula_mirrors_evaluate_branch_pattern(self):
+        """
+        Mirrors the exact cost computation in _evaluate_branch:
+          1. actor_out is merged into branch_state (includes actor cost)
+          2. baseline = branch_state.cumulative_cost_dollars
+          3. critics run, each returning baseline + their own cost
+          4. incremental = sum(critic_costs) - 3*baseline
+          5. FINAL: branch_cost = baseline + incremental (BUG-012 fix)
+
+        The old buggy code skipped `+ baseline`, dropping the actor's cost.
+        """
+        # Simulate actor cost merged into branch_state via _merge_branch_state
+        branch_state = {"cumulative_cost_dollars": 2.0}  # actor's cost
+        baseline = branch_state["cumulative_cost_dollars"]
+
+        # Each critic starts from baseline and adds its own cost
+        sec_out = {"cumulative_cost_dollars": baseline + 1.0}
+        sty_out = {"cumulative_cost_dollars": baseline + 2.0}
+        con_out = {"cumulative_cost_dollars": baseline + 3.0}
+
+        # Compute incremental critic costs
+        incremental = (
+            sec_out["cumulative_cost_dollars"]
+            + sty_out["cumulative_cost_dollars"]
+            + con_out["cumulative_cost_dollars"]
+            - 3.0 * baseline
+        )
+
+        # BUG-012 FIX: total must include baseline (actor cost)
+        branch_cost = baseline + incremental
+        assert branch_cost == 8.0  # 2.0 (actor) + 1.0 + 2.0 + 3.0 (critics)
+
+        # Verify the old buggy formula would have given wrong result
+        buggy_cost = incremental  # drops baseline
+        assert buggy_cost == 6.0  # missing $2.0 actor cost

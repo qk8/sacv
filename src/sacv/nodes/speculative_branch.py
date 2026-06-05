@@ -268,10 +268,12 @@ async def _evaluate_branch(
 
         # Aggregate critic costs: each critic starts from the same baseline,
         # so sum all three outputs and subtract 3× baseline to isolate the
-        # incremental cost (baseline is already part of the running total).
+        # incremental cost. Add baseline back so the actor's cost (already
+        # in baseline via _merge_branch_state) is not dropped.
         baseline = branch_state.get("cumulative_cost_dollars", 0.0)
         branch_cost = (
-            sec_out.get("cumulative_cost_dollars", baseline)
+            baseline
+            + sec_out.get("cumulative_cost_dollars", baseline)
             + sty_out.get("cumulative_cost_dollars", baseline)
             + con_out.get("cumulative_cost_dollars", baseline)
             - 3.0 * baseline
