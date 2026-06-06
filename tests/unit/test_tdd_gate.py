@@ -329,3 +329,50 @@ class TestTddGateNode:
         # Only the valid entry (file_path + content) is written; canonical path applied
         assert len(out["test_inventory_paths"]) == 1
         assert "task-tg-001Test.java" in out["test_inventory_paths"][0]
+
+    async def test_git_commit_on_red_phase(self, tmp_path, monkeypatch):
+        """Red phase confirmed → test files are staged and committed."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+
+        agent = StubAgentProvider([
+            make_json_agent_result([{
+                "file_path": "src/test/java/com/example/FindByIdTest.java",
+                "content": "public class FindByIdTest {}",
+            }])
+        ])
+        sandbox = StubSandboxProvider(
+            default_exit_code=1,
+            default_stdout="FAILURE",
+        )
+        deps = _make_deps(agent=agent, sandbox=sandbox)
+        strategy = {"strategy_id": "s1", "description": "test"}
+        state = _make_state(strategy=strategy)
+        node = make_tdd_gate_node(deps)
+
+        out = await node(state)
+
+        assert out["current_phase"] == WorkflowPhase.ACTOR.value
+        # Git should have staged and committed the test file
+        assert ("stage_file", "src/test/java/com/example/FindByIdTest.java") in deps.git.calls
+        assert ("commit", "sacv: add test inventory for task-tg-001 [tests]") in deps.git.calls
+
+    async def test_no_git_commit_on_empty_test_list(self, tmp_path, monkeypatch):
+        """Empty test file list → no git staging or committing."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+
+        agent = StubAgentProvider([
+            make_json_agent_result([]),  # empty list
+        ])
+        sandbox = StubSandboxProvider(default_exit_code=1, default_stdout="FAIL")
+        deps = _make_deps(agent=agent, sandbox=sandbox)
+        strategy = {"strategy_id": "s1", "description": "test"}
+        state = _make_state(strategy=strategy)
+        node = make_tdd_gate_node(deps)
+
+        out = await node(state)
+
+        # No files written → no git operations for test inventory
+        git_calls = [c for c in deps.git.calls if c[0] in ("stage_file", "commit")]
+        assert len(git_calls) == 0

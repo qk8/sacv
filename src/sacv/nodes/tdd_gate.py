@@ -15,6 +15,7 @@ Refactoring changes (approaches 6, 7, 8):
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import re
@@ -172,7 +173,28 @@ def make_tdd_gate_node(deps: "NodeDeps"):
                     "cumulative_cost_dollars": new_cost,
                 }
 
-            # ── 4. Serialise evidence ────────────────────────────────────
+            # ── 4. Commit test inventory to git (MEDIUM-003) ─────────────
+            if permanent_paths:
+                staged: list[str] = []
+                for p in permanent_paths:
+                    try:
+                        await asyncio.to_thread(deps.git.stage_file, p)
+                        staged.append(p)
+                    except RuntimeError as exc:
+                        log.error("tdd_gate.git_stage_failed", path=p, error=str(exc))
+
+                if staged:
+                    try:
+                        await asyncio.to_thread(
+                            deps.git.commit,
+                            f"sacv: add test inventory for {task_id} [tests]",
+                            add_all=False,
+                        )
+                        log.info("tdd_gate.tests_committed", count=len(staged))
+                    except RuntimeError as exc:
+                        log.error("tdd_gate.test_commit_failed", error=str(exc))
+
+            # ── 5. Serialise evidence ────────────────────────────────────
             evidence_dir = deps.repo_root / ".workflow" / "tdd-evidence"
             evidence_dir.mkdir(parents=True, exist_ok=True)
             evidence_path = evidence_dir / f"{task_id}.json"
