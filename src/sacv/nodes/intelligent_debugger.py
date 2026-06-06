@@ -554,7 +554,7 @@ async def _wait_for_debug_port(
     while loop.time() < deadline:
         result = await deps.sandbox.exec_in_container(
             handle,
-            f"nc -z localhost {port} 2>/dev/null && echo OK || echo WAIT",
+            f"bash -c 'echo >/dev/tcp/localhost/{port}' 2>/dev/null && echo OK || echo WAIT",
             timeout=5,
         )
         if result.stdout.strip() == "OK":
