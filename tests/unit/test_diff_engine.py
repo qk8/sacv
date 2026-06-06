@@ -217,6 +217,60 @@ class TestApplyDiffs:
         assert len(result.conflicts) == 1
         assert result.conflicts[0]["file"] == "UserService.java"
 
+    async def test_patch_verification_failure_when_added_lines_missing(self, tmp_path):
+        """Patch returns 0 but added lines not in file → conflict (fuzzy match guard)."""
+        import subprocess
+        original_run = subprocess.run
+
+        def fake_run(cmd, **kwargs):
+            # Simulate patch succeeding but not actually modifying the file
+            # (e.g., fuzzy match applied to wrong location)
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+
+        engine = DiffEngine(tmp_path)
+        target = tmp_path / "UserService.java"
+        # File does NOT contain the added line "new content"
+        target.write_text("public class UserService {}\n")
+        diff = UnifiedDiff(
+            file_path="UserService.java",
+            diff_content="@@ -1 +1 @@\n-old\n+new content\n",
+            operation="modify", language="java",
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(subprocess, "run", fake_run)
+            result = await engine.apply_diffs([diff])
+        assert not result.success
+        assert len(result.conflicts) == 1
+        assert "verification failed" in result.conflicts[0]["error"].lower()
+
+    async def test_patch_verification_succeeds_when_added_lines_present(self, tmp_path):
+        """Patch applies and added lines are in file → success."""
+        import subprocess
+
+        def fake_run(cmd, **kwargs):
+            # Simulate patch succeeding AND the file gets the added content
+            target = tmp_path / "UserService.java"
+            target.write_text("public class UserService { new content }\n")
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+
+        engine = DiffEngine(tmp_path)
+        target = tmp_path / "UserService.java"
+        target.write_text("public class UserService {}\n")
+        diff = UnifiedDiff(
+            file_path="UserService.java",
+            diff_content="@@ -1 +1 @@\n-old\n+new content\n",
+            operation="modify", language="java",
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(subprocess, "run", fake_run)
+            result = await engine.apply_diffs([diff])
+        assert result.success
+        assert "UserService.java" in result.applied_files
+
     async def test_mixed_success_and_failure(self, tmp_path):
         """One success + one failure = partial success."""
         engine = DiffEngine(tmp_path)

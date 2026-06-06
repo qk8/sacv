@@ -140,6 +140,27 @@ class DiffEngine(DiffProvider):
             raise RuntimeError(
                 f"patch failed for {diff.file_path}: {proc.stderr[:300]}"
             )
+        # Verify the patch actually took effect. The `patch` command can
+        # silently apply fuzzy matches when multi-line context doesn't match
+        # exactly, corrupting the file. We verify by checking that at least
+        # one added line is present in the resulting file.
+        target = self._root / diff.file_path
+        if not target.exists():
+            raise RuntimeError(f"patch target missing after apply: {diff.file_path}")
+        patched = target.read_text()
+        added_lines = [
+            line[1:]
+            for line in diff.diff_content.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ]
+        for line in added_lines:
+            if line and line in patched:
+                break
+        else:
+            raise RuntimeError(
+                f"patch applied but verification failed for {diff.file_path}: "
+                "added lines not found in patched file — possible fuzzy match"
+            )
 
     def _create_file(self, diff: UnifiedDiff) -> None:
         target = self._root / diff.file_path
