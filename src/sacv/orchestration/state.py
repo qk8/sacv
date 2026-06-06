@@ -93,6 +93,22 @@ def _merge_correction_state(
     return {**(existing or {}), **new}
 
 
+def _merge_branches(existing: list | None, new: list | None) -> list:
+    """Reducer for active_branches and exhausted_branches.
+
+    - ``new is None``   → node did not touch this field → return existing (default ``[]``)
+    - ``new == []``     → node explicitly cleared → return ``[]``
+    - ``new == [...]``  → node appended/overwrote → append to existing
+    """
+    if new is None:
+        return existing or []
+    if isinstance(new, list):
+        if len(new) == 0:
+            return []
+        return (existing or []) + new
+    return existing or []
+
+
 def _merge_lists(existing: list | None, new: list | _CriticReset | None) -> list:
     """
     Reducer for critic fan-in.
@@ -319,8 +335,8 @@ class WorkflowState(TypedDict):
     replan_count: int
 
     # ── Speculative branching ─────────────────────────────────────────────
-    active_branches:        list[str]
-    exhausted_branches:     list[str]
+    active_branches:        Annotated[list[str], _merge_branches]
+    exhausted_branches:     Annotated[list[str], _merge_branches]
     speculative_stash_ref:  str | None  # stash ref for restoring pre-speculation state (BUG-013)
 
     # ── HITL ──────────────────────────────────────────────────────────────
