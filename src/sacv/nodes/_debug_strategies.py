@@ -20,6 +20,7 @@ Error type → debug strategy matrix:
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
@@ -223,9 +224,11 @@ def classify_error(raw_output: str, module_type: str) -> ErrorType:
     rather than VALIDATION_ERROR.
     """
     # HTTP status code detection (works for both — highest priority)
-    if " 400 " in raw_output or "Bad Request" in raw_output:
+    # Use \b word boundaries instead of space-padded matching so that
+    # patterns like "400:", ":400", "code=400" all match correctly.
+    if re.search(r"\b400\b", raw_output) or "Bad Request" in raw_output:
         return ErrorType.HTTP_400
-    if " 500 " in raw_output or "Internal Server Error" in raw_output:
+    if re.search(r"\b500\b", raw_output) or "Internal Server Error" in raw_output:
         return ErrorType.LOGIC_ERROR
 
     rules = _TS_CLASSIFICATION if "frontend" in module_type else _JAVA_CLASSIFICATION

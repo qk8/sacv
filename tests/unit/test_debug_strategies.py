@@ -44,6 +44,31 @@ class TestClassifyError:
         assert classify_error("400 Bad Request: Validation failed", "backend-api") \
                == ErrorType.HTTP_400
 
+    def test_http_400_with_colon_not_space(self):
+        """400 followed by colon (not space) should still match."""
+        assert classify_error("Error 400: Bad Request", "backend-api") \
+               == ErrorType.HTTP_400
+
+    def test_http_400_with_equals(self):
+        """400 preceded by equals (code=400) should still match."""
+        assert classify_error("HTTP status code=400", "backend-api") \
+               == ErrorType.HTTP_400
+
+    def test_http_500_with_colon_not_space(self):
+        """500 followed by colon (not space) should still match."""
+        assert classify_error("Error 500: Internal Server Error", "backend-api") \
+               == ErrorType.LOGIC_ERROR
+
+    def test_http_400_at_string_start(self):
+        """400 at the very start of the string (no preceding space) should match."""
+        assert classify_error("400: Bad Request", "backend-api") \
+               == ErrorType.HTTP_400
+
+    def test_http_500_at_string_end(self):
+        """500 at the end of the string (no trailing space) should match."""
+        assert classify_error("Received status 500", "backend-api") \
+               == ErrorType.LOGIC_ERROR
+
     def test_class_cast(self):
         assert classify_error("ClassCastException: UserDto cannot be cast to AdminDto",
                               "backend-domain") == ErrorType.CLASS_CAST
