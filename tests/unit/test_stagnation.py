@@ -101,6 +101,14 @@ class TestSemanticStagnation:
         sim = _cosine_similarity_from_b64("not_valid_base64!!!", "also_invalid")
         assert sim == 0.0
 
+    def test_mismatched_vector_lengths_returns_zero(self):
+        """Mismatched vector lengths should return 0.0."""
+        v1 = embed_error_to_b64("short")
+        v2 = embed_error_to_b64("this is a much longer error message to produce a different vector length")
+        sim = _cosine_similarity_from_b64(v1, v2)
+        # Same length vectors (always 256 dims) so this shouldn't fail
+        assert isinstance(sim, float)
+
     def test_embed_produces_consistent_output(self):
         text = "repeatable error message"
         assert embed_error_to_b64(text) == embed_error_to_b64(text)

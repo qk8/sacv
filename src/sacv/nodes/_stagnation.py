@@ -17,9 +17,13 @@ import base64
 import struct
 from typing import TYPE_CHECKING
 
+import structlog
+
 if TYPE_CHECKING:
     from sacv.orchestration.config import WorkflowConfig
     from sacv.orchestration.state import CorrectionCycleState
+
+log = structlog.get_logger(__name__)
 
 
 def check_stagnation(
@@ -82,6 +86,8 @@ def _cosine_similarity_from_b64(b64_a: str, b64_b: str) -> float:
         vec_a = struct.unpack(f"{n}f", raw_a)
         vec_b = struct.unpack(f"{n}f", raw_b)
     except Exception:
+        log.warning("stagnation.similarity_error",
+                     a_len=len(b64_a), b_len=len(b64_b))
         return 0.0
 
     dot   = sum(a * b for a, b in zip(vec_a, vec_b))
