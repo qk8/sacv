@@ -87,11 +87,56 @@ async def _run_critic(
             ),
         )
 
-    try:
-        raw: list[dict] = json.loads(result.content)
-    except (json.JSONDecodeError, ValueError):
-        log.error(f"{critic_name}.parse_error", content=result.content[:200])
-        return [], state.get("cumulative_cost_dollars", 0.0)
+    _MAX_PARSE_RETRIES = 2
+
+    content = result.content
+    base_cost = state.get("cumulative_cost_dollars", 0.0)
+    attempt = 0
+    while attempt <= _MAX_PARSE_RETRIES:
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, list):
+                break
+            # Non-array JSON (dict, string, etc.) — retry
+            log.warning(
+                f"{critic_name}.parse_not_array",
+                attempt=attempt + 1,
+                content=content[:200],
+            )
+        except (json.JSONDecodeError, ValueError):
+            log.warning(
+                f"{critic_name}.parse_error",
+                attempt=attempt + 1,
+                content=content[:200],
+            )
+        attempt += 1
+        if attempt > _MAX_PARSE_RETRIES:
+            log.error(f"{critic_name}.parse_exhausted_retries",
+                      content=content[:200])
+            return [], base_cost
+        # Retry: call agent again with a constrained prompt
+        retry_prompt = (
+            f"Review the following diff:\n\n{diff_text}\n\n"
+            f"Additional context — module type: {state['module_type']}, "
+            f"mode: {state['project_mode']}."
+        )
+        result = await deps.agent.run_task(
+            prompt=retry_prompt,
+            context={"proposal": proposal},
+            config=AgentConfig(
+                role=critic_name,
+                system_prompt=(
+                    _CRITIC_BASE_SYSTEM.format(role=role, critic_name=critic_name)
+                    + f"\n\nAdditional rules:\n{extra_rules}\n\n"
+                    "PREVIOUS OUTPUT WAS INVALID JSON. Output ONLY a JSON array. "
+                    "No markdown. No explanation. Empty array if no issues: []"
+                ),
+                max_turns=1,
+                allowed_tools=[],
+            ),
+        )
+        content = result.content
+        base_cost = add_agent_cost(result, base_cost, deps.config)
 
     findings: list[CriticFinding] = [
         CriticFinding(
@@ -103,9 +148,11 @@ async def _run_critic(
             message=r.get("message", ""),
             resolution_hint=r.get("resolution_hint", ""),
         )
-        for r in raw
+        for r in parsed
         if isinstance(r, dict)
     ]
+
+    new_cost = add_agent_cost(result, base_cost, deps.config)
 
     new_cost = add_agent_cost(
         result, state.get("cumulative_cost_dollars", 0.0), deps.config,
