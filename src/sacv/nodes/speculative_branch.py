@@ -14,6 +14,7 @@ If all branches fail, the node signals HITL escalation.
 from __future__ import annotations
 
 import asyncio
+import copy
 import tempfile
 import shutil
 from pathlib import Path
@@ -35,10 +36,14 @@ def _merge_branch_state(base: dict, update: dict) -> dict:
     """
     Merge node output into branch_state, correctly handling CRITIC_RESET.
 
+    Uses deep copy to prevent nested mutable objects (dicts, lists) from
+    being shared between the returned merged dict and the original base dict.
+
     Replaces CRITIC_RESET with [] so branch_state always holds a list.
     This mirrors what the LangGraph _merge_lists reducer does.
     """
-    merged = {**base, **update}
+    merged = copy.deepcopy(base)
+    merged.update(update)
     if merged.get("critic_findings") is CRITIC_RESET:
         merged["critic_findings"] = []
     return merged

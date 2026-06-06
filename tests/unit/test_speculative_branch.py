@@ -106,6 +106,38 @@ class TestMergeBranchState:
         assert result["cumulative_cost_dollars"] == 1.5
         assert result["new_key"] == "new_value"
 
+    def test_deep_copy_prevents_nested_mutation(self):
+        """Mutating nested dicts in the result must not affect the base."""
+        base = {
+            "correction_state": {"attempt_count": 0, "branch_name": "main"},
+            "critic_findings": [{"severity": "warning"}],
+        }
+        result = _merge_branch_state(base, {})
+
+        # Mutate nested objects in the result
+        result["correction_state"]["attempt_count"] = 99
+        result["critic_findings"].append({"severity": "critical"})
+
+        # Base should be unchanged
+        assert base["correction_state"]["attempt_count"] == 0
+        assert len(base["critic_findings"]) == 1
+        assert base["critic_findings"][0] == {"severity": "warning"}
+
+    def test_deep_copy_update_overwrites_nested(self):
+        """When update provides a new nested dict, it replaces the base one."""
+        base = {
+            "correction_state": {"attempt_count": 0},
+            "task_id": "task-1",
+        }
+        update = {
+            "correction_state": {"attempt_count": 5, "branch_name": "feat"},
+        }
+        result = _merge_branch_state(base, update)
+
+        assert result["correction_state"] == {"attempt_count": 5, "branch_name": "feat"}
+        # Base should be unchanged
+        assert base["correction_state"] == {"attempt_count": 0}
+
 
 class TestSpeculativeBranchCostTracking:
     """
