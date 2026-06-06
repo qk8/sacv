@@ -49,9 +49,6 @@ class StubAgentProvider(AgentProvider):
             )
         return self._queue.popleft()
 
-    async def create_subagent(self, config: AgentConfig) -> "StubAgentProvider":
-        return StubAgentProvider(list(self._queue))
-
 
 def make_json_agent_result(content: object, tokens: int = 10) -> AgentResult:
     """Helper: wrap a JSON-serialisable object as an AgentResult."""

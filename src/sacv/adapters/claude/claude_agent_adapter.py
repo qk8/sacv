@@ -173,13 +173,6 @@ class ClaudeAgentAdapter(AgentProvider):
             total_cost_usd=total_cost_usd,
         )
 
-    async def create_subagent(self, config: AgentConfig) -> "ClaudeAgentAdapter":
-        """Create a pre-configured sub-agent. The config is stored and applied
-        as default AgentConfig when run_task is called without an explicit config."""
-        sub = ClaudeAgentAdapter(cwd=self._cwd, timeout=self._timeout)
-        sub._default_config = config  # stored, not ignored
-        return sub
-
 
 def _build_prompt(prompt: str, context: dict) -> str:
     """

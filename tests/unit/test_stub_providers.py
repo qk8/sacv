@@ -79,11 +79,6 @@ class TestStubAgentProvider:
         _, prompt = provider.calls[0]
         assert len(prompt) == 80
 
-    async def test_create_subagent_returns_new_provider(self):
-        provider = StubAgentProvider([make_json_agent_result("x")])
-        sub = await provider.create_subagent(AgentConfig(role="sub", system_prompt="", max_turns=1))
-        assert isinstance(sub, StubAgentProvider)
-
 
 @pytest.mark.unit
 class TestMakeJsonAgentResult:

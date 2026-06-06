@@ -8,9 +8,8 @@ Tests cover:
 2. Replay mode returns stored results in order
 3. Exhausted replay raises IndexError
 4. save_cassette writes JSON to disk
-5. create_subagent shares cassette and recordings
-6. Replay mode with missing cassette raises FileNotFoundError
-7. Prompt hash is stored (SHA-256, first 12 chars)
+5. Replay mode with missing cassette raises FileNotFoundError
+6. Prompt hash is stored (SHA-256, first 12 chars)
 """
 from __future__ import annotations
 
@@ -31,9 +30,6 @@ class _RealAgent(AgentProvider):
 
     async def run_task(self, prompt: str, context: dict, config: AgentConfig) -> AgentResult:
         return next(self._results)
-
-    async def create_subagent(self, config: AgentConfig) -> AgentProvider:
-        return self
 
 
 def _make_result(content: str, tokens: int = 10) -> AgentResult:
@@ -177,41 +173,5 @@ class TestVCRSaveCassette:
             data = json.loads(cassette.read_text())
             assert len(data) == 1
             assert data[0]["result"]["content"] == "save_test"
-        finally:
-            vcr_mod.FIXTURES_DIR = original
-
-
-class TestVCRSubagent:
-
-    async def test_subagent_shares_cassette(self):
-        provider = _RealAgent([_make_result("child_result")])
-        vcr = VCRAgentProvider(provider, "test_sub", mode="record")
-        cfg = AgentConfig(role="test", system_prompt="", max_turns=1, allowed_tools=[])
-
-        child = await vcr.create_subagent(cfg)
-
-        assert child._cassette == vcr._cassette
-        assert child._recordings is vcr._recordings
-        assert child._mode == vcr._mode
-        # Child has no independent provider
-        assert child._provider is None
-
-    async def test_subagent_record_mode_no_crash(self, tmp_path):
-        """Subagent in replay mode shares cassette and state."""
-        cassette_data: list = []
-        cassette_file = tmp_path / "test_sub2.json"
-        cassette_file.write_text(json.dumps(cassette_data))
-
-        import sacv.testing.vcr_recorder as vcr_mod
-        original = vcr_mod.FIXTURES_DIR
-        try:
-            vcr_mod.FIXTURES_DIR = tmp_path
-            vcr = VCRAgentProvider(None, "test_sub2", mode="replay")
-            cfg = AgentConfig(role="test", system_prompt="", max_turns=1, allowed_tools=[])
-
-            child = await vcr.create_subagent(cfg)
-            assert child._replay_index == vcr._replay_index
-            assert child._cassette == vcr._cassette
-            assert child._recordings is vcr._recordings
         finally:
             vcr_mod.FIXTURES_DIR = original
