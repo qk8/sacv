@@ -204,6 +204,99 @@ def make_verifier_node(deps: "NodeDeps"):
 
 # ── Diagnostic helpers ────────────────────────────────────────────────────────
 
+# Keyword groups used by both _classify and classify_confidence.
+# Each group maps a category to a list of (keyword, weight) pairs.
+_ASSERTION_KEYWORDS = [
+    ("assertionerror", 1.0),
+    ("expected", 0.6),
+    ("received", 0.6),
+    ("but was", 0.8),
+    ("expected:<", 0.9),
+    ("junit.framework.assertionerror", 1.0),
+    ("expect(received).tobe", 1.0),
+    ("toequal", 0.8),
+    ("tomatch", 0.8),
+]
+_COMPILE_KEYWORDS = [
+    ("compilat", 0.7),
+    ("syntax", 0.7),
+    ("cannot find symbol", 1.0),
+    ("module not found", 1.0),
+]
+_BEAN_KEYWORDS = [
+    ("BeanCreationException", 1.0),
+    ("NoSuchBeanDefinitionException", 1.0),
+    ("UnsatisfiedDependencyException", 1.0),
+    ("NoUniqueBeanDefinitionException", 1.0),
+]
+
+
+def classify_confidence(failure_text: str) -> float:
+    """
+    Measure how confidently the keyword-based _classify can determine
+    the diagnostic category.
+
+    Returns a score in [0, 1]:
+      - >= 0.8: Strong signal — clear keyword match
+      - 0.4–0.8: Medium signal — some keyword matches
+      - < 0.4: Weak signal — no clear keywords (localized, custom, or vague)
+
+    This is a pure function used by the verifier to decide whether to
+    trust the keyword-based diagnostic or escalate for human review.
+    """
+    text = failure_text.lower()
+    if not text.strip():
+        return 0.0
+
+    # Check for non-ASCII (localized output) — keywords are English-only
+    has_non_ascii = any(ord(c) > 127 for c in text)
+
+    # Weighted keyword matches per category
+    assertion_matches = [
+        weight for kw, weight in _ASSERTION_KEYWORDS if kw in text
+    ]
+    compile_matches = [
+        weight for kw, weight in _COMPILE_KEYWORDS if kw in text
+    ]
+    bean_matches = [
+        weight for kw, weight in _BEAN_KEYWORDS if kw.lower() in text
+    ]
+
+    all_matches = assertion_matches + compile_matches + bean_matches
+
+    if not all_matches:
+        # No keyword matches at all
+        return 0.15 if text.strip() else 0.0
+
+    avg_weight = sum(all_matches) / len(all_matches)
+    # Single keyword or average weight — boost by 0.15, cap at 0.9
+    base = min(0.9, avg_weight + 0.15)
+
+    # Bonus for multiple keyword matches (beyond the first)
+    if len(all_matches) > 1:
+        base += 0.1 * (len(all_matches) - 1)
+
+    # Bonus for matched categories (beyond the first)
+    matched_categories = sum(
+        1 for m in (assertion_matches, compile_matches, bean_matches) if m
+    )
+    if matched_categories > 1:
+        base += 0.15 * (matched_categories - 1)
+
+    # Cap at 1.0
+    confidence = min(1.0, base)
+
+    # Penalize mixed signals (both assertion and compile keywords match)
+    if assertion_matches and compile_matches:
+        confidence *= 0.5
+
+    # Penalize non-ASCII text
+    if has_non_ascii:
+        confidence *= 0.3
+
+    return confidence
+
+
 def _classify(
     p1_passed:    bool, p2_passed: bool,
     failures:     list[dict], findings: list[dict],
