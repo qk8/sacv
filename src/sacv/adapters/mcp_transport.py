@@ -141,13 +141,15 @@ class McpStdioTransport:
         Attempts one reconnect if the subprocess is dead. Falls back to
         ``self._on_failure()`` on any error.
         """
-        alive = await self._ensure_running()
-        if not alive:
-            log.error(f"{self._log_prefix}.degraded_mode", tool=tool,
-                      impact=f"{self._log_prefix} operations are no-ops this session")
-            return self._on_failure()
-
         async with self._lock:
+            # Check liveness inside the lock to prevent TOCTOU race
+            # where subprocess dies between check and write
+            alive = await self._ensure_running()
+            if not alive:
+                log.error(f"{self._log_prefix}.degraded_mode", tool=tool,
+                          impact=f"{self._log_prefix} operations are no-ops this session")
+                return self._on_failure()
+
             self._req_id += 1
             request = {
                 "jsonrpc": "2.0",
@@ -183,7 +185,38 @@ class McpStdioTransport:
                         return text
                 return self._on_failure()
 
-            except (asyncio.TimeoutError, json.JSONDecodeError, OSError) as exc:
+            except OSError as exc:
+                log.error(f"{self._log_prefix}.transport_error",
+                          tool=tool, error=str(exc))
+                # Subprocess may have died — attempt reconnect and retry
+                reconnected = await self._ensure_running()
+                if reconnected:
+                    try:
+                        payload = json.dumps(request) + "\n"
+                        self._proc.stdin.write(payload.encode())
+                        await asyncio.wait_for(
+                            self._proc.stdin.drain(), timeout=self._TIMEOUT_SEC
+                        )
+                        raw = await asyncio.wait_for(
+                            self._proc.stdout.readline(), timeout=self._TIMEOUT_SEC
+                        )
+                        response = json.loads(raw.decode())
+                        if "error" in response:
+                            return self._on_failure()
+                        content = response.get("result", {}).get("content", [])
+                        if content and isinstance(content, list):
+                            text = content[0].get("text", "")
+                            try:
+                                return json.loads(text)
+                            except json.JSONDecodeError:
+                                return text
+                        return self._on_failure()
+                    except OSError:
+                        log.error(f"{self._log_prefix}.reconnect_retry_failed",
+                                  tool=tool, error=str(exc))
+                return self._on_failure()
+
+            except (asyncio.TimeoutError, json.JSONDecodeError) as exc:
                 log.error(f"{self._log_prefix}.transport_error",
                           tool=tool, error=str(exc))
                 return self._on_failure()

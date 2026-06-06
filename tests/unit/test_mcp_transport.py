@@ -346,3 +346,100 @@ class TestMcpStdioTransportLifecycle:
 
         t = TestTransport()
         assert t._cmd == ["default", "value"]
+
+
+class TestMcpStdioTransportTOCTOU:
+
+    async def test_reconnects_on_write_failure(self):
+        """When subprocess dies between _ensure_running check and write,
+        the transport should reconnect and retry."""
+        class TestTransport(McpStdioTransport):
+            _log_prefix = "test"
+            _default_cmd = ["test-server"]
+            _TIMEOUT_SEC = 2
+
+            def _on_failure(self):
+                return {"fallback": True}
+
+        t = TestTransport()
+
+        # Simulate TOCTOU: process dies between liveness check and write.
+        # First _ensure_running sees returncode=None (appears alive).
+        # Write fails with OSError. Second _ensure_running sees returncode=1
+        # (OS updated it) and reconnects.
+        mock_proc = AsyncMock()
+        mock_proc.returncode = None
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+        mock_proc.stdin.write.side_effect = OSError("Broken pipe")
+        mock_proc.stdout = AsyncMock()
+        t._proc = mock_proc
+
+        mock_new_proc = AsyncMock()
+        mock_new_proc.stdin = AsyncMock()
+        mock_new_proc.stdin.drain = AsyncMock()
+        mock_new_proc.stdout = AsyncMock()
+        mock_new_proc.returncode = None
+
+        mock_response = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"text": '{"ok": true}'}]},
+        })
+        mock_new_proc.stdout.readline = AsyncMock(return_value=(mock_response + "\n").encode())
+
+        reconnect_count = 0
+
+        async def fake_start():
+            nonlocal reconnect_count
+            reconnect_count += 1
+            t._proc = mock_new_proc
+
+        t.start = fake_start
+
+        # Override _ensure_running to simulate TOCTOU: first call returns True
+        # (process appears alive), second call triggers reconnect.
+        _ensure_call_count = 0
+
+        async def custom_ensure_running(self_param: "TestTransport") -> bool:
+            nonlocal _ensure_call_count
+            _ensure_call_count += 1
+            if _ensure_call_count == 1:
+                # First call: TOCTOU window, process appears alive
+                return True
+            # Second call (from OSError handler): trigger reconnect
+            await t.start()
+            return True
+
+        t._ensure_running = custom_ensure_running.__get__(t, TestTransport)
+
+        result = await t._call("test_tool", {})
+
+        assert reconnect_count == 1
+        assert result == {"ok": True}
+
+    async def test_returns_failure_after_reconnect_fails(self):
+        """When subprocess dies and reconnect also fails, return _on_failure()."""
+        class TestTransport(McpStdioTransport):
+            _log_prefix = "test"
+            _default_cmd = ["test-server"]
+            _TIMEOUT_SEC = 2
+
+            def _on_failure(self):
+                return {"fallback": True}
+
+        t = TestTransport()
+
+        mock_dead_proc = AsyncMock()
+        mock_dead_proc.returncode = 1
+        t._proc = mock_dead_proc
+
+        # Reconnect also fails
+        async def fake_start():
+            raise RuntimeError("reconnect failed")
+
+        t.start = fake_start
+
+        result = await t._call("test_tool", {})
+
+        assert result == {"fallback": True}
