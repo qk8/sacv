@@ -305,6 +305,17 @@ java.lang.Exception
         assert len(frames) == 1
         assert "WorkerThread" in frames[0].method
 
+    def test_filters_java_lang_threadmxbean_not_user_code(self):
+        """java.lang.ThreadMXBean is a JDK management class — must be filtered."""
+        raw = """
+java.lang.RuntimeException
+	at java.lang.ThreadMXBean.getThreadInfo(ThreadMXBean.java:99)
+	at com.example.monitoring.ThreadMonitor.check(ThreadMonitor.java:30)
+"""
+        frames = prune_java_stack(raw, "com.example")
+        assert len(frames) == 1
+        assert "ThreadMonitor" in frames[0].method
+
     def test_inner_class_name_preserved(self):
         raw = """
 java.lang.RuntimeException
