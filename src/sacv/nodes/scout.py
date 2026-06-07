@@ -64,7 +64,7 @@ def make_scout_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
         }
 
         # ── 5. Blast-radius (Brownfield) ──────────────────────────────────
-        blast_radius_map: dict | None = None
+        blast_radius_map: dict[str, Any] | None = None
         if mode == ProjectMode.BROWNFIELD.value and file_hints:
             blast = await deps.code_graph.get_blast_radius(file_hints)
             blast_radius_map = {

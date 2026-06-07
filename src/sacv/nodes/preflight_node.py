@@ -70,7 +70,7 @@ def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
 
         try:
             # ── Check 1: LSP / Compile ─────────────────────────────────────
-            lsp_errors: list[dict] = []
+            lsp_errors: list[dict[str, Any]] = []
             if "lsp" in check_names:
                 lsp_cmd = "npx tsc --noEmit 2>&1" if "frontend" in module else "mvn compile -q 2>&1"
                 lsp_out = await deps.sandbox.exec_in_container(
@@ -79,7 +79,7 @@ def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
                 lsp_errors = _parse_lsp(lsp_out.stdout + lsp_out.stderr, module)
 
             # ── Check 2: Architecture / Structure ──────────────────────────
-            arch_errs: list[dict] = []
+            arch_errs: list[dict[str, Any]] = []
             if "arch" in check_names:
                 arch_cmd = _arch_cmd(module)
                 if arch_cmd:
@@ -89,14 +89,14 @@ def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
                     arch_errs = _parse_arch(arch_out.stdout + arch_out.stderr, module)
 
             # ── Check 3: Cross-Stack Type Safety ───────────────────────────
-            cross_stack_errors: list[dict] = []
+            cross_stack_errors: list[dict[str, Any]] = []
             if "cross_stack" in check_names and "frontend" not in module:
                 cross_stack_errors = await _check_cross_stack_types(
                     handle, cfg, deps,
                 )
 
             # ── Check 4: Blast-radius file count guard ─────────────────────
-            blast_errors: list[dict] = []
+            blast_errors: list[dict[str, Any]] = []
             if "blast_radius" in check_names:
                 blast_map = state.get("blast_radius_map") or {}
                 affected_count = len(blast_map.get("affected_files", []))
@@ -164,7 +164,7 @@ async def _check_cross_stack_types(handle: Any, cfg: Any, deps: "NodeDeps") -> l
     regenerate TypeScript types, then type-check the frontend.
     Only runs in monorepo mode when backend code changed.
     """
-    errors: list[dict] = []
+    errors: list[dict[str, Any]] = []
 
     # Step 1: regenerate OpenAPI spec
     gen_spec = await deps.sandbox.exec_in_container(
@@ -216,8 +216,8 @@ def _arch_cmd(module_type: str) -> str | None:
     )
 
 
-def _parse_lsp(output: str, module_type: str) -> list[dict]:
-    errors: list[dict] = []
+def _parse_lsp(output: str, module_type: str) -> list[dict[str, Any]]:
+    errors: list[dict[str, Any]] = []
     if "frontend" in module_type:
         for line in output.splitlines():
             m = _TS_ERROR_RE.match(line.strip())
@@ -233,11 +233,11 @@ def _parse_lsp(output: str, module_type: str) -> list[dict]:
     return errors[:30]
 
 
-def _parse_arch(output: str, module_type: str) -> list[dict]:
+def _parse_arch(output: str, module_type: str) -> list[dict[str, Any]]:
     if "NO_ARCH_TEST" in output:
         return []
     if "frontend" in module_type:
-        violations: list[dict] = []
+        violations: list[dict[str, Any]] = []
         try:
             data = json.loads(output)
             for item in (data if isinstance(data, list) else []):
@@ -255,12 +255,12 @@ def _parse_arch(output: str, module_type: str) -> list[dict]:
         return _parse_java_archunit(output)
 
 
-def _parse_java_archunit(output: str) -> list[dict]:
+def _parse_java_archunit(output: str) -> list[dict[str, Any]]:
     """
     Parse ArchUnit violations using a two-pass state machine.
     Tolerates intermediate lines between the rule header and violation details.
     """
-    violations: list[dict] = []
+    violations: list[dict[str, Any]] = []
     current_rule: str | None = None
 
     for line in output.splitlines():

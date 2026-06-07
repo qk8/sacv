@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from sacv.interfaces.agent_provider      import AgentProvider, AgentConfig, AgentResult
 from sacv.interfaces.memory_provider     import (
@@ -39,7 +40,7 @@ class StubAgentProvider(AgentProvider):
         self._queue.append(result)
 
     async def run_task(
-        self, prompt: str, context: dict, config: AgentConfig
+        self, prompt: str, context: dict[str, Any], config: AgentConfig
     ) -> AgentResult:
         self.calls.append((config.role, prompt[:80]))
         if not self._queue:
@@ -95,7 +96,7 @@ class StubCodeGraphProvider(CodeGraphProvider):
         self,
         blast:    BlastRadiusMap | None = None,
         graph:    CallGraph      | None = None,
-        subgraph: dict           | None = None,
+        subgraph: dict[str, Any] | None = None,
     ) -> None:
         self._blast   = blast    or BlastRadiusMap([], [], 0, [], [], 0.0)
         self._graph   = graph    or CallGraph(".", [], [])
@@ -107,20 +108,20 @@ class StubCodeGraphProvider(CodeGraphProvider):
     async def get_call_graph(self, entry_points: list[str]) -> CallGraph:
         return self._graph
 
-    async def get_dependency_subgraph(self, scope: list[str]) -> dict:
+    async def get_dependency_subgraph(self, scope: list[str]) -> dict[str, Any]:
         return self._subgraph
 
 
 # ── CrossDomain ───────────────────────────────────────────────────────────────
 
 class StubCrossDomainProvider(CrossDomainProvider):
-    async def map_code_to_schema(self, entity_names: list[str]) -> dict:
+    async def map_code_to_schema(self, entity_names: list[str]) -> dict[str, Any]:
         return {"entities": entity_names}
 
-    async def get_arch_alignment(self, module_paths: list[str]) -> dict:
+    async def get_arch_alignment(self, module_paths: list[str]) -> dict[str, Any]:
         return {"aligned": True}
 
-    async def get_sql_impact(self, changed_files: list[str]) -> dict:
+    async def get_sql_impact(self, changed_files: list[str]) -> dict[str, Any]:
         return {"affected_tables": []}
 
 

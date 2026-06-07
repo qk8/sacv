@@ -94,7 +94,7 @@ def make_value_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 max_retries=3,
                 allowed_tools=[],
             )
-            raw_strategies: list[dict] = [s.model_dump() for s in structured.data]
+            raw_strategies: list[dict[str, Any]] = [s.model_dump() for s in structured.data]
         except StructuredOutputError:
             log.error("value_node.parse_error")
             raw_strategies = []

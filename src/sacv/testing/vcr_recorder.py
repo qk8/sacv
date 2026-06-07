@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json, hashlib
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Any
 from sacv.interfaces.agent_provider import AgentProvider, AgentConfig, AgentResult
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "responses"
@@ -13,14 +13,14 @@ class VCRAgentProvider(AgentProvider):
         self._provider     = provider
         self._cassette     = FIXTURES_DIR / f"{cassette_name}.json"
         self._mode         = mode
-        self._recordings:  list[dict] = []
+        self._recordings:  list[dict[str, Any]] = []
         self._replay_index = 0
         if mode == "replay":
             if not self._cassette.exists():
                 raise FileNotFoundError(f"Cassette not found: {self._cassette}")
             self._recordings = json.loads(self._cassette.read_text())
 
-    async def run_task(self, prompt: str, context: dict, config: AgentConfig) -> AgentResult:
+    async def run_task(self, prompt: str, context: dict[str, Any], config: AgentConfig) -> AgentResult:
         if self._mode == "replay":
             try:
                 entry = self._recordings[self._replay_index]

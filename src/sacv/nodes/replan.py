@@ -86,7 +86,7 @@ def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[A
                 max_retries=3,
                 allowed_tools=[],
             )
-            raw: list[dict] = [s.model_dump() for s in structured.data]
+            raw: list[dict[str, Any]] = [s.model_dump() for s in structured.data]
         except StructuredOutputError:
             log.error("replan.parse_error")
             raw = []
@@ -158,7 +158,7 @@ def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[A
     return replan_node
 
 
-def _build_failure_summary(state: "WorkflowState") -> dict:
+def _build_failure_summary(state: "WorkflowState") -> dict[str, Any]:
     verdict  = state.get("verifier_verdict") or {}
     findings = state.get("critic_findings", [])
     preflight = state.get("preflight_result") or {}

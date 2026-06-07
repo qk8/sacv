@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 log = structlog.get_logger(__name__)
 
 
-def _merge_branch_state(base: dict, update: dict) -> dict:
+def _merge_branch_state(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
     """
     Merge node output into branch_state, correctly handling CRITIC_RESET.
 

@@ -97,7 +97,7 @@ def _inject_confidence(deps: "NodeDeps") -> Any:
     return verifier_with_confidence
 
 
-def build_branch_subgraph(deps: "NodeDeps") -> "StateGraph":
+def build_branch_subgraph(deps: "NodeDeps") -> Any:
     """
     Build the mini-workflow used by speculative branches.
 
@@ -137,7 +137,7 @@ def build_branch_subgraph(deps: "NodeDeps") -> "StateGraph":
 def build_graph(
     deps:         "NodeDeps",
     checkpointer: "BaseCheckpointSaver[Any] | None" = None,
-) -> "CompiledStateGraph":
+) -> Any:
     from sacv.nodes.bootstrap            import make_bootstrap_node
     from sacv.nodes.mode_router          import make_mode_router_node
     from sacv.nodes.scout                import make_scout_node

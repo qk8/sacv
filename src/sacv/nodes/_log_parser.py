@@ -13,6 +13,7 @@ Used by both the Verifier node and the IntelligentDebuggerNode.
 """
 from __future__ import annotations
 
+from typing import Any
 import re
 from dataclasses import dataclass
 
@@ -142,7 +143,7 @@ def prune_stack(
     return prune_java_stack(raw_output, user_package)
 
 
-def frames_to_dict(frames: list[ParsedFrame]) -> list[dict]:
+def frames_to_dict(frames: list[ParsedFrame]) -> list[dict[str, Any]]:
     return [
         {"file": f.file, "line": f.line, "method": f.method, "message": f.message}
         for f in frames

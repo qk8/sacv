@@ -17,6 +17,7 @@ The concrete ``SandboxProvider`` implementation used by ``NodeDeps``.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from pathlib import Path
 
 import structlog
@@ -235,7 +236,7 @@ class DockerContainerManager(SandboxProvider):
         return self._jdwp_port, self._cdp_port
 
     @staticmethod
-    def _find_host_port(host_map: dict, container_port: str) -> int | None:
+    def _find_host_port(host_map: dict[str, Any], container_port: str) -> int | None:
         """Extract host port from docker inspect port mapping."""
         mappings = host_map.get(container_port)
         if mappings:

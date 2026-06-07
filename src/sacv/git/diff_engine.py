@@ -9,6 +9,7 @@ more than ``MAX_OVERWRITE_RATIO`` of a file's lines is rejected.
 """
 from __future__ import annotations
 
+from typing import Any
 import asyncio
 import re
 import subprocess
@@ -78,7 +79,7 @@ class DiffEngine(DiffProvider):
 
     async def apply_diffs(self, diffs: list[UnifiedDiff]) -> DiffResult:
         applied:   list[str] = []
-        conflicts: list[dict] = []
+        conflicts: list[dict[str, Any]] = []
 
         for diff in diffs:
             try:

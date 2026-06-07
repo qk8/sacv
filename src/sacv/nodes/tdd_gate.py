@@ -109,7 +109,7 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                 max_retries=3,
                 allowed_tools=[],
             )
-            test_files: list[dict] = [tf.model_dump() for tf in structured.data]
+            test_files: list[dict[str, Any]] = [tf.model_dump() for tf in structured.data]
         except StructuredOutputError:
             log.error("tdd_gate.parse_error")
             return {

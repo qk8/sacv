@@ -90,7 +90,7 @@ class AgentMemoryAdapter(McpStdioTransport, MemoryProvider):
 
     # ── Custom _call_tool: AgentMemory returns raw text for some tools ────
 
-    async def _call_tool(self, tool_name: str, arguments: dict) -> Any:
+    async def _call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """
         Wrapper around ``_call`` that logs the tool name in degraded mode.
 

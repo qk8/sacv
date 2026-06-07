@@ -286,7 +286,7 @@ def _extract_section(content: str, section_name: str) -> str:
     return f"## {section_name}: _not present_"
 
 
-def _splice_sections(content: str, updates: dict) -> str:
+def _splice_sections(content: str, updates: dict[str, Any]) -> str:
     """
     Replace ## Common Mistakes and ## Architecture Decisions sections
     in the existing AGENTS.md content with updated versions from the LLM.
@@ -310,7 +310,7 @@ def _splice_sections(content: str, updates: dict) -> str:
 
 
 async def _update_arch_rules(
-    violations: list[dict],
+    violations: list[dict[str, Any]],
     module_type: str,
     deps: "NodeDeps",
     current_cost: float = 0.0,
@@ -461,7 +461,7 @@ def _derive_pattern(state: "WorkflowState") -> str:
     return " | ".join(parts)
 
 
-def _extract_constraints(findings: list[dict], escalation: dict | None) -> list[str]:
+def _extract_constraints(findings: list[dict[str, Any]], escalation: dict[str, Any] | None) -> list[str]:
     cs: list[str] = []
     for f in findings:
         if f.get("severity") == "critical":
