@@ -90,9 +90,9 @@ def _cosine_similarity_from_b64(b64_a: str, b64_b: str) -> float:
                      a_len=len(b64_a), b_len=len(b64_b))
         return 0.0
 
-    dot   = sum(a * b for a, b in zip(vec_a, vec_b))
-    mag_a = sum(a * a for a in vec_a) ** 0.5
-    mag_b = sum(b * b for b in vec_b) ** 0.5
+    dot   = float(sum((a * b for a, b in zip(vec_a, vec_b)), 0.0))
+    mag_a = float(float(sum((a * a for a in vec_a), 0.0)) ** 0.5)
+    mag_b = float(float(sum((b * b for b in vec_b), 0.0)) ** 0.5)
     if mag_a == 0 or mag_b == 0:
         return 0.0
-    return dot / (mag_a * mag_b)
+    return float(dot / (mag_a * mag_b))

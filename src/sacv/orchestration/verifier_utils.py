@@ -1,7 +1,7 @@
 """Shared verifier utilities used by both graph.py and speculative_branch.py."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 def accumulate_cost(
     last_tokens: "AgentResult | None",
-    state:       dict,
+    state:       dict[str, Any],
     config:      "WorkflowConfig",
 ) -> float:
     """
@@ -24,20 +24,21 @@ def accumulate_cost(
 
     Returns the updated cumulative_cost_dollars value.
     """
+    base = float(state.get("cumulative_cost_dollars", 0.0))
     if last_tokens is None:
-        return state.get("cumulative_cost_dollars", 0.0)
+        return base
 
     # Prefer SDK-reported cost when available (always accurate)
     sdk_cost = getattr(last_tokens, "total_cost_usd", None)
     if sdk_cost is not None:
-        return state.get("cumulative_cost_dollars", 0.0) + sdk_cost
+        return base + float(sdk_cost)
 
     # Fallback: estimate from token counts
     cost = (
-        last_tokens.input_tokens  / 1_000_000 * config.token_budget.cost_per_m_input
-        + last_tokens.output_tokens / 1_000_000 * config.token_budget.cost_per_m_output
+        float(last_tokens.input_tokens)  / 1_000_000 * float(config.token_budget.cost_per_m_input)
+        + float(last_tokens.output_tokens) / 1_000_000 * float(config.token_budget.cost_per_m_output)
     )
-    return state.get("cumulative_cost_dollars", 0.0) + cost
+    return base + cost
 
 
 def add_agent_cost(
@@ -57,7 +58,7 @@ def add_agent_cost(
 async def run_verifier_with_confidence(
     state: "WorkflowState",
     deps:  "NodeDeps",
-) -> dict:
+) -> dict[str, object]:
     """Run the verifier node and compute confidence_score in the returned dict."""
     from sacv.nodes.verifier import make_verifier_node
     from sacv.orchestration.edges import compute_confidence_score

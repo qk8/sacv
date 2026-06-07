@@ -18,7 +18,7 @@ class CodeGraphAdapter(McpStdioTransport, CodeGraphProvider):
     _default_cmd = _DEFAULT_CMD
     _TIMEOUT_SEC = 15
 
-    def _on_failure(self) -> dict:
+    def _on_failure(self) -> dict[str, Any]:
         return {}
 
     async def get_blast_radius(self, file_paths: list[str]) -> BlastRadiusMap:
@@ -40,5 +40,5 @@ class CodeGraphAdapter(McpStdioTransport, CodeGraphProvider):
             edges=raw.get("edges", []),
         )
 
-    async def get_dependency_subgraph(self, scope: list[str]) -> dict:
-        return await self._call("dependency_subgraph", {"scope": scope})
+    async def get_dependency_subgraph(self, scope: list[str]) -> dict[str, Any]:
+        return await self._call("dependency_subgraph", {"scope": scope})  # type: ignore[no-any-return]

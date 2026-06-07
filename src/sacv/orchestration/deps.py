@@ -48,7 +48,7 @@ class NodeDeps:
     @property
     def repo_root(self) -> Path:
         """Canonical repo root. All workflow file I/O must be relative to this."""
-        return self.git.repo_root
+        return Path(self.git.repo_root)
 
     def __post_init__(self) -> None:
         if not self._semaphore_injected:

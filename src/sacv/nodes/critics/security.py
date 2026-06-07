@@ -5,7 +5,7 @@ SecurityCritic: OWASP Top 10, secrets detection, JWT/session security.
 Covers both Java (Spring Security) and TypeScript (Next.js / Express) rules.
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 from sacv.nodes.critics.base import _run_critic
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -34,8 +34,8 @@ Common:
 """
 
 
-def make_security_critic_node(deps: "NodeDeps"):
-    async def security_critic_node(state: "WorkflowState") -> dict:
+def make_security_critic_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
+    async def security_critic_node(state: "WorkflowState") -> dict[str, object]:
         findings, new_cost = await _run_critic(
             role="security engineer specialising in OWASP Top 10",
             critic_name="security",

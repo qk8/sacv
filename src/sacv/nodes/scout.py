@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -30,9 +30,9 @@ log = structlog.get_logger(__name__)
 _FILE_PATTERN = re.compile(r"[\w/\-]+\.(?:tsx|ts|java|sql|yaml|yml|json|xml)")
 
 
-def make_scout_node(deps: "NodeDeps"):
+def make_scout_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def scout_node(state: "WorkflowState") -> dict:
+    async def scout_node(state: "WorkflowState") -> dict[str, object]:
         task_id     = state["task_id"]
         mode        = state["project_mode"]
         description = state.get("task_description", "")

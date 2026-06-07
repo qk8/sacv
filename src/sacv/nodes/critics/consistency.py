@@ -12,7 +12,7 @@ diff itself (e.g. if the diff introduces a naming convention, all
 new files must follow it).
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 from sacv.nodes.critics.base import _run_critic
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -38,8 +38,8 @@ Greenfield mode — internal consistency within this diff:
 """
 
 
-def make_consistency_critic_node(deps: "NodeDeps"):
-    async def consistency_critic_node(state: "WorkflowState") -> dict:
+def make_consistency_critic_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
+    async def consistency_critic_node(state: "WorkflowState") -> dict[str, object]:
         mode  = state.get("project_mode", "greenfield")
         rules = (
             _CONSISTENCY_RULES_BROWNFIELD

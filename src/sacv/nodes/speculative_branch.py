@@ -18,7 +18,7 @@ import copy
 import tempfile
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -49,9 +49,9 @@ def _merge_branch_state(base: dict, update: dict) -> dict:
     return merged
 
 
-def make_speculative_branch_node(deps: "NodeDeps"):
+def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def speculative_branch_node(state: "WorkflowState") -> dict:
+    async def speculative_branch_node(state: "WorkflowState") -> dict[str, object]:
         task_id    = state["task_id"]
         candidates = state.get("strategy_candidates", [])
         exhausted  = list(state.get("exhausted_branches", []))

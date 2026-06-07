@@ -21,7 +21,7 @@ import json
 import re
 import shlex
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -63,9 +63,9 @@ No explanation. No markdown. Only the JSON array.
 """
 
 
-def make_tdd_gate_node(deps: "NodeDeps"):
+def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def tdd_gate_node(state: "WorkflowState") -> dict:
+    async def tdd_gate_node(state: "WorkflowState") -> dict[str, object]:
         task_id   = state["task_id"]
         strategy  = state.get("selected_strategy")
         desc      = state.get("task_description", "")

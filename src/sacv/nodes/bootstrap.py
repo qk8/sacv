@@ -2,7 +2,7 @@
 from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 import structlog
 from sacv.orchestration.state import WorkflowPhase, CRITIC_RESET
 from sacv.interfaces.memory_provider import EpisodicEvent
@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 log = structlog.get_logger(__name__)
 
 
-def make_bootstrap_node(deps: "NodeDeps"):
-    async def bootstrap_node(state: "WorkflowState") -> dict:
+def make_bootstrap_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
+    async def bootstrap_node(state: "WorkflowState") -> dict[str, object]:
         session_id = state.get("session_id") or str(uuid.uuid4())
         log.info("bootstrap.start", session_id=session_id, task_id=state["task_id"])
 

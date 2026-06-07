@@ -17,7 +17,7 @@ Plan Agent role: read-only, no tool use. Pure strategy generation.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -47,9 +47,9 @@ No explanation. No markdown. Only the JSON array.
 """
 
 
-def make_replan_node(deps: "NodeDeps"):
+def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def replan_node(state: "WorkflowState") -> dict:
+    async def replan_node(state: "WorkflowState") -> dict[str, object]:
         task_id    = state["task_id"]
         replan_cnt = state.get("replan_count", 0)
         cfg        = deps.config

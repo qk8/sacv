@@ -26,12 +26,12 @@ import asyncio
 import json
 import re
 import shlex
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
 from sacv.orchestration.state import WorkflowPhase, DebugObservations
-from sacv.nodes._log_parser import prune_stack, frames_to_dict, format_for_actor
+from sacv.nodes._log_parser import prune_stack, frames_to_dict, format_for_actor, ParsedFrame
 from sacv.nodes._debug_strategies import (
     classify_error, get_strategy, ErrorType,
     needs_jdwp, needs_cdp, needs_actuator, needs_delta_debug,
@@ -58,9 +58,9 @@ Output ONLY the hypothesis paragraph. No lists. No markdown. One paragraph.
 """
 
 
-def make_intelligent_debugger_node(deps: "NodeDeps"):
+def make_intelligent_debugger_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def intelligent_debugger_node(state: "WorkflowState") -> dict:
+    async def intelligent_debugger_node(state: "WorkflowState") -> dict[str, object]:
         task_id   = state["task_id"]
         module    = state["module_type"]
         verdict   = state["verifier_verdict"] or {}
@@ -149,7 +149,7 @@ def make_intelligent_debugger_node(deps: "NodeDeps"):
 
 async def _run_actuator_query(
     obs:    DebugObservations,
-    handle, cfg, deps,
+    handle: Any, cfg: Any, deps: "NodeDeps",
 ) -> DebugObservations:
     """Query Spring Boot Actuator for live Bean map and environment."""
     for endpoint, key in [("/beans", "actuator_beans"), ("/env", "actuator_env")]:
@@ -168,11 +168,11 @@ async def _run_actuator_query(
 
 async def _run_delta_debug(
     obs:         DebugObservations,
-    payload:     dict,
+    payload:     dict[str, Any],
     state:       "WorkflowState",
-    handle,
+    handle: Any,
     module_type: str,
-    deps,
+    deps: "NodeDeps",
 ) -> DebugObservations:
     """
     Binary delta-debug: find minimal failing subset of request payload.
@@ -195,14 +195,14 @@ async def _run_delta_debug(
 
 
 async def _delta_minimize(
-    fields: list,
+    fields: list[tuple[str, Any]],
     state: "WorkflowState",
-    handle,
+    handle: Any,
     module_type: str,
-    deps,
+    deps: "NodeDeps",
     depth: int,
     deadline: float,
-) -> list:
+) -> list[tuple[str, Any]]:
     """Recursive delta-debug. Returns smallest failing subset."""
     import time
     if depth > 6 or len(fields) <= 1 or time.monotonic() > deadline:
@@ -255,7 +255,7 @@ async def _delta_minimize(
 
 
 async def _test_payload(
-    payload: dict, state: "WorkflowState", handle, module_type: str, deps
+    payload: dict[str, Any], state: "WorkflowState", handle: Any, module_type: str, deps: "NodeDeps"
 ) -> bool:
     """Run a quick test with the given payload. Returns True if error persists."""
     payload_json = json.dumps(payload)
@@ -287,11 +287,11 @@ async def _test_payload(
 
 async def _run_jdwp_session(
     obs:      DebugObservations,
-    pruned,
-    strategy,
-    handle,
-    cfg,
-    deps,
+    pruned:   list[ParsedFrame],
+    strategy: Any,
+    handle:   Any,
+    cfg:      Any,
+    deps:     "NodeDeps",
 ) -> DebugObservations:
     """
     Start JVM in debug mode, set breakpoints, run the failing test, collect variable state.
@@ -376,11 +376,11 @@ async def _run_jdwp_session(
 
 async def _run_cdp_session(
     obs:      DebugObservations,
-    pruned,
-    strategy,
-    handle,
-    cfg,
-    deps,
+    pruned:   list[ParsedFrame],
+    strategy: Any,
+    handle:   Any,
+    cfg:      Any,
+    deps:     "NodeDeps",
 ) -> DebugObservations:
     """
     Debug TypeScript/Node.js via Chrome DevTools Protocol.
@@ -481,7 +481,7 @@ async def _run_cdp_session(
 async def _synthesise_hypothesis(
     obs:   DebugObservations,
     state: "WorkflowState",
-    deps,
+    deps: "NodeDeps",
     current_cost: float = 0.0,
 ) -> tuple[str, float]:
     """Single LLM call to produce a root-cause hypothesis from structured observations.
@@ -520,7 +520,7 @@ async def _synthesise_hypothesis(
 
 # ── Payload extraction helpers ────────────────────────────────────────────────
 
-def _extract_request_payload(state: "WorkflowState") -> dict:
+def _extract_request_payload(state: "WorkflowState") -> dict[str, Any]:
     """Try to extract the request payload from the test failure context."""
     for f in (state.get("verifier_verdict") or {}).get("test_failures", []):
         msg = f.get("message", "")
@@ -528,7 +528,7 @@ def _extract_request_payload(state: "WorkflowState") -> dict:
             try:
                 start = msg.index("{")
                 end   = msg.rindex("}") + 1
-                return json.loads(msg[start:end])
+                return json.loads(msg[start:end])  # type: ignore[no-any-return]
             except (json.JSONDecodeError, ValueError):
                 pass
     return {}
@@ -540,12 +540,12 @@ def _extract_endpoint(state: "WorkflowState") -> str:
     for pattern in ["/api/", "/v1/", "/v2/"]:
         if pattern in desc:
             idx = desc.index(pattern)
-            return desc[idx:idx + 40].split()[0].rstrip(".")
+            return str(desc[idx:idx + 40].split()[0].rstrip("."))
     return ""
 
 
 async def _wait_for_debug_port(
-    handle, port: int, deps, timeout: float | None = None,
+    handle: Any, port: int, deps: "NodeDeps", timeout: float | None = None,
 ) -> bool:
     """Poll until the debug port accepts connections or timeout."""
     effective_timeout = timeout if timeout is not None else deps.config.debug.debug_port_wait_sec

@@ -24,7 +24,7 @@ def _cfg(config: object) -> "WorkflowConfig":
     if config is _SENTINEL:
         from sacv.orchestration.config import WorkflowConfig as _WC
         return _WC()
-    return config  # type: ignore[return-value]
+    return config
 
 
 # ── Preflight routing ─────────────────────────────────────────────────────────
@@ -77,7 +77,8 @@ def compute_confidence_score(
     else:
         cost_penalty = 0.0
 
-    return max(0.0, 1.0 - attempt_penalty - stagnation_penalty - blast_penalty - critic_penalty - cost_penalty)
+    result = max(0.0, 1.0 - attempt_penalty - stagnation_penalty - blast_penalty - critic_penalty - cost_penalty)
+    return float(result)
 
 
 # ── Actor routing ─────────────────────────────────────────────────────────────

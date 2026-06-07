@@ -22,7 +22,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -39,9 +39,9 @@ log = structlog.get_logger(__name__)
 _WORKFLOW_VERSION = "sacv-1.0"
 
 
-def make_hitl_escalation_node(deps: "NodeDeps"):
+def make_hitl_escalation_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def hitl_escalation_node(state: "WorkflowState") -> dict:
+    async def hitl_escalation_node(state: "WorkflowState") -> dict[str, object]:
         task_id = state["task_id"]
 
         # ── Resume guard: file-backed check survives process restarts ─────

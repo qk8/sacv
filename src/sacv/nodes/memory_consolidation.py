@@ -27,7 +27,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -61,9 +61,9 @@ Output ONLY the new rule. No explanation. No markdown.
 """
 
 
-def make_memory_consolidation_node(deps: "NodeDeps"):
+def make_memory_consolidation_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def memory_consolidation_node(state: "WorkflowState") -> dict:
+    async def memory_consolidation_node(state: "WorkflowState") -> dict[str, object]:
         session_id = state["session_id"]
         task_id    = state["task_id"]
         correction = state["correction_state"]
@@ -212,13 +212,14 @@ async def _commit_production_code_no_record(task_id: str, deps: "NodeDeps") -> s
     """
     def _sync_work() -> str:
         try:
-            return deps.git.commit(
+            sha = deps.git.commit(
                 f"sacv: implement {task_id}", add_all=True
             )
+            return str(sha)
         except Exception as exc:
             log.warning("memory_consolidation.commit_failed", error=str(exc))
             return ""
-    return await asyncio.to_thread(_sync_work)
+    return str(await asyncio.to_thread(_sync_work))
 
 
 async def _update_agents_md(

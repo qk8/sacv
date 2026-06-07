@@ -11,7 +11,7 @@ Refactoring additions (debugging session):
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from langgraph.graph import StateGraph, START, END
 
@@ -31,6 +31,7 @@ from sacv.orchestration.deps import NodeDeps
 
 if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
+    from langgraph.checkpoint.base import BaseCheckpointSaver
 
 
 from sacv.orchestration.verifier_utils import (
@@ -38,7 +39,7 @@ from sacv.orchestration.verifier_utils import (
 )
 
 
-def _make_all_critics_node(deps: "NodeDeps"):
+def _make_all_critics_node(deps: "NodeDeps") -> Any:
     """
     Single node that runs all 3 critics concurrently and returns merged findings.
 
@@ -52,7 +53,7 @@ def _make_all_critics_node(deps: "NodeDeps"):
     from sacv.nodes.critics.consistency import make_consistency_critic_node
     from sacv.orchestration.state import WorkflowPhase
 
-    async def all_critics_node(state: "WorkflowState") -> dict:
+    async def all_critics_node(state: "WorkflowState") -> dict[str, object]:
         sec_node = make_security_critic_node(deps)
         sty_node = make_style_critic_node(deps)
         con_node = make_consistency_critic_node(deps)
@@ -88,9 +89,10 @@ def _make_all_critics_node(deps: "NodeDeps"):
     return all_critics_node
 
 
-def _inject_confidence(deps: NodeDeps):
-    async def verifier_with_confidence(state: WorkflowState) -> dict:
-        return await _run_verifier_with_confidence(state, deps)
+def _inject_confidence(deps: "NodeDeps") -> Any:
+    async def verifier_with_confidence(state: "WorkflowState") -> dict[str, object]:
+        result = await _run_verifier_with_confidence(state, deps)
+        return {k: v for k, v in result.items()}
 
     return verifier_with_confidence
 
@@ -134,7 +136,7 @@ def build_branch_subgraph(deps: "NodeDeps") -> "StateGraph":
 
 def build_graph(
     deps:         "NodeDeps",
-    checkpointer: object | None = None,
+    checkpointer: "BaseCheckpointSaver[Any] | None" = None,
 ) -> "CompiledStateGraph":
     from sacv.nodes.bootstrap            import make_bootstrap_node
     from sacv.nodes.mode_router          import make_mode_router_node
@@ -173,7 +175,7 @@ def build_graph(
     builder.add_edge("bootstrap",            "mode_router")
     builder.add_edge("mode_router",          "scout")
     builder.add_edge("scout",                "value_node")
-    builder.add_edge(
+    builder.add_conditional_edges(
         "actor",
         route_after_actor,
         {

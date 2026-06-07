@@ -31,7 +31,7 @@ import json
 import re
 import shlex
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -51,9 +51,9 @@ log = structlog.get_logger(__name__)
 # OTel collector endpoint — now configurable via DebugConfig.otel_query_url
 
 
-def make_verifier_node(deps: "NodeDeps"):
+def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def verifier_node(state: "WorkflowState") -> dict:
+    async def verifier_node(state: "WorkflowState") -> dict[str, object]:
         task_id   = state["task_id"]
         module    = state["module_type"]
         correction = state["correction_state"]
@@ -123,7 +123,7 @@ def make_verifier_node(deps: "NodeDeps"):
 
             # ── Phase 2: New Feature Tests ───────────────────────────────
             p2_passed = True
-            p2_failures: list[dict] = []
+            p2_failures: list[dict[str, Any]] = []
             playwright_trace: str | None = None
 
             if inv_paths:
@@ -163,10 +163,10 @@ def make_verifier_node(deps: "NodeDeps"):
             # ── Performance profiling ────────────────────────────────────
             # Feature not yet implemented — perf baseline infrastructure
             # does not exist.
-            perf_delta: dict | None = None
+            perf_delta: dict[str, Any] | None = None
 
             # ── Visual diff (frontend only) ──────────────────────────────
-            visual_result: dict | None = None
+            visual_result: dict[str, Any] | None = None
             if p1_passed and p2_passed and "frontend" in module:
                 visual_result = await _run_visual_diff(handle, task_id, deps)
 
@@ -299,7 +299,7 @@ def classify_confidence(failure_text: str) -> float:
 
 def _classify(
     p1_passed:    bool, p2_passed: bool,
-    failures:     list[dict], findings: list[dict],
+    failures:     list[dict[str, Any]], findings: list[dict[str, Any]],
     state:        "WorkflowState",
     overall_pass: bool = True,
 ) -> str:
@@ -310,11 +310,11 @@ def _classify(
             # If there are no parseable failure messages, fall through to
             # AMBIGUOUS (Actor has nothing concrete to optimise).
             if not failure_text.strip():
-                return DiagnosticVerdict.AMBIGUOUS.value
-            return DiagnosticVerdict.FIX_IMPL.value
-        return DiagnosticVerdict.PASS.value
+                return str(DiagnosticVerdict.AMBIGUOUS.value)
+            return str(DiagnosticVerdict.FIX_IMPL.value)
+        return str(DiagnosticVerdict.PASS.value)
     if not p1_passed:
-        return DiagnosticVerdict.FIX_IMPL.value
+        return str(DiagnosticVerdict.FIX_IMPL.value)
 
     # ── FIX_TEST detection (p1 passed, p2 failed) ─────────────────────
     # p2 tests are the NEW tests written by TDD gate. If they fail with
@@ -332,17 +332,17 @@ def _classify(
         has_assertion_fail = any(kw in failure_text for kw in assertion_keywords)
         has_compile_fail   = any(kw in failure_text for kw in compile_keywords)
         if has_assertion_fail and not has_compile_fail:
-            return DiagnosticVerdict.FIX_TEST.value
+            return str(DiagnosticVerdict.FIX_TEST.value)
 
     if any(kw in failure_text for kw in ("compilat", "syntax", "cannot find symbol", "module not found")):
-        return DiagnosticVerdict.FIX_IMPL.value
+        return str(DiagnosticVerdict.FIX_IMPL.value)
     if any(f["severity"] == "critical" for f in findings):
-        return DiagnosticVerdict.FIX_IMPL.value
+        return str(DiagnosticVerdict.FIX_IMPL.value)
     # Prefer FIX_IMPL over AMBIGUOUS when failure messages exist but don't
     # match any known keyword — there IS a failure, just not a clear signal
     if failure_text.strip():
-        return DiagnosticVerdict.FIX_IMPL.value
-    return DiagnosticVerdict.AMBIGUOUS.value
+        return str(DiagnosticVerdict.FIX_IMPL.value)
+    return str(DiagnosticVerdict.AMBIGUOUS.value)
 
 
 def _is_bean_error(output: str) -> bool:
@@ -354,7 +354,7 @@ def _is_bean_error(output: str) -> bool:
 
 # ── Tool runners ──────────────────────────────────────────────────────────────
 
-async def _query_actuator(handle, base_url: str, deps) -> dict | None:
+async def _query_actuator(handle: Any, base_url: str, deps: "NodeDeps") -> dict[str, Any] | None:
     """Query Spring Actuator /beans endpoint (approach 3)."""
     result = await deps.sandbox.exec_in_container(
         handle,
@@ -362,12 +362,12 @@ async def _query_actuator(handle, base_url: str, deps) -> dict | None:
         timeout=10,
     )
     try:
-        return json.loads(result.stdout)
+        return json.loads(result.stdout)  # type: ignore[no-any-return]
     except json.JSONDecodeError:
         return None
 
 
-async def _query_otel(handle, task_id: str, deps) -> dict | None:
+async def _query_otel(handle: Any, task_id: str, deps: "NodeDeps") -> dict[str, Any] | None:
     """Query OTel/Jaeger for traces correlated with this test run (approach 1)."""
     cfg = deps.config.debug
     result = await deps.sandbox.exec_in_container(
@@ -380,12 +380,12 @@ async def _query_otel(handle, task_id: str, deps) -> dict | None:
     if "NO_OTEL" in result.stdout or not result.stdout.strip():
         return None
     try:
-        return json.loads(result.stdout)
+        return json.loads(result.stdout)  # type: ignore[no-any-return]
     except json.JSONDecodeError:
         return None
 
 
-async def _extract_playwright_trace(handle, task_id: str, deps) -> str | None:
+async def _extract_playwright_trace(handle: Any, task_id: str, deps: "NodeDeps") -> str | None:
     """Extract most recent Playwright trace ZIP path (approach 2)."""
     result = await deps.sandbox.exec_in_container(
         handle,
@@ -396,7 +396,7 @@ async def _extract_playwright_trace(handle, task_id: str, deps) -> str | None:
     return path if path else None
 
 
-async def _run_visual_diff(handle, task_id: str, deps) -> dict | None:
+async def _run_visual_diff(handle: Any, task_id: str, deps: "NodeDeps") -> dict[str, Any] | None:
     # Sanitize task_id for shell safety
     safe_task_id = re.sub(r"[^a-zA-Z0-9\-_]", "-", task_id)[:32]
     output_path = f"/tmp/vd-{safe_task_id}.json"
@@ -425,14 +425,16 @@ async def _run_visual_diff(handle, task_id: str, deps) -> dict | None:
         handle, f"cat {shlex.quote(output_path)}", timeout=5
     )
     try:
-        return json.loads(cat_r.stdout.strip())
+        return json.loads(cat_r.stdout.strip())  # type: ignore[no-any-return]
     except json.JSONDecodeError:
         log.warning("verifier.visual_diff_parse_failed", stdout=cat_r.stdout[:200])
         return None
 
 
-def _has_visual_breakage(visual: dict | None) -> bool:
-    return bool(visual) and not visual.get("passed", True)
+def _has_visual_breakage(visual: dict[str, Any] | None) -> bool:
+    if visual is None:
+        return False
+    return not visual.get("passed", True)
 
 
 def _check_test_deletions(state: "WorkflowState") -> str | None:
@@ -500,7 +502,7 @@ def _inventory_test_cmd(module_type: str, paths: list[str]) -> str:
     return f"mvn test -Dtest={','.join(classes)} -q 2>&1" if classes else "mvn test -q 2>&1"
 
 
-def _fallback_parse(output: str, module_type: str) -> list[dict]:
+def _fallback_parse(output: str, module_type: str) -> list[dict[str, Any]]:
     """Last-resort parser when pruner finds no user-code frames."""
     failures = []
     if "frontend" in module_type:
@@ -517,12 +519,12 @@ def _fallback_parse(output: str, module_type: str) -> list[dict]:
 def _make_verdict(
     test_result: str, diagnostic: str,
     phase1_passed: bool, phase2_passed: bool,
-    failures: list[dict], findings: list[dict],  # noqa: F841 — kept for API compat
-    performance_delta:    dict | None = None,
-    visual_diff_result:   dict | None = None,
+    failures: list[dict[str, Any]], findings: list[dict[str, Any]],  # noqa: F841 — kept for API compat
+    performance_delta:    dict[str, Any] | None = None,
+    visual_diff_result:   dict[str, Any] | None = None,
     playwright_trace_path: str | None = None,
-    otel_trace:           dict | None = None,
-    actuator_snapshot:    dict | None = None,
+    otel_trace:           dict[str, Any] | None = None,
+    actuator_snapshot:    dict[str, Any] | None = None,
     docker_exit_code:     int = 0,
     blocked_by_critic:    bool = False,
 ) -> VerifierVerdict:
@@ -539,7 +541,7 @@ def _make_verdict(
     )
 
 
-def _build_return(verdict: VerifierVerdict, correction: dict, failure_text: str) -> dict:
+def _build_return(verdict: VerifierVerdict, correction: dict[str, Any], failure_text: str) -> dict[str, object]:
     new_correction = dict(correction)
     if verdict["test_result"] == "FAIL" and failure_text:
         history = list(correction.get("error_history", []))

@@ -19,10 +19,15 @@ from pathlib import Path
 
 import structlog
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sacv.orchestration.deps import NodeDeps
+
 log = structlog.get_logger(__name__)
 
 
-def _build_deps():
+def _build_deps() -> "NodeDeps":
     """Build NodeDeps with production adapters. Adjust paths as needed."""
     from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.config import WorkflowConfig

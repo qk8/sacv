@@ -10,7 +10,7 @@ All scoring arithmetic happens in Python — never inside the LLM prompt.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -41,9 +41,9 @@ Respond with ONLY the JSON array. No explanation, no markdown fences.
 _MAX_STRATEGIES_TO_GENERATE = 4
 
 
-def make_value_node(deps: "NodeDeps"):
+def make_value_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def value_node_fn(state: "WorkflowState") -> dict:
+    async def value_node_fn(state: "WorkflowState") -> dict[str, object]:
         cfg          = deps.config
         skeleton     = state.get("context_skeleton") or {}
         blast        = state.get("blast_radius_map")

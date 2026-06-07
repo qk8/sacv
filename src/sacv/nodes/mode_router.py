@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -76,9 +76,9 @@ async def _detect_mode(cwd: Path) -> ProjectMode:
     return ProjectMode.GREENFIELD
 
 
-def make_mode_router_node(deps: "NodeDeps"):
+def make_mode_router_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def mode_router_node(state: "WorkflowState") -> dict:
+    async def mode_router_node(state: "WorkflowState") -> dict[str, object]:
         # Honour explicitly provided mode; auto-detect only if absent
         provided = state.get("project_mode")
         if provided in (ProjectMode.GREENFIELD.value, ProjectMode.BROWNFIELD.value):

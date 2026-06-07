@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -40,9 +40,9 @@ _ARCHUNIT_DETAIL_RE = re.compile(r"^\s+-\s+(.+)")
 _DEPCRUISER_ERR = re.compile(r'"violations":\s*\[')
 
 
-def make_preflight_node(deps: "NodeDeps"):
+def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def preflight_node(state: "WorkflowState") -> dict:
+    async def preflight_node(state: "WorkflowState") -> dict[str, object]:
         t0        = time.monotonic()
         module    = state["module_type"]
         profile   = state.get("check_profile", "standard")
@@ -158,7 +158,7 @@ def make_preflight_node(deps: "NodeDeps"):
     return preflight_node
 
 
-async def _check_cross_stack_types(handle, cfg, deps) -> list[dict]:
+async def _check_cross_stack_types(handle: Any, cfg: Any, deps: "NodeDeps") -> list[dict[str, Any]]:
     """
     Approach 3A: Regenerate OpenAPI spec from Java annotations, then
     regenerate TypeScript types, then type-check the frontend.
