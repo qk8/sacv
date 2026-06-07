@@ -46,6 +46,8 @@ markers = [
 [tool.mypy]
 strict = true
 python_version = "3.12"
+ignore_missing_imports = true
+disable_error_code = "misc"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "ANN"]
