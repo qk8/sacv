@@ -118,18 +118,12 @@ class TestRunCritic:
         assert result[0]["rule_id"] == "SEC-001"
         assert result[1]["severity"] == "info"
 
-    async def test_invalid_json_returns_empty_after_exhausted_retries(self):
-        """Malformed JSON → retries 2x then returns empty findings."""
+    async def test_invalid_json_returns_empty(self):
+        """Malformed JSON → empty findings, no crash."""
         agent = StubAgentProvider([
             AgentResult(content="not json {{{",
                         tool_calls=[], finish_reason="stop",
                         input_tokens=5, output_tokens=5),
-            AgentResult(content="still bad",
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
-            AgentResult(content="giving up",
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
         ])
         state = _state()
         result, _ = await _run_critic(
@@ -137,20 +131,13 @@ class TestRunCritic:
             extra_rules="", state=state, deps=_deps(agent),
         )
         assert result == []
-        assert len(agent.calls) == 3  # initial + 2 retries
 
-    async def test_dict_json_returns_empty_after_exhausted_retries(self):
-        """LLM returns a dict instead of array → retries then empty."""
+    async def test_dict_json_returns_empty(self):
+        """LLM returns a dict instead of array → empty findings."""
         agent = StubAgentProvider([
             AgentResult(content='{"key": "value"}',
                         tool_calls=[], finish_reason="stop",
                         input_tokens=5, output_tokens=5),
-            AgentResult(content='{"still": "dict"}',
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
-            AgentResult(content='{"no": "array"}',
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
         ])
         state = _state()
         result, _ = await _run_critic(
@@ -158,7 +145,6 @@ class TestRunCritic:
             extra_rules="", state=state, deps=_deps(agent),
         )
         assert result == []
-        assert len(agent.calls) == 3
 
     async def test_agent_receives_critic_role(self):
         """Agent is called with the correct critic role."""
@@ -275,75 +261,3 @@ class TestRunCritic:
             extra_rules="", state=state, deps=_deps(agent),
         )
         assert agent.calls[0][0] == "consistency"
-
-
-@pytest.mark.asyncio
-class TestCriticRetryOnParseFailure:
-
-    async def test_retries_on_malformed_json(self):
-        """When JSON parse fails, critic retries and uses second result."""
-        agent = StubAgentProvider([
-            # First call: malformed JSON (will trigger retry)
-            AgentResult(content="not json {{{",
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
-            # Second call: valid JSON
-            make_json_agent_result([
-                {"critic": "security", "severity": "critical",
-                 "file": "UserService.java", "line": 42,
-                 "rule_id": "SEC-001", "message": "SQL injection",
-                 "resolution_hint": "Use parameterized query"},
-            ]),
-        ])
-        state = _state()
-        result, _ = await _run_critic(
-            role="security engineer", critic_name="security",
-            extra_rules="", state=state, deps=_deps(agent),
-        )
-        assert len(result) == 1
-        assert result[0]["rule_id"] == "SEC-001"
-        assert agent.calls[0][0] == "security"
-        assert len(agent.calls) == 2
-
-    async def test_returns_empty_after_max_retries(self):
-        """When all retries fail, returns empty findings."""
-        agent = StubAgentProvider([
-            AgentResult(content="bad {{{",
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
-            AgentResult(content="also bad",
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
-            AgentResult(content="still bad",
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
-        ])
-        state = _state()
-        result, _ = await _run_critic(
-            role="security engineer", critic_name="security",
-            extra_rules="", state=state, deps=_deps(agent),
-        )
-        assert result == []
-        assert len(agent.calls) == 3  # initial + 2 retries
-
-    async def test_non_array_json_triggers_retry(self):
-        """LLM returns a dict instead of array → retry."""
-        agent = StubAgentProvider([
-            AgentResult(content='{"key": "value"}',
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
-            make_json_agent_result([
-                {"critic": "style", "severity": "warning",
-                 "file": "App.tsx", "line": 10,
-                 "rule_id": "STY-001", "message": "Bad naming",
-                 "resolution_hint": "Use PascalCase"},
-            ]),
-        ])
-        state = _state()
-        result, _ = await _run_critic(
-            role="style reviewer", critic_name="style",
-            extra_rules="", state=state, deps=_deps(agent),
-        )
-        assert len(result) == 1
-        assert result[0]["rule_id"] == "STY-001"
-        assert len(agent.calls) == 2

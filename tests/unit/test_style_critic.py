@@ -188,19 +188,13 @@ class TestStyleCriticNode:
         assert out["critic_findings"][0]["critic"] == "style"
         assert out["critic_findings"][0]["severity"] == "warning"
 
-    async def test_invalid_json_returns_empty_after_exhausted_retries(self):
-        """Malformed JSON → retries 2x then returns empty findings."""
-        agent = StubAgentProvider([
-            AgentResult(content="not json {{{",
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
-            AgentResult(content="still bad",
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
-            AgentResult(content="giving up",
-                        tool_calls=[], finish_reason="stop",
-                        input_tokens=5, output_tokens=5),
-        ])
+    async def test_invalid_json_returns_empty(self):
+        """Malformed JSON → empty findings."""
+        agent = StubAgentProvider([AgentResult(
+            content="not json {{{",
+            tool_calls=[], finish_reason="stop",
+            input_tokens=5, output_tokens=5,
+        )])
         deps = _deps(agent=agent)
         node = make_style_critic_node(deps)
 
