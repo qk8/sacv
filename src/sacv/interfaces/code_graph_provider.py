@@ -14,8 +14,8 @@ class BlastRadiusMap:
 @dataclass
 class CallGraph:
     entry_point: str
-    nodes: list[dict]
-    edges: list[dict]
+    nodes: list[dict[str, object]]
+    edges: list[dict[str, object]]
 
 class CodeGraphProvider(ABC):
     @abstractmethod
@@ -23,4 +23,4 @@ class CodeGraphProvider(ABC):
     @abstractmethod
     async def get_call_graph(self, entry_points: list[str]) -> CallGraph: ...
     @abstractmethod
-    async def get_dependency_subgraph(self, scope: list[str]) -> dict: ...
+    async def get_dependency_subgraph(self, scope: list[str]) -> dict[str, object]: ...

@@ -13,7 +13,7 @@ class AgentConfig:
 @dataclass
 class AgentResult:
     content: str
-    tool_calls: list[dict]
+    tool_calls: list[dict[str, object]]
     finish_reason: str
     input_tokens: int
     output_tokens: int
@@ -21,4 +21,4 @@ class AgentResult:
 
 class AgentProvider(ABC):
     @abstractmethod
-    async def run_task(self, prompt: str, context: dict, config: AgentConfig) -> AgentResult: ...
+    async def run_task(self, prompt: str, context: dict[str, object], config: AgentConfig) -> AgentResult: ...

@@ -19,7 +19,7 @@ class DiffValidationError:
 class DiffResult:
     success: bool
     applied_files: list[str]
-    conflicts: list[dict]
+    conflicts: list[dict[str, object]]
     validation_errors: list[DiffValidationError]
 
 class DiffProvider(ABC):

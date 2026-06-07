@@ -34,6 +34,7 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase, LessonLearned
 from sacv.interfaces.memory_provider import EpisodicEvent
 from sacv.interfaces.agent_provider import AgentConfig
+from sacv.orchestration.verifier_utils import add_agent_cost
 from sacv.nodes._structured_output import extract_structured, AgentsMdUpdate, StructuredOutputError
 
 if TYPE_CHECKING:

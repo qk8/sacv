@@ -96,7 +96,7 @@ class BranchManager(GitProvider):
         result = self._run(["git", "rev-parse", "stash@{0}"])
         ref = result.stdout.strip()
         log.info("git.stash", message=message, ref=ref[:12])
-        return ref
+        return str(ref)
 
     def stash_pop(self, ref: str) -> None:
         """
@@ -137,7 +137,7 @@ class BranchManager(GitProvider):
             for line in result.stdout.splitlines():
                 parts = line.strip().split(" ", 1)
                 if len(parts) == 2 and parts[0].startswith(sha[:12]):
-                    return parts[1]  # e.g. "stash@{2}"
+                    return str(parts[1])
         except RuntimeError:
             pass
         return None
@@ -165,7 +165,7 @@ class BranchManager(GitProvider):
                 return sha
         # Fallback: use HEAD
         result = self._run(["git", "rev-parse", "HEAD"])
-        return result.stdout.strip()
+        return str(result.stdout.strip())
 
     def record_green_commit(self, sha: str) -> None:
         green_sha_file = self._root / ".workflow" / "green-sha"
@@ -175,7 +175,7 @@ class BranchManager(GitProvider):
 
     def current_branch(self) -> str:
         result = self._run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
-        return result.stdout.strip()
+        return str(result.stdout.strip())
 
     def uncommitted_files(self) -> list[str]:
         result = self._run(["git", "status", "--porcelain"])
@@ -228,7 +228,7 @@ class BranchManager(GitProvider):
     def head_sha(self) -> str:
         """Return the current HEAD commit SHA."""
         result = self._run(["git", "rev-parse", "HEAD"])
-        return result.stdout.strip()
+        return str(result.stdout.strip())
 
     # ── Additional utility methods ────────────────────────────────────────
 
@@ -250,11 +250,11 @@ class BranchManager(GitProvider):
         result = self._run(["git", "commit", "-m", message])
         sha = self._run(["git", "rev-parse", "HEAD"]).stdout.strip()
         log.info("git.commit", sha=sha[:12], message=message[:60])
-        return sha
+        return str(sha)
 
     # ── Internal ──────────────────────────────────────────────────────────
 
-    def _run(self, cmd: list[str]) -> subprocess.CompletedProcess:
+    def _run(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(
             cmd,
             cwd=str(self._root),

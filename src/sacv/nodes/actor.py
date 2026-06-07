@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
@@ -70,9 +70,9 @@ CRITIC FEEDBACK FROM PREVIOUS ATTEMPT:
 """
 
 
-def make_actor_node(deps: "NodeDeps"):
+def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
-    async def actor_node(state: "WorkflowState") -> dict:
+    async def actor_node(state: "WorkflowState") -> dict[str, object]:
         task_id      = state["task_id"]
         strategy     = state.get("selected_strategy")
         correction   = state["correction_state"]
@@ -168,7 +168,7 @@ def make_actor_node(deps: "NodeDeps"):
                 max_retries=3,
                 allowed_tools=["Read", "Bash", "Glob", "Grep", "LS"],
             )
-            raw_diffs: list[dict] = [d.model_dump() for d in structured.data]
+            raw_diffs: list[dict[str, object]] = [d.model_dump() for d in structured.data]
         except StructuredOutputError as exc:
             log.error("actor.parse_error", error=str(exc))
             raw_diffs = []
@@ -252,7 +252,7 @@ def make_actor_node(deps: "NodeDeps"):
     return actor_node
 
 
-def _format_debug_observations(obs: dict | None) -> str:
+def _format_debug_observations(obs: dict[str, Any] | None) -> str:
     """Format structured debug observations for the Actor system prompt."""
     if not obs:
         return ""
@@ -273,7 +273,7 @@ def _format_debug_observations(obs: dict | None) -> str:
     return "\n".join(parts)
 
 
-def _format_preflight(preflight: dict) -> str:
+def _format_preflight(preflight: dict[str, Any]) -> str:
     if preflight.get("passed", True):
         return ""
     parts = []
@@ -284,7 +284,7 @@ def _format_preflight(preflight: dict) -> str:
     return "\n".join(parts) if parts else ""
 
 
-def _format_findings(findings: list[dict]) -> str:
+def _format_findings(findings: list[dict[str, Any]]) -> str:
     if not findings:
         return ""
     return "\n".join(

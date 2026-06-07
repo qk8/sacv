@@ -89,7 +89,7 @@ class ClaudeAgentAdapter(AgentProvider):
     async def run_task(
         self,
         prompt:  str,
-        context: dict,
+        context: dict[str, object],
         config:  AgentConfig,
     ) -> AgentResult:
         """
@@ -102,7 +102,7 @@ class ClaudeAgentAdapter(AgentProvider):
         full_prompt = _build_prompt(prompt, context)
 
         text_parts:    list[str] = []
-        tool_calls:    list[dict] = []
+        tool_calls:    list[dict[str, object]] = []
         input_tokens   = 0
         output_tokens  = 0
         total_cost_usd: float | None = None
@@ -111,7 +111,7 @@ class ClaudeAgentAdapter(AgentProvider):
             system_prompt=config.system_prompt,
             max_turns=config.max_turns,
             allowed_tools=config.allowed_tools or [],
-            **({"cwd": self._cwd} if self._cwd is not None else {}),
+            cwd=self._cwd,
         )
 
         try:
@@ -174,7 +174,7 @@ class ClaudeAgentAdapter(AgentProvider):
         )
 
 
-def _build_prompt(prompt: str, context: dict) -> str:
+def _build_prompt(prompt: str, context: dict[str, object]) -> str:
     """
     Prepend a compact JSON context block to the prompt when context is non-empty.
 

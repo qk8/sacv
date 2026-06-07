@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from sacv.orchestration.state import WorkflowPhase, EscalationPayload, ResolutionHint
+from sacv.orchestration.state import WorkflowPhase, EscalationPayload, ResolutionHint, VerifierVerdict
 from sacv.interfaces.memory_provider import EpisodicEvent
 
 if TYPE_CHECKING:

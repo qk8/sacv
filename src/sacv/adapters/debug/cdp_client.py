@@ -47,7 +47,7 @@ class CallFrame:
     url:         str
     line:        int
     column:      int
-    scope_chain: list[dict] = field(default_factory=list)
+    scope_chain: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -71,11 +71,11 @@ class CdpClient:
     def __init__(self, host: str = "localhost", port: int = 9229) -> None:
         self._host = host
         self._port = port
-        self._ws   = None
+        self._ws: Any = None
         self._id   = 0
-        self._pending: dict[int, asyncio.Future] = {}
-        self._paused_future: asyncio.Future | None = None
-        self._recv_task: asyncio.Task | None = None
+        self._pending: dict[int, asyncio.Future[Any]] = {}
+        self._paused_future: asyncio.Future[Any] | None = None
+        self._recv_task: asyncio.Task[None] | None = None
 
     async def __aenter__(self) -> "CdpClient":
         await self.connect()
@@ -125,7 +125,7 @@ class CdpClient:
         })
         bp_id = result.get("breakpointId", "")
         log.debug("cdp.breakpoint_set", url=url_or_file, line=line, id=bp_id)
-        return bp_id
+        return str(bp_id)
 
     async def remove_breakpoint(self, bp_id: str) -> None:
         await self._send("Debugger.removeBreakpoint", {"breakpointId": bp_id})
@@ -154,7 +154,7 @@ class CdpClient:
             result = await asyncio.wait_for(
                 asyncio.shield(self._paused_future), timeout=timeout
             )
-            return result
+            return result  # type: ignore[no-any-return]
         except asyncio.TimeoutError:
             log.warning("cdp.wait_for_paused_timeout")
             return None
@@ -228,12 +228,12 @@ class CdpClient:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    async def _send(self, method: str, params: dict | None = None) -> dict:
+    async def _send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         self._id += 1
         msg_id  = self._id
         message = {"id": msg_id, "method": method, "params": params or {}}
         loop    = asyncio.get_running_loop()
-        future: asyncio.Future = loop.create_future()
+        future: asyncio.Future[Any] = loop.create_future()
         self._pending[msg_id] = future
 
         assert self._ws is not None
@@ -241,7 +241,7 @@ class CdpClient:
 
         try:
             result = await asyncio.wait_for(asyncio.shield(future), timeout=10.0)
-            return result
+            return result  # type: ignore[no-any-return]
         except asyncio.TimeoutError:
             log.warning("cdp.send_timeout", method=method)
             return {}
@@ -278,7 +278,7 @@ class CdpClient:
                 resp = _urllib.urlopen(url, timeout=5)
                 data = json.loads(resp.read())
                 if data:
-                    return data[0]["webSocketDebuggerUrl"]
+                    return str(data[0]["webSocketDebuggerUrl"])
             except Exception:
                 pass
             return f"ws://{self._host}:{self._port}"
@@ -288,7 +288,7 @@ class CdpClient:
 
 # ── Parsers ───────────────────────────────────────────────────────────────────
 
-def _parse_paused(params: dict) -> PausedEvent:
+def _parse_paused(params: dict[str, Any]) -> PausedEvent:
     frames = []
     for f in params.get("callFrames", []):
         loc = f.get("location", {})

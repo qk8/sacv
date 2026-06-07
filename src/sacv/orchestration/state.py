@@ -81,7 +81,7 @@ CRITIC_RESET = _CriticReset.RESET
 
 
 def _merge_correction_state(
-    existing: CorrectionCycleState | None, new: dict | None,
+    existing: CorrectionCycleState | None, new: CorrectionCycleState | None,
 ) -> CorrectionCycleState:
     """Reducer for correction_state — shallow-merges node updates into existing state."""
     if new is None:
@@ -90,10 +90,15 @@ def _merge_correction_state(
             "last_error_hash": None, "error_history": [],
             "stagnation_pattern": "none",
         }
-    return {**(existing or {}), **new}
+    # Shallow merge: existing keys overwritten by new keys
+    result: dict[str, object] = {}
+    if existing:
+        result.update(existing)
+    result.update(new)
+    return result  # type: ignore[return-value]
 
 
-def _merge_branches(existing: list | None, new: list | None) -> list:
+def _merge_branches(existing: list[str] | None, new: list[str] | None) -> list[str]:
     """Reducer for active_branches and exhausted_branches.
 
     - ``new is None``   → node did not touch this field → return existing (default ``[]``)
@@ -109,7 +114,7 @@ def _merge_branches(existing: list | None, new: list | None) -> list:
     return existing or []
 
 
-def _merge_lists(existing: list | None, new: list | _CriticReset | None) -> list:
+def _merge_lists(existing: list[CriticFinding] | None, new: list[CriticFinding] | _CriticReset | None) -> list[CriticFinding]:
     """
     Reducer for critic fan-in.
 
@@ -185,6 +190,33 @@ class CriticFinding(TypedDict):
     message:         str
     resolution_hint: str
 
+class LspError(TypedDict):
+    file:     str
+    line:     int
+    code:     str
+    message:  str
+
+
+class ArchViolation(TypedDict):
+    rule:         str
+    message:      str
+    source_file:  str | None
+    target_file:  str | None
+
+
+class CrossStackError(TypedDict):
+    file:    str
+    line:    int | None
+    code:    str
+    message: str
+    source:  str
+
+
+class BlastError(TypedDict):
+    rule:    str
+    message: str
+
+
 class PreflightResult(TypedDict):
     """
     Output of the Pre-Critic Preflight node.
@@ -197,11 +229,26 @@ class PreflightResult(TypedDict):
     duration_ms:        total elapsed time (should be <5 000ms)
     """
     passed:             bool
-    lsp_errors:         list[dict]   # {file, line, message, code}
-    arch_violations:    list[dict]   # {rule, source_file, target_file, message}
-    cross_stack_errors: list[dict]   # {file, line, code, message, source}
-    blast_errors:       list[dict]   # {rule, message}
+    lsp_errors:         list[LspError]
+    arch_violations:    list[ArchViolation]
+    cross_stack_errors: list[CrossStackError]
+    blast_errors:       list[BlastError]
     duration_ms:        int
+
+class TestFailure(TypedDict):
+    message:  str
+    file:     str | None
+
+
+class OtelTrace(TypedDict):
+    trace_id: str
+    spans:    list[dict[str, object]]
+
+
+class ActuatorSnapshot(TypedDict):
+    """Spring Actuator bean/env snapshot."""
+    pass
+
 
 class VerifierVerdict(TypedDict):
     test_result:          Literal["PASS", "FAIL"]
@@ -209,18 +256,18 @@ class VerifierVerdict(TypedDict):
     # Two-Phase Guardrail (approach 8)
     phase1_passed:        bool         # existing test suite
     phase2_passed:        bool         # newly written tests
-    test_failures:        list[dict]
-    performance_delta:    dict | None
-    visual_diff_result:   dict | None
+    test_failures:        list[TestFailure]
+    performance_delta:    dict[str, object] | None
+    visual_diff_result:   dict[str, object] | None
     docker_exit_code:     int
     # Optional debug artefacts — always present in the dict, None when not collected
     playwright_trace_path: str | None
-    otel_trace:            dict | None
-    actuator_snapshot:     dict | None
+    otel_trace:             OtelTrace | None
+    actuator_snapshot:      ActuatorSnapshot | None
     # HIGH-003: True when verifier blocked on critical critic findings
     # without running Docker. Actor should use critic feedback directly
     # rather than attempting test-driven debugging.
-    blocked_by_critic:     bool
+    blocked_by_critic:      bool
 
 class ResolutionHint(TypedDict):
     priority:  int
@@ -228,35 +275,88 @@ class ResolutionHint(TypedDict):
     hint:      str
     automated: bool
 
+class FailureSummary(TypedDict):
+    total_attempts:       int
+    branches_exhausted:   list[str]
+    stagnation_pattern:   str
+    last_verifier_output: dict[str, object] | None
+    critic_findings:      list[CriticFinding]
+
+
+class GitState(TypedDict):
+    active_branch:       str | None
+    stash_ref:           str | None
+    last_green_commit:   str | None
+    stashed_branches:    list[str]
+    uncommitted_files:   list[str]
+    git_reset_failed:    str | None
+    stash_pop_command:   str | None
+    stash_note:          str | None
+
+
+class ResumeInstructions(TypedDict):
+    command:      str
+    state_file:   str
+    note:         str
+
+
 class EscalationPayload(TypedDict):
     escalation_id:       str
     timestamp:           str
     workflow_version:    str
     task_id:             str
     task_description:    str
-    failure_summary:     dict
-    git_state:           dict
+    failure_summary:     FailureSummary
+    git_state:           GitState
     resolution_hints:    list[ResolutionHint]
-    resume_instructions: dict
+    resume_instructions: ResumeInstructions
 
 class LessonLearned(TypedDict):
     task_id:              str
     pattern_discovered:   str
     negative_constraints: list[str]
-    blast_radius_learned: dict
+    blast_radius_learned: dict[str, object]
     correction_type:      str
     session_duration_ms:  int
 
 
+class ContextSkeleton(TypedDict):
+    call_graph:   dict[str, object]
+    dependencies: list[str]
+    schema_map:   dict[str, object]
+    arch_align:   dict[str, object]
+
+
+class BlastRadiusMap(TypedDict):
+    entry_files:          list[str]
+    affected_files:       list[str]
+    dependency_depth:     int
+    cross_service_impact: list[str]
+    schema_impact:        list[str]
+    risk_score:           float
+
+
 # ── Debug observation schema (must precede WorkflowState) ─────────────────────
+
+class VariableInfo(TypedDict):
+    value: str
+    type:  str | None
+
 
 class BreakpointHit(TypedDict):
     file:        str
     line:        int
-    variables:   dict        # {name: {"value": ..., "type": ...}}
-    call_stack:  list[str]  # ["ClassName.method(File.java:42)", ...]
+    variables:   dict[str, VariableInfo]
+    call_stack:  list[str]
     thread_id:   str | None
-    extra_evals: dict        # {expression: result} — from strategy.evaluate_expressions
+    extra_evals: dict[str, str]
+
+
+class PrunedFrame(TypedDict):
+    file:     str
+    line:     int
+    method:   str
+    message:  str
 
 
 class DebugObservations(TypedDict):
@@ -264,20 +364,15 @@ class DebugObservations(TypedDict):
     Structured output from the IntelligentDebuggerNode.
     Passed directly to the Actor so it can make a precise fix.
     """
-    error_type:       str               # e.g. "NULL_REFERENCE", "ASYNC_RACE_CONDITION"
-    root_cause:       str               # human-readable hypothesis
+    error_type:       str
+    root_cause:       str
     breakpoint_hits:  list[BreakpointHit]
-    # Spring Actuator snapshot (Java only, on BeanCreationException)
-    actuator_beans:   dict | None
-    actuator_env:     dict | None
-    # Delta debug result (validation failures)
-    minimal_payload:  dict | None       # smallest input that reproduces the failure
-    # Playwright trace (frontend only)
+    actuator_beans:   dict[str, object] | None
+    actuator_env:     dict[str, object] | None
+    minimal_payload:  dict[str, object] | None
     playwright_trace_path: str | None
-    # OTel trace (cross-stack)
-    otel_trace:       dict | None       # {trace_id, spans: [...]}
-    # Pruned stack trace (always present)
-    pruned_stack:     list[dict]        # [{file, line, method, message}]
+    otel_trace:       OtelTrace | None
+    pruned_stack:     list[PrunedFrame]
 
 
 # ── Root graph state ──────────────────────────────────────────────────────────
@@ -299,8 +394,8 @@ class WorkflowState(TypedDict):
     current_phase: str
 
     # ── Scout outputs ─────────────────────────────────────────────────────
-    context_skeleton:  dict | None
-    blast_radius_map:  dict | None
+    context_skeleton:  ContextSkeleton | None
+    blast_radius_map:  BlastRadiusMap | None
     agents_md_context: str | None  # AGENTS.md content (approach 3, 11)
 
     # ── Value Node outputs ────────────────────────────────────────────────

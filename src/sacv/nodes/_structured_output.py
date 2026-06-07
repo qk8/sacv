@@ -30,10 +30,11 @@ from dataclasses import dataclass
 from typing import Generic, Literal, TypeVar, get_origin
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic_core import ErrorDetails, InitErrorDetails
 
 from sacv.interfaces.agent_provider import AgentProvider, AgentConfig
 
-T = TypeVar("T", bound=BaseModel | dict | str | list)
+T = TypeVar("T", bound=BaseModel | dict[str, object] | str | list[object])
 
 
 class DiffPayload(BaseModel):
@@ -92,7 +93,7 @@ async def extract_structured(
     prompt: str,
     response_model: type[T],
     system_prompt: str,
-    context: dict | None = None,
+    context: dict[str, object] | None = None,
     max_retries: int = 3,
     allowed_tools: list[str] | None = None,
 ) -> StructuredOutputResult[T]:
@@ -170,42 +171,62 @@ def _validate(content: str, response_model: type[T]) -> T:
     # Handle bare types: str, dict, list
     if response_model is str:
         if not isinstance(parsed, str):
-            raise ValidationError.from_exception_errors(
-                "string.type",
-                f"expected str, got {type(parsed).__name__}",
-                context={"actual": parsed},
+            raise ValidationError.from_exception_data(
+                title="validation",
+                line_errors=[
+                    InitErrorDetails(
+                        type="string_type",
+                        loc=(),
+                        input=parsed,
+                    )
+                ],
             )
         return parsed  # type: ignore[return-value]
 
     if response_model is dict:
         if not isinstance(parsed, dict):
-            raise ValidationError.from_exception_errors(
-                "dict.type",
-                f"expected dict, got {type(parsed).__name__}",
-                context={"actual": parsed},
+            raise ValidationError.from_exception_data(
+                title="validation",
+                line_errors=[
+                    InitErrorDetails(
+                        type="dict_type",
+                        loc=(),
+                        input=parsed,
+                    )
+                ],
             )
         return parsed  # type: ignore[return-value]
 
     if response_model is list:
         if not isinstance(parsed, list):
-            raise ValidationError.from_exception_errors(
-                "list.type",
-                f"expected list, got {type(parsed).__name__}",
-                context={"actual": parsed},
+            raise ValidationError.from_exception_data(
+                title="validation",
+                line_errors=[
+                    InitErrorDetails(
+                        type="list_type",
+                        loc=(),
+                        input=parsed,
+                    )
+                ],
             )
         return parsed  # type: ignore[return-value]
 
     # Handle generic types like List[X], Dict[K, V] via TypeAdapter
     if origin is not None:
         adapter = TypeAdapter(response_model)
-        return adapter.validate_python(parsed)  # type: ignore[return-value]
+        return adapter.validate_python(parsed)
 
     # Pydantic BaseModel subclass — use model_validate
     if isinstance(parsed, dict):
-        return response_model.model_validate(parsed)  # type: ignore[return-value]
+        return response_model.model_validate(parsed)  # type: ignore[return-value, attr-defined]
 
-    raise ValidationError.from_exception_errors(
-        "input",
-        f"expected dict for {response_model.__name__}, got {type(parsed).__name__}",
-        context={"actual": parsed},
+    raise ValidationError.from_exception_data(
+        title="validation",
+        line_errors=[
+            InitErrorDetails(
+                type="dict_type",
+                loc=(),
+                input=parsed,
+            )
+        ],
     )

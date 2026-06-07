@@ -6,7 +6,7 @@ from dataclasses import dataclass
 class EpisodicEvent:
     session_id: str
     event_type: str
-    payload: dict
+    payload: dict[str, object]
     timestamp: str
 
 @dataclass

@@ -134,7 +134,7 @@ class McpStdioTransport:
 
     # ── JSON-RPC transport ────────────────────────────────────────────────
 
-    async def _call(self, tool: str, args: dict) -> Any:
+    async def _call(self, tool: str, args: dict[str, object]) -> Any:
         """
         Send a ``tools/call`` JSON-RPC request and return the parsed result.
 
@@ -157,6 +157,11 @@ class McpStdioTransport:
                 "method":  "tools/call",
                 "params":  {"name": tool, "arguments": args},
             }
+
+            # _ensure_running guarantees _proc and its streams are not None
+            assert self._proc is not None
+            assert self._proc.stdin is not None
+            assert self._proc.stdout is not None
 
             try:
                 payload = json.dumps(request) + "\n"
@@ -191,6 +196,9 @@ class McpStdioTransport:
                 # Subprocess may have died — attempt reconnect and retry
                 reconnected = await self._ensure_running()
                 if reconnected:
+                    assert self._proc is not None
+                    assert self._proc.stdin is not None
+                    assert self._proc.stdout is not None
                     try:
                         payload = json.dumps(request) + "\n"
                         self._proc.stdin.write(payload.encode())
