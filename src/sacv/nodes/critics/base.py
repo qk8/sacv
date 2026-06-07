@@ -22,8 +22,8 @@ from typing import Literal, TYPE_CHECKING
 import structlog
 
 from sacv.orchestration.state import CriticFinding, WorkflowPhase
-from sacv.orchestration.verifier_utils import add_agent_cost
 from sacv.interfaces.agent_provider import AgentConfig
+from sacv.nodes._structured_output import extract_structured, CriticFindingPayload, StructuredOutputError
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -74,48 +74,43 @@ async def _run_critic(
     )
 
     async with deps.critic_semaphore:
-        result = await deps.agent.run_task(
-            prompt=prompt,
-            context={"proposal": proposal},
-            config=AgentConfig(
-                role=critic_name,
-                system_prompt=_CRITIC_BASE_SYSTEM.format(
-                    role=role, critic_name=critic_name
-                ) + f"\n\nAdditional rules:\n{extra_rules}",
-                max_turns=1,
-                allowed_tools=[],
-            ),
-        )
+        system_prompt = _CRITIC_BASE_SYSTEM.format(
+            role=role, critic_name=critic_name
+        ) + f"\n\nAdditional rules:\n{extra_rules}"
 
-    try:
-        raw: list[dict] = json.loads(result.content)
-    except (json.JSONDecodeError, ValueError):
-        log.error(f"{critic_name}.parse_error", content=result.content[:200])
-        return [], state.get("cumulative_cost_dollars", 0.0)
+        try:
+            structured = await extract_structured(
+                agent=deps.agent,
+                prompt=prompt,
+                response_model=list[CriticFindingPayload],
+                system_prompt=system_prompt,
+                context={"proposal": proposal},
+                max_retries=3,
+                allowed_tools=[],
+            )
+            raw_payloads = structured.data
+        except StructuredOutputError:
+            log.error(f"{critic_name}.parse_error")
+            return [], state.get("cumulative_cost_dollars", 0.0)
 
     findings: list[CriticFinding] = [
         CriticFinding(
             critic=critic_name,
-            severity=r.get("severity", "warning"),
-            file=r.get("file", "unknown"),
-            line=r.get("line"),
-            rule_id=r.get("rule_id", "UNKNOWN"),
-            message=r.get("message", ""),
-            resolution_hint=r.get("resolution_hint", ""),
+            severity=p.severity,
+            file=p.file or "unknown",
+            line=p.line,
+            rule_id=p.rule_id or "UNKNOWN",
+            message=p.message or "",
+            resolution_hint=p.resolution_hint or "",
         )
-        for r in raw
-        if isinstance(r, dict)
+        for p in raw_payloads
     ]
-
-    new_cost = add_agent_cost(
-        result, state.get("cumulative_cost_dollars", 0.0), deps.config,
-    )
 
     log.info(
         f"{critic_name}.complete",
         findings=len(findings),
         critical=sum(1 for f in findings if f["severity"] == "critical"),
     )
-    return findings, new_cost
+    return findings, state.get("cumulative_cost_dollars", 0.0)
 
 

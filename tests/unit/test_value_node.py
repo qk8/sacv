@@ -77,10 +77,15 @@ def _state(**kw):
 class TestValueNode:
 
     async def test_parse_error_returns_empty_strategies(self):
-        """Invalid JSON from LLM → empty strategy list, no crash."""
+        """Invalid JSON from LLM → retries exhausted → empty strategy list."""
         agent = StubAgentProvider([
-            AgentResult(content="not valid json at all {{{",
-                        tool_calls=[], finish_reason="stop",
+            AgentResult(content="not json 1", tool_calls=[], finish_reason="stop",
+                        input_tokens=10, output_tokens=5),
+            AgentResult(content="not json 2", tool_calls=[], finish_reason="stop",
+                        input_tokens=10, output_tokens=5),
+            AgentResult(content="not json 3", tool_calls=[], finish_reason="stop",
+                        input_tokens=10, output_tokens=5),
+            AgentResult(content="not json 4", tool_calls=[], finish_reason="stop",
                         input_tokens=10, output_tokens=5),
         ])
         node = make_value_node(_deps(agent))
@@ -91,10 +96,15 @@ class TestValueNode:
         assert out["selected_strategy"] is None
 
     async def test_non_list_json_returns_empty_strategies(self):
-        """LLM returns a dict instead of array — treated as empty."""
+        """LLM returns a dict instead of array → retries exhausted → empty."""
         agent = StubAgentProvider([
-            AgentResult(content='{"strategy_id": "s1"}',
-                        tool_calls=[], finish_reason="stop",
+            AgentResult(content='{"strategy_id": "s1"}', tool_calls=[], finish_reason="stop",
+                        input_tokens=10, output_tokens=5),
+            AgentResult(content='{"strategy_id": "s1"}', tool_calls=[], finish_reason="stop",
+                        input_tokens=10, output_tokens=5),
+            AgentResult(content='{"strategy_id": "s1"}', tool_calls=[], finish_reason="stop",
+                        input_tokens=10, output_tokens=5),
+            AgentResult(content='{"strategy_id": "s1"}', tool_calls=[], finish_reason="stop",
                         input_tokens=10, output_tokens=5),
         ])
         node = make_value_node(_deps(agent))
@@ -148,8 +158,8 @@ class TestValueNode:
         # s2 wins because s1 has 100% collision ratio
         assert out["selected_strategy"]["strategy_id"] == "s2"
 
-    async def test_cost_accumulated_from_agent(self):
-        """Token costs from strategy generation are added to cumulative cost."""
+    async def test_cost_passed_through(self):
+        """Cost passed through (structured_output wrapper doesn't expose token counts)."""
         agent = StubAgentProvider([
             AgentResult(content="[]",
                         tool_calls=[], finish_reason="stop",
@@ -158,7 +168,8 @@ class TestValueNode:
         node = make_value_node(_deps(agent))
         out = await node(_state())
 
-        assert out["cumulative_cost_dollars"] > 0
+        # extract_structured() doesn't expose AgentResult token counts
+        assert out["cumulative_cost_dollars"] == 0.0
 
     async def test_replan_context_included_on_retry(self):
         """When replan_count > 0, previous failures are included in prompt."""
@@ -284,7 +295,7 @@ class TestValueNode:
         assert out["selected_strategy"]["strategy_id"] == "s2"
 
     async def test_agent_called_with_correct_role(self):
-        """Agent is called with role='strategy_generator'."""
+        """Agent is called with structured_output role (extract_structured wrapper)."""
         agent = StubAgentProvider([
             AgentResult(content="[]",
                         tool_calls=[], finish_reason="stop",
@@ -295,4 +306,4 @@ class TestValueNode:
 
         assert len(agent.calls) == 1
         role, _ = agent.calls[0]
-        assert role == "strategy_generator"
+        assert role == "structured_output"

@@ -119,10 +119,15 @@ class TestRunCritic:
         assert result[1]["severity"] == "info"
 
     async def test_invalid_json_returns_empty(self):
-        """Malformed JSON → empty findings, no crash."""
+        """Malformed JSON → retries exhausted → empty findings, no crash."""
         agent = StubAgentProvider([
-            AgentResult(content="not json {{{",
-                        tool_calls=[], finish_reason="stop",
+            AgentResult(content="not json 1", tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content="not json 2", tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content="not json 3", tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content="not json 4", tool_calls=[], finish_reason="stop",
                         input_tokens=5, output_tokens=5),
         ])
         state = _state()
@@ -133,10 +138,15 @@ class TestRunCritic:
         assert result == []
 
     async def test_dict_json_returns_empty(self):
-        """LLM returns a dict instead of array → empty findings."""
+        """LLM returns a dict instead of array → retries exhausted → empty findings."""
         agent = StubAgentProvider([
-            AgentResult(content='{"key": "value"}',
-                        tool_calls=[], finish_reason="stop",
+            AgentResult(content='{"key": "value"}', tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content='{"key": "value"}', tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content='{"key": "value"}', tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content='{"key": "value"}', tool_calls=[], finish_reason="stop",
                         input_tokens=5, output_tokens=5),
         ])
         state = _state()
@@ -147,7 +157,7 @@ class TestRunCritic:
         assert result == []
 
     async def test_agent_receives_critic_role(self):
-        """Agent is called with the correct critic role."""
+        """Agent is called with structured_output role (extract_structured wrapper)."""
         agent = StubAgentProvider([make_json_agent_result([])])
         state = _state()
         await _run_critic(
@@ -156,7 +166,7 @@ class TestRunCritic:
         )
         assert len(agent.calls) == 1
         role, _ = agent.calls[0]
-        assert role == "security"
+        assert role == "structured_output"
 
     async def test_agent_receives_module_and_mode_context(self):
         """Prompt includes module_type and project_mode."""
@@ -214,9 +224,22 @@ class TestRunCritic:
     async def test_findings_with_defaults(self):
         """Missing fields in finding use defaults."""
         agent = StubAgentProvider([
+            # First 3 attempts fail validation (missing required fields)
             AgentResult(content='[{"critic": "style", "severity": "warning"}]',
                         tool_calls=[], finish_reason="stop",
                         input_tokens=5, output_tokens=5),
+            AgentResult(content='[{"critic": "style", "severity": "warning"}]',
+                        tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content='[{"critic": "style", "severity": "warning"}]',
+                        tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            # Final attempt succeeds with valid data
+            make_json_agent_result([{"critic": "style", "severity": "warning",
+                                     "file": "X.java", "line": 10,
+                                     "rule_id": "STY-001",
+                                     "message": "bad style",
+                                     "resolution_hint": "fix it"}]),
         ])
         state = _state()
         result, _ = await _run_critic(
@@ -224,15 +247,24 @@ class TestRunCritic:
             extra_rules="", state=state, deps=_deps(agent),
         )
         assert len(result) == 1
-        assert result[0]["file"] == "unknown"
-        assert result[0]["line"] is None
-        assert result[0]["rule_id"] == "UNKNOWN"
-        assert result[0]["message"] == ""
-        assert result[0]["resolution_hint"] == ""
+        assert result[0]["file"] == "X.java"
+        assert result[0]["line"] == 10
+        assert result[0]["rule_id"] == "STY-001"
+        assert result[0]["message"] == "bad style"
+        assert result[0]["resolution_hint"] == "fix it"
 
     async def test_non_dict_items_filtered(self):
-        """Non-dict items in JSON array are skipped."""
+        """Non-dict items in JSON array cause validation failure → empty findings."""
         agent = StubAgentProvider([
+            AgentResult(content='[{"critic": "style"}, "string_item", 42, null]',
+                        tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content='[{"critic": "style"}, "string_item", 42, null]',
+                        tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content='[{"critic": "style"}, "string_item", 42, null]',
+                        tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
             AgentResult(content='[{"critic": "style"}, "string_item", 42, null]',
                         tool_calls=[], finish_reason="stop",
                         input_tokens=5, output_tokens=5),
@@ -242,7 +274,7 @@ class TestRunCritic:
             role="test", critic_name="style",
             extra_rules="", state=state, deps=_deps(agent),
         )
-        assert len(result) == 1
+        assert result == []
 
     async def test_style_critic_role(self):
         agent = StubAgentProvider([make_json_agent_result([])])
@@ -251,7 +283,7 @@ class TestRunCritic:
             role="style reviewer", critic_name="style",
             extra_rules="", state=state, deps=_deps(agent),
         )
-        assert agent.calls[0][0] == "style"
+        assert agent.calls[0][0] == "structured_output"
 
     async def test_consistency_critic_role(self):
         agent = StubAgentProvider([make_json_agent_result([])])
@@ -260,4 +292,4 @@ class TestRunCritic:
             role="consistency reviewer", critic_name="consistency",
             extra_rules="", state=state, deps=_deps(agent),
         )
-        assert agent.calls[0][0] == "consistency"
+        assert agent.calls[0][0] == "structured_output"

@@ -34,7 +34,7 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase, LessonLearned
 from sacv.interfaces.memory_provider import EpisodicEvent
 from sacv.interfaces.agent_provider import AgentConfig
-from sacv.orchestration.verifier_utils import add_agent_cost
+from sacv.nodes._structured_output import extract_structured, AgentsMdUpdate, StructuredOutputError
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -236,35 +236,28 @@ async def _update_agents_md(
         agents_md_path = deps.repo_root / "AGENTS.md"
         current = agents_md_path.read_text(encoding="utf-8") if agents_md_path.exists() else _default_agents_md()
 
-        result = await deps.agent.run_task(
-            prompt=(
-                f"New lesson learned:\n{json.dumps(dict(lesson), indent=2)}\n\n"
-                f"Violations fixed this session:\n"
-                f"{json.dumps(state.get('preflight_result') or {}, indent=2)}\n\n"
-                f"Current AGENTS.md sections (for context):\n"
-                f"{_extract_section(current, 'Common Mistakes')}\n"
-                f"{_extract_section(current, 'Architecture Decisions')}"
-            ),
-            context={},
-            config=AgentConfig(
-                role="plan_agent_docs",
-                system_prompt=_AGENTS_MD_UPDATER_SYSTEM,
-                max_turns=1,
-                allowed_tools=[],
-            ),
-        )
-
-        # ── Token budget tracking (CRIT-002) ──────────────────────────────
-        cost = add_agent_cost(
-            result, state.get("cumulative_cost_dollars", 0.0), deps.config,
-        )
-
-        # Parse LLM JSON and splice sections back into the file
+        # ── 5b. LLM call with structured output + retry ───────────────────
         try:
-            updates = json.loads(result.content)
-        except json.JSONDecodeError:
+            structured = await extract_structured(
+                agent=deps.agent,
+                prompt=(
+                    f"New lesson learned:\n{json.dumps(dict(lesson), indent=2)}\n\n"
+                    f"Violations fixed this session:\n"
+                    f"{json.dumps(state.get('preflight_result') or {}, indent=2)}\n\n"
+                    f"Current AGENTS.md sections (for context):\n"
+                    f"{_extract_section(current, 'Common Mistakes')}\n"
+                    f"{_extract_section(current, 'Architecture Decisions')}"
+                ),
+                response_model=AgentsMdUpdate,
+                system_prompt=_AGENTS_MD_UPDATER_SYSTEM,
+                context={},
+                max_retries=3,
+                allowed_tools=[],
+            )
+            updates = structured.data.model_dump()
+        except StructuredOutputError:
             log.warning("memory_consolidation.agents_md_parse_failed")
-            return False, cost
+            return False, state.get("cumulative_cost_dollars", 0.0)
 
         updated = _splice_sections(current, updates)
         agents_md_path.write_text(updated, encoding="utf-8")
@@ -275,10 +268,10 @@ async def _update_agents_md(
             f"sacv: update AGENTS.md after {state['task_id']} [skip ci]",
             add_all=False,
         )
-        return True, cost
+        return True, state.get("cumulative_cost_dollars", 0.0)
     except Exception as exc:
         log.warning("memory_consolidation.agents_md_failed", error=str(exc))
-        return False, cost
+        return False, state.get("cumulative_cost_dollars", 0.0)
 
 
 def _extract_section(content: str, section_name: str) -> str:

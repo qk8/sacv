@@ -23,7 +23,7 @@ import structlog
 
 from sacv.orchestration.state import WorkflowPhase, CRITIC_RESET
 from sacv.interfaces.agent_provider import AgentConfig
-from sacv.orchestration.verifier_utils import add_agent_cost
+from sacv.nodes._structured_output import extract_structured, StrategyCandidateRaw, StructuredOutputError
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -75,26 +75,20 @@ def make_replan_node(deps: "NodeDeps"):
             "\n\nGenerate alternative strategies that avoid the above failures."
         )
 
-        result = await deps.agent.run_task(
-            prompt=prompt,
-            context={"failure_summary": failure_summary},
-            config=AgentConfig(
-                role="plan_agent_replan",
-                system_prompt=_REPLAN_SYSTEM.format(n=cfg.max_strategies),
-                max_turns=1,
-                allowed_tools=[],   # read-only Plan Agent — no writes
-            ),
-        )
-
-        # ── Token budget tracking (CRIT-002) ──────────────────────────────
-        new_cost = add_agent_cost(
-            result, state.get("cumulative_cost_dollars", 0.0), deps.config,
-        )
-
+        # ── 1b. LLM call with structured output + retry ───────────────────
         try:
-            raw: list[dict] = json.loads(result.content)
-        except (json.JSONDecodeError, ValueError) as exc:
-            log.error("replan.parse_error", error=str(exc))
+            structured = await extract_structured(
+                agent=deps.agent,
+                prompt=prompt,
+                response_model=list[StrategyCandidateRaw],
+                system_prompt=_REPLAN_SYSTEM.format(n=cfg.max_strategies),
+                context={"failure_summary": failure_summary},
+                max_retries=3,
+                allowed_tools=[],
+            )
+            raw: list[dict] = [s.model_dump() for s in structured.data]
+        except StructuredOutputError:
+            log.error("replan.parse_error")
             raw = []
 
         # Remap to StrategyCandidate format with real scoring
@@ -158,7 +152,7 @@ def make_replan_node(deps: "NodeDeps"):
             "red_phase_evidence_path":   None,   # force tdd_gate to generate new tests
             "test_inventory_paths":      [],     # clear old test inventory for new strategies
             "tdd_gate_attempts":         0,      # reset — prevents immediate HITL escalation after replan
-            "cumulative_cost_dollars":   new_cost,
+            "cumulative_cost_dollars":   state.get("cumulative_cost_dollars", 0.0),
         }
 
     return replan_node

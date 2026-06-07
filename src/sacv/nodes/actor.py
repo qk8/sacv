@@ -26,6 +26,7 @@ from sacv.interfaces.agent_provider import AgentConfig
 from sacv.interfaces.diff_provider import UnifiedDiff
 from sacv.git.branch_manager import sanitize_branch_name
 from sacv.nodes._stagnation import check_stagnation
+from sacv.nodes._structured_output import extract_structured, DiffPayload, StructuredOutputError
 from sacv.orchestration.verifier_utils import add_agent_cost
 
 if TYPE_CHECKING:
@@ -147,38 +148,28 @@ def make_actor_node(deps: "NodeDeps"):
             "Produce diff-only changes to implement this strategy."
         )
 
-        result = await deps.agent.run_task(
-            prompt=prompt,
-            context={"strategy": strategy, "skeleton": skeleton},
-            config=AgentConfig(
-                role="build_agent",
-                system_prompt=_ACTOR_SYSTEM.format(
-                    language=language,
-                    constraints="\n".join(f"- {c}" for c in constraints) or "None.",
-                    agents_md=agents_md or "No AGENTS.md found.",
-                    preflight_feedback=preflight_fb or "None.",
-                    debug_feedback=debug_fb or "None (no debug session yet).",
-                    critic_feedback=critic_fb or "None.",
-                ),
-                max_turns=deps.config.iteration_limits.implement_loop,
-                # Valid Claude Code SDK tool names (PascalCase).
-                # Read/Glob/Grep allow the agent to inspect the codebase;
-                # Bash is needed for running git diff and checking context.
-                # Write/Edit are intentionally excluded: the agent produces
-                # unified diff JSON, it does not write files directly.
-                allowed_tools=["Read", "Bash", "Glob", "Grep", "LS"],
-            ),
+        # ── 2b. LLM call with structured output + retry ───────────────────
+        system_prompt = _ACTOR_SYSTEM.format(
+            language=language,
+            constraints="\n".join(f"- {c}" for c in constraints) or "None.",
+            agents_md=agents_md or "No AGENTS.md found.",
+            preflight_feedback=preflight_fb or "None.",
+            debug_feedback=debug_fb or "None (no debug session yet).",
+            critic_feedback=critic_fb or "None.",
         )
 
-        # ── Token budget tracking (CRIT-002) ──────────────────────────────
-        new_cost = add_agent_cost(
-            result, state.get("cumulative_cost_dollars", 0.0), deps.config,
-        )
-
-        # ── 3. Parse + validate diffs ─────────────────────────────────────
         try:
-            raw_diffs: list[dict] = json.loads(result.content)
-        except (json.JSONDecodeError, ValueError) as exc:
+            structured = await extract_structured(
+                agent=deps.agent,
+                prompt=prompt,
+                response_model=list[DiffPayload],
+                system_prompt=system_prompt,
+                context={"strategy": strategy, "skeleton": skeleton},
+                max_retries=3,
+                allowed_tools=["Read", "Bash", "Glob", "Grep", "LS"],
+            )
+            raw_diffs: list[dict] = [d.model_dump() for d in structured.data]
+        except StructuredOutputError as exc:
             log.error("actor.parse_error", error=str(exc))
             raw_diffs = []
 
@@ -203,7 +194,7 @@ def make_actor_node(deps: "NodeDeps"):
                 "diff_proposal": None,
                 "empty_diff_retries": state.get("empty_diff_retries", 0) + 1,
                 "critic_findings": CRITIC_RESET,   # clear stale findings to avoid misleading next prompt
-                "cumulative_cost_dollars": new_cost,
+                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
             }
 
         errors = await deps.diff.validate_no_full_overwrite(
@@ -219,7 +210,7 @@ def make_actor_node(deps: "NodeDeps"):
                 "diff_proposal":   None,
                 "empty_diff_retries": state.get("empty_diff_retries", 0) + 1,
                 "critic_findings": CRITIC_RESET,  # clear stale critic feedback from prior diff
-                "cumulative_cost_dollars": new_cost,
+                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
             }
 
         apply_result = await deps.diff.apply_diffs([UnifiedDiff(**p) for p in diffs])
@@ -233,7 +224,7 @@ def make_actor_node(deps: "NodeDeps"):
                 },
                 "diff_proposal":   None,
                 "critic_findings": CRITIC_RESET,  # clear stale critic feedback from prior diff
-                "cumulative_cost_dollars": new_cost,
+                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
             }
 
         proposal = DiffProposal(
@@ -255,7 +246,7 @@ def make_actor_node(deps: "NodeDeps"):
                 "attempt_count": correction["attempt_count"] + 1,
                 "branch_name":   branch_name,
             },
-            "cumulative_cost_dollars": new_cost,
+            "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
         }
 
     return actor_node

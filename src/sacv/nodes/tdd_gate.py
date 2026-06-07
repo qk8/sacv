@@ -27,7 +27,7 @@ import structlog
 
 from sacv.orchestration.state import WorkflowPhase
 from sacv.interfaces.agent_provider import AgentConfig
-from sacv.orchestration.verifier_utils import add_agent_cost
+from sacv.nodes._structured_output import extract_structured, TestFile, StructuredOutputError
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -92,36 +92,31 @@ def make_tdd_gate_node(deps: "NodeDeps"):
             }
 
         # ── 1. Generate tests via Test Oracle ─────────────────────────────
-        result = await deps.agent.run_task(
-            prompt=(
-                f"Task: {desc}\n\n"
-                f"Strategy to implement:\n{json.dumps(strategy, indent=2)}\n\n"
-                f"Feature ID: {_feature_id(task_id)}\n"
-                "Write failing tests for this strategy."
-            ),
-            context={"strategy": strategy},
-            config=AgentConfig(
-                role="test_oracle",
-                system_prompt=_ORACLE_FRONTEND_SYSTEM if is_front else _ORACLE_BACKEND_SYSTEM,
-                max_turns=3,
-                allowed_tools=[],
-            ),
-        )
-
-        # ── Token budget tracking (CRIT-002) ──────────────────────────────
-        new_cost = add_agent_cost(
-            result, state.get("cumulative_cost_dollars", 0.0), deps.config,
-        )
-
+        # ── 1b. LLM call with structured output + retry ───────────────────
+        system_prompt = _ORACLE_FRONTEND_SYSTEM if is_front else _ORACLE_BACKEND_SYSTEM
         try:
-            test_files: list[dict] = json.loads(result.content)
-        except (json.JSONDecodeError, ValueError) as exc:
-            log.error("tdd_gate.parse_error", error=str(exc))
+            structured = await extract_structured(
+                agent=deps.agent,
+                prompt=(
+                    f"Task: {desc}\n\n"
+                    f"Strategy to implement:\n{json.dumps(strategy, indent=2)}\n\n"
+                    f"Feature ID: {_feature_id(task_id)}\n"
+                    "Write failing tests for this strategy."
+                ),
+                response_model=list[TestFile],
+                system_prompt=system_prompt,
+                context={"strategy": strategy},
+                max_retries=3,
+                allowed_tools=[],
+            )
+            test_files: list[dict] = [tf.model_dump() for tf in structured.data]
+        except StructuredOutputError:
+            log.error("tdd_gate.parse_error")
             return {
                 "red_phase_evidence_path": None,
                 "test_inventory_paths":    [],
                 "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
-                "cumulative_cost_dollars": new_cost,
+                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
             }
 
         # ── 2. Write test files to PERMANENT locations in sandbox ──────────
@@ -170,7 +165,7 @@ def make_tdd_gate_node(deps: "NodeDeps"):
                     "red_phase_evidence_path": None,
                     "test_inventory_paths":    [],
                     "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
-                    "cumulative_cost_dollars": new_cost,
+                    "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
                 }
 
             # ── 4. Commit test inventory to git (MEDIUM-003) ─────────────
@@ -215,7 +210,7 @@ def make_tdd_gate_node(deps: "NodeDeps"):
                 "current_phase":          WorkflowPhase.ACTOR.value,
                 "red_phase_evidence_path": str(evidence_path),
                 "test_inventory_paths":   permanent_paths,
-                "cumulative_cost_dollars": new_cost,
+                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
             }
         finally:
             await deps.sandbox.destroy_container(handle)

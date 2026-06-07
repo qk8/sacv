@@ -17,7 +17,7 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase, StrategyCandidate
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.nodes._scoring import score_strategy, prune_strategies, detect_collision_pairs
-from sacv.orchestration.verifier_utils import add_agent_cost
+from sacv.nodes._structured_output import extract_structured, StrategyCandidateRaw, StructuredOutputError
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -81,39 +81,23 @@ def make_value_node(deps: "NodeDeps"):
             f"\n\nGenerate {_MAX_STRATEGIES_TO_GENERATE} distinct strategies."
         )
 
-        result = await deps.agent.run_task(
-            prompt=prompt,
-            context={"skeleton": skeleton, "blast": blast},
-            config=AgentConfig(
-                role="strategy_generator",
+        # ── 1b. LLM call with structured output + retry ───────────────────
+        try:
+            structured = await extract_structured(
+                agent=deps.agent,
+                prompt=prompt,
+                response_model=list[StrategyCandidateRaw],
                 system_prompt=_STRATEGY_SYSTEM_PROMPT.format(
                     n=_MAX_STRATEGIES_TO_GENERATE
                 ),
-                max_turns=1,
-                allowed_tools=[],   # no tools — pure text generation
-            ),
-        )
-
-        # ── Token budget tracking (CRIT-002) ──────────────────────────────
-        new_cost = add_agent_cost(
-            result, state.get("cumulative_cost_dollars", 0.0), deps.config,
-        )
-
-        # ── 2. Parse LLM JSON response ────────────────────────────────────
-        try:
-            parsed = json.loads(result.content)
-        except (json.JSONDecodeError, ValueError) as exc:
-            log.error("value_node.parse_error", error=str(exc))
-            parsed = None
-
-        if not isinstance(parsed, list):
-            log.warning(
-                "value_node.non_list_response",
-                type=type(parsed).__name__,
+                context={"skeleton": skeleton, "blast": blast},
+                max_retries=3,
+                allowed_tools=[],
             )
-            parsed = None
-
-        raw_strategies: list[dict] = parsed if parsed is not None else []
+            raw_strategies: list[dict] = [s.model_dump() for s in structured.data]
+        except StructuredOutputError:
+            log.error("value_node.parse_error")
+            raw_strategies = []
 
         # ── 3. Score each strategy (deterministic) ────────────────────────
         blast_files = set(blast["affected_files"]) if blast else set()
@@ -172,7 +156,7 @@ def make_value_node(deps: "NodeDeps"):
             "strategy_candidates": passing,
             "selected_strategy":   selected,
             "pruned_strategies":   pruned,
-            "cumulative_cost_dollars": new_cost,
+            "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
         }
 
     return value_node_fn

@@ -27,13 +27,51 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Generic, TypeVar, get_origin
+from typing import Generic, Literal, TypeVar, get_origin
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from sacv.interfaces.agent_provider import AgentProvider, AgentConfig
 
 T = TypeVar("T", bound=BaseModel | dict | str | list)
+
+
+class DiffPayload(BaseModel):
+    """Pydantic model for unified diff payload from LLM output."""
+    file_path: str
+    diff_content: str
+    operation: Literal["modify", "create", "delete"] = "modify"
+    language: Literal["java", "typescript", "sql", "yaml", "other"] = "other"
+
+
+class CriticFindingPayload(BaseModel):
+    """Pydantic model for critic finding from LLM output."""
+    critic: str
+    severity: Literal["critical", "warning", "info"]
+    file: str
+    line: int | None = None
+    rule_id: str = "UNKNOWN"
+    message: str
+    resolution_hint: str
+
+
+class StrategyCandidateRaw(BaseModel):
+    """Pydantic model for strategy candidate from LLM output."""
+    strategy_id: str
+    description: str
+    affected_files: list[str]
+
+
+class TestFile(BaseModel):
+    """Pydantic model for test file from LLM output."""
+    file_path: str = ""
+    content: str = ""
+
+
+class AgentsMdUpdate(BaseModel):
+    """Pydantic model for AGENTS.md update from LLM output."""
+    common_mistakes: str = ""
+    architecture_decisions: str = ""
 
 
 class StructuredOutputError(Exception):

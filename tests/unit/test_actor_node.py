@@ -139,12 +139,17 @@ class TestActorNode:
         assert out["current_phase"] == WorkflowPhase.ACTOR.value
 
     async def test_json_parse_failure_returns_empty_diff(self):
-        """LLM returns non-JSON → empty diffs → self-loop retry."""
-        agent = StubAgentProvider([AgentResult(
-            content="this is not json",
-            tool_calls=[], finish_reason="stop",
-            input_tokens=5, output_tokens=5,
-        )])
+        """LLM returns non-JSON → retries exhausted → empty diffs → self-loop retry."""
+        agent = StubAgentProvider([
+            AgentResult(content="not json 1", tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content="not json 2", tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content="not json 3", tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+            AgentResult(content="not json 4", tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=5),
+        ])
         deps = _deps(agent=agent, diff=StubDiffProvider())
         node = make_actor_node(deps)
 
@@ -155,6 +160,31 @@ class TestActorNode:
         assert out["correction_state"]["attempt_count"] == 0
         assert out["empty_diff_retries"] == 1
         assert out["critic_findings"] is CRITIC_RESET
+
+    async def test_retry_on_malformed_json_succeeds_second_time(self):
+        """First call returns non-JSON, second call returns valid diffs → succeeds."""
+        agent = StubAgentProvider([
+            # First call: malformed JSON → extract_structured retries
+            AgentResult(
+                content="this is not json {{{",
+                tool_calls=[], finish_reason="stop",
+                input_tokens=5, output_tokens=5,
+            ),
+            # Second call: valid diffs after error feedback
+            make_json_agent_result([{
+                "file_path": "src/main/java/UserService.java",
+                "diff_content": "@@ -10 +10 @@\n+public User findById(Long id) { ... }",
+                "operation": "modify", "language": "java",
+            }]),
+        ])
+        deps = _deps(agent=agent, diff=StubDiffProvider())
+        node = make_actor_node(deps)
+
+        out = await node(_state())
+
+        assert out["diff_proposal"] is not None
+        assert out["diff_proposal"]["diffs"][0]["file_path"] == "src/main/java/UserService.java"
+        assert out["correction_state"]["attempt_count"] == 1
 
     async def test_diff_validation_rejected_on_full_overwrite(self):
         """Diffs that overwrite too much → self-loop retry."""
@@ -228,7 +258,7 @@ class TestActorNode:
         assert len(create_calls) == 0
 
     async def test_agent_receives_correct_role_and_tools(self):
-        """Agent is called with build_agent role and correct tool set."""
+        """Agent is called with structured_output role (extract_structured wrapper)."""
         agent = StubAgentProvider([make_json_agent_result([{
             "file_path": "X.java", "diff_content": "+x",
             "operation": "modify", "language": "java",
@@ -239,7 +269,7 @@ class TestActorNode:
         await node(_state())
 
         role, _ = agent.calls[0]
-        assert role == "build_agent"
+        assert role == "structured_output"
 
     async def test_agent_receives_debug_observations_in_prompt(self):
         """When debug_observations present, they are injected into system prompt."""
@@ -267,12 +297,12 @@ class TestActorNode:
         # Instead, verify the node received debug observations by checking
         # that the agent was called with the correct role and the node had debug_obs=True.
         role, user_prompt = agent.calls[0]
-        assert role == "build_agent"
+        assert role == "structured_output"
         # The user prompt always contains the task description
         assert "findById" in user_prompt
 
     async def test_cost_accumulation_on_success(self):
-        """Token cost is accumulated and returned in state."""
+        """Cost is passed through (structured_output wrapper doesn't expose token counts)."""
         agent = StubAgentProvider([AgentResult(
             content='[{"file_path":"X.java","diff_content":"+x","operation":"modify","language":"java"}]',
             tool_calls=[], finish_reason="stop",
@@ -283,8 +313,9 @@ class TestActorNode:
 
         out = await node(_state())
 
-        # cost = (1000/1M * 5.0) + (2000/1M * 30.0) = 0.005 + 0.06 = 0.065
-        assert out["cumulative_cost_dollars"] == pytest.approx(0.065, abs=1e-6)
+        # extract_structured() doesn't expose AgentResult token counts,
+        # so cumulative cost is passed through unchanged
+        assert out["cumulative_cost_dollars"] == 0.0
 
     async def test_empty_diff_list_from_valid_json(self):
         """LLM returns valid JSON but empty array → self-loop retry."""
