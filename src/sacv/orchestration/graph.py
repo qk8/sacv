@@ -177,7 +177,7 @@ def build_graph(
     builder.add_edge("scout",                "value_node")
     builder.add_conditional_edges(
         "actor",
-        route_after_actor,
+        lambda s: route_after_actor(s, cfg),
         {
             "actor":           "actor",           # self-loop for empty-diff retry
             "preflight_node":  "preflight_node",

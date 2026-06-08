@@ -83,7 +83,10 @@ def compute_confidence_score(
 
 # ── Actor routing ─────────────────────────────────────────────────────────────
 
-def route_after_actor(state: WorkflowState) -> str:
+def route_after_actor(
+    state:  WorkflowState,
+    config: object = _SENTINEL,
+) -> str:
     """
     Route after Actor node.
 
@@ -97,12 +100,13 @@ def route_after_actor(state: WorkflowState) -> str:
 
     Safety valve: prevent infinite empty-diff loops (MED-004).
     """
+    cfg = _cfg(config)
     correction = state["correction_state"]
     if correction.get("stagnation_pattern", "none") != "none":
         return "hitl_escalation"
     # If actor produced no diff, retry without wasting Docker/critic cycles
     if state.get("diff_proposal") is None:
-        if state.get("empty_diff_retries", 0) >= 3:
+        if state.get("empty_diff_retries", 0) >= cfg.max_empty_diff_retries:
             return "hitl_escalation"
         return "actor"
     return "preflight_node"

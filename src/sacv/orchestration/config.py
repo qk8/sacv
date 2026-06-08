@@ -74,6 +74,8 @@ class WorkflowConfig:
     max_replan_attempts:             int   = 1
     # TDD gate
     max_tdd_gate_attempts:           int   = 3
+    # Actor empty-diff retry limit (separate from correction cycles)
+    max_empty_diff_retries:          int   = 3
     # Resource throttles
     max_parallel_branches:           int   = 2
     max_parallel_critics:            int   = 2
