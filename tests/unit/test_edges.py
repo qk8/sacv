@@ -14,6 +14,11 @@ from sacv.orchestration.edges import (
     compute_confidence_score,
     route_after_preflight,
     route_after_speculative_branch,
+    route_after_actor,
+    route_after_verifier,
+    route_after_value_node,
+    route_after_tdd_gate,
+    route_after_replan,
 )
 from sacv.orchestration.config import WorkflowConfig
 from sacv.orchestration.state import PreflightResult
@@ -283,3 +288,232 @@ class TestRouteAfterSpeculativeBranch:
         cfg = WorkflowConfig(max_replan_attempts=3)
         s = _s(verifier_verdict=None, replan_count=0)
         assert route_after_speculative_branch(s, cfg) == "replan"
+
+
+# ── route_after_actor ─────────────────────────────────────────────────────────
+
+
+class TestRouteAfterActor:
+
+    def test_stagnation_routes_to_hitl(self):
+        """Stagnation detected → HITL escalation."""
+        s = _s(
+            correction_state={"attempt_count": 1, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "semantic"},
+        )
+        assert route_after_actor(s) == "hitl_escalation"
+
+    def test_no_diff_retries_within_limit(self):
+        """No diff, retries < max → actor (self-loop)."""
+        cfg = WorkflowConfig(max_empty_diff_retries=3)
+        s = _s(diff_proposal=None, empty_diff_retries=1)
+        assert route_after_actor(s, cfg) == "actor"
+
+    def test_no_diff_exhausted_retries_routes_to_hitl(self):
+        """No diff, retries >= max → HITL escalation."""
+        cfg = WorkflowConfig(max_empty_diff_retries=3)
+        s = _s(diff_proposal=None, empty_diff_retries=3)
+        assert route_after_actor(s, cfg) == "hitl_escalation"
+
+    def test_has_diff_routes_to_preflight(self):
+        """Actor produced a diff → preflight_node."""
+        s = _s(diff_proposal={"strategy_id": "s1", "diffs": [],
+                              "branch_name": "b", "commit_message": "m"})
+        assert route_after_actor(s) == "preflight_node"
+
+    def test_stagnation_takes_priority_over_no_diff(self):
+        """Both stagnation and no diff → stagnation wins (HITL)."""
+        cfg = WorkflowConfig(max_empty_diff_retries=0)
+        s = _s(
+            diff_proposal=None, empty_diff_retries=0,
+            correction_state={"attempt_count": 1, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "iteration"},
+        )
+        assert route_after_actor(s, cfg) == "hitl_escalation"
+
+
+# ── route_after_verifier ──────────────────────────────────────────────────────
+
+
+class TestRouteAfterVerifier:
+
+    def _verdict(self, test_result="FAIL", diagnostic="FIX_IMPL", **kw):
+        base = {
+            "test_result": test_result, "diagnostic": diagnostic,
+            "phase1_passed": False, "phase2_passed": True,
+            "test_failures": [], "performance_delta": None,
+            "visual_diff_result": None, "docker_exit_code": 1,
+            "playwright_trace_path": None, "otel_trace": None,
+            "actuator_snapshot": None, "blocked_by_critic": False,
+        }
+        base.update(kw)
+        return base
+
+    def test_pass_routes_to_memory_consolidation(self):
+        """PASS verdict → memory_consolidation."""
+        cfg = WorkflowConfig()
+        s = _s(verifier_verdict=self._verdict(test_result="PASS", phase1_passed=True,
+                                               phase2_passed=True))
+        assert route_after_verifier(s, cfg) == "memory_consolidation"
+
+    def test_missing_verdict_routes_to_hitl(self):
+        """No verdict → HITL escalation (safety)."""
+        cfg = WorkflowConfig()
+        s = _s(verifier_verdict=None)
+        assert route_after_verifier(s, cfg) == "hitl_escalation"
+
+    def test_fail_low_confidence_routes_to_hitl(self):
+        """FAIL + confidence below threshold → HITL escalation."""
+        cfg = WorkflowConfig(confidence_escalation_threshold=0.5)
+        s = _s(
+            verifier_verdict=self._verdict(),
+            confidence_score=0.3,
+        )
+        assert route_after_verifier(s, cfg) == "hitl_escalation"
+
+    def test_fail_first_attempt_routes_to_actor(self):
+        """FAIL + attempt 0 → actor (retry with critic feedback)."""
+        cfg = WorkflowConfig()
+        s = _s(
+            correction_state={"attempt_count": 0, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(),
+        )
+        assert route_after_verifier(s, cfg) == "actor"
+
+    def test_fail_second_attempt_routes_to_actor(self):
+        """FAIL + attempt 1 → actor."""
+        cfg = WorkflowConfig()
+        s = _s(
+            correction_state={"attempt_count": 1, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(),
+        )
+        assert route_after_verifier(s, cfg) == "actor"
+
+    def test_fail_max_attempts_routes_to_hitl(self):
+        """FAIL + attempt >= max → HITL escalation."""
+        cfg = WorkflowConfig(max_self_correction_cycles=3)
+        s = _s(
+            correction_state={"attempt_count": 3, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(),
+        )
+        assert route_after_verifier(s, cfg) == "hitl_escalation"
+
+    def test_ambiguous_first_attempt_routes_to_debugger(self):
+        """AMBIGUOUS + attempt <= 1 → intelligent_debugger."""
+        cfg = WorkflowConfig()
+        s = _s(
+            correction_state={"attempt_count": 0, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(diagnostic="AMBIGUOUS",
+                                            phase1_passed=True, phase2_passed=False),
+        )
+        assert route_after_verifier(s, cfg) == "intelligent_debugger"
+
+    def test_ambiguous_second_attempt_routes_to_debugger(self):
+        """AMBIGUOUS + attempt == 1 → intelligent_debugger."""
+        cfg = WorkflowConfig()
+        s = _s(
+            correction_state={"attempt_count": 1, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(diagnostic="AMBIGUOUS",
+                                            phase1_passed=True, phase2_passed=False),
+        )
+        assert route_after_verifier(s, cfg) == "intelligent_debugger"
+
+    def test_ambiguous_attempt_2_routes_to_speculative(self):
+        """AMBIGUOUS + attempt >= 2 → speculative_branch (prevents starvation)."""
+        cfg = WorkflowConfig()
+        s = _s(
+            correction_state={"attempt_count": 2, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(diagnostic="AMBIGUOUS",
+                                            phase1_passed=True, phase2_passed=False),
+        )
+        assert route_after_verifier(s, cfg) == "speculative_branch"
+
+    def test_budget_exceeded_routes_to_hitl(self):
+        """Cost >= critical_dollar → HITL escalation."""
+        cfg = WorkflowConfig(token_budget=WorkflowConfig().token_budget)
+        s = _s(
+            cumulative_cost_dollars=cfg.token_budget.critical_dollar * 2,
+            verifier_verdict=self._verdict(),
+        )
+        assert route_after_verifier(s, cfg) == "hitl_escalation"
+
+    def test_attempt_2_routes_to_speculative(self):
+        """FAIL + attempt >= 2 → speculative_branch."""
+        cfg = WorkflowConfig()
+        s = _s(
+            correction_state={"attempt_count": 2, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(),
+        )
+        assert route_after_verifier(s, cfg) == "speculative_branch"
+
+
+# ── route_after_value_node ────────────────────────────────────────────────────
+
+
+class TestRouteAfterValueNode:
+
+    def test_no_strategies_routes_to_hitl(self):
+        """Empty strategy_candidates → HITL escalation."""
+        s = _s(strategy_candidates=[])
+        assert route_after_value_node(s) == "hitl_escalation"
+
+    def test_strategies_exist_routes_to_tdd_gate(self):
+        """Non-empty strategy_candidates → TDD gate."""
+        s = _s(strategy_candidates=[{"strategy_id": "s1"}])
+        assert route_after_value_node(s) == "tdd_gate"
+
+
+# ── route_after_tdd_gate ──────────────────────────────────────────────────────
+
+
+class TestRouteAfterTddGate:
+
+    def test_evidence_path_routes_to_actor(self):
+        """Red phase confirmed → actor."""
+        cfg = WorkflowConfig()
+        s = _s(red_phase_evidence_path=".workflow/tdd-evidence/test.json")
+        assert route_after_tdd_gate(s, cfg) == "actor"
+
+    def test_max_attempts_routes_to_hitl(self):
+        """TDD gate attempts >= max → HITL escalation."""
+        cfg = WorkflowConfig(max_tdd_gate_attempts=3)
+        s = _s(tdd_gate_attempts=3, red_phase_evidence_path=None)
+        assert route_after_tdd_gate(s, cfg) == "hitl_escalation"
+
+    def test_below_max_attempts_no_evidence_retries_gate(self):
+        """No evidence, attempts < max → retry TDD gate."""
+        cfg = WorkflowConfig(max_tdd_gate_attempts=3)
+        s = _s(tdd_gate_attempts=1, red_phase_evidence_path=None)
+        assert route_after_tdd_gate(s, cfg) == "tdd_gate"
+
+
+# ── route_after_replan ────────────────────────────────────────────────────────
+
+
+class TestRouteAfterReplan:
+
+    def test_strategies_exist_routes_to_tdd_gate(self):
+        """Replan produced strategies → TDD gate."""
+        s = _s(strategy_candidates=[{"strategy_id": "s1"}])
+        assert route_after_replan(s) == "tdd_gate"
+
+    def test_no_strategies_routes_to_hitl(self):
+        """Replan produced no strategies → HITL escalation."""
+        s = _s(strategy_candidates=[])
+        assert route_after_replan(s) == "hitl_escalation"

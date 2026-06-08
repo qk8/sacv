@@ -355,3 +355,215 @@ class TestExtractStructured:
             system_prompt=_SYSTEM,
         )
         assert result.retry_count == 3
+
+
+# ── _validate — direct unit tests for the pure validation function ──────────────
+
+
+from sacv.nodes._structured_output import _validate
+
+
+class TestValidate:
+
+    def test_valid_list_parsed(self):
+        content = '[{"file_path":"X.java","diff_content":"+fix"}]'
+        result = _validate(content, List[DiffPayload])
+        assert len(result) == 1
+        assert result[0].file_path == "X.java"
+
+    def test_valid_dict_parsed(self):
+        content = '{"key":"value"}'
+        result = _validate(content, dict)
+        assert result == {"key": "value"}
+
+    def test_valid_string_parsed(self):
+        content = '"hello world"'
+        result = _validate(content, str)
+        assert result == "hello world"
+
+    def test_valid_empty_list_parsed(self):
+        content = '[]'
+        result = _validate(content, list)
+        assert result == []
+
+    def test_non_string_for_str_model_raises(self):
+        content = '123'
+        with pytest.raises(Exception):
+            _validate(content, str)
+
+    def test_non_dict_for_dict_model_raises(self):
+        content = '"not a dict"'
+        with pytest.raises(Exception):
+            _validate(content, dict)
+
+    def test_non_list_for_list_model_raises(self):
+        content = '{"not": "a list"}'
+        with pytest.raises(Exception):
+            _validate(content, list)
+
+    def test_missing_required_field_raises(self):
+        content = '{"file_path":"X.java"}'
+        with pytest.raises(Exception):
+            _validate(content, DiffPayload)
+
+    def test_extra_fields_ignored(self):
+        """Pydantic by default ignores extra fields."""
+        content = '{"file_path":"X.java","diff_content":"+fix","extra":"ignored"}'
+        result = _validate(content, DiffPayload)
+        assert result.file_path == "X.java"
+
+    def test_invalid_literal_value_raises(self):
+        content = '[{"file_path":"X.java","diff_content":"+fix","operation":"invalid"}]'
+        with pytest.raises(Exception):
+            _validate(content, List[DiffPayload])
+
+    def test_valid_literal_value_accepted(self):
+        content = '[{"file_path":"X.java","diff_content":"+fix","operation":"create","language":"typescript"}]'
+        result = _validate(content, List[DiffPayload])
+        assert result[0].operation == "create"
+        assert result[0].language == "typescript"
+
+    def test_empty_json_object_for_model_raises(self):
+        content = '{}'
+        with pytest.raises(Exception):
+            _validate(content, DiffPayload)
+
+    def test_nested_model(self):
+        """Nested Pydantic models parse correctly."""
+        class Inner(BaseModel):
+            name: str
+        class Outer(BaseModel):
+            inner: Inner
+        content = '{"inner":{"name":"test"}}'
+        result = _validate(content, Outer)
+        assert result.inner.name == "test"
+
+    def test_list_of_strings(self):
+        content = '["a","b","c"]'
+        result = _validate(content, List[str])
+        assert result == ["a", "b", "c"]
+
+    def test_integer_in_string_context_raises(self):
+        content = '42'
+        with pytest.raises(Exception):
+            _validate(content, str)
+
+    def test_null_parsed_for_nullable(self):
+        """null is valid for str model."""
+        content = 'null'
+        with pytest.raises(Exception):
+            _validate(content, str)
+
+    def test_boolean_for_str_raises(self):
+        content = 'true'
+        with pytest.raises(Exception):
+            _validate(content, str)
+
+    def test_deeply_nested_list(self):
+        content = '[[1,2],[3,4]]'
+        result = _validate(content, List[List[int]])
+        assert result == [[1, 2], [3, 4]]
+
+
+# ── Pydantic model edge cases ──────────────────────────────────────────────────
+
+
+class TestDiffPayloadModel:
+    """Tests for the DiffPayload Pydantic model from _structured_output.py."""
+
+    def test_default_operation_is_modify(self):
+        from sacv.nodes._structured_output import DiffPayload as DP
+        p = DP(file_path="X.java", diff_content="+fix")
+        assert p.operation == "modify"
+
+    def test_default_language_is_other(self):
+        from sacv.nodes._structured_output import DiffPayload as DP
+        p = DP(file_path="X.java", diff_content="+fix")
+        assert p.language == "other"
+
+    def test_all_literal_values_accepted(self):
+        from sacv.nodes._structured_output import DiffPayload as DP
+        for op in ["modify", "create", "delete"]:
+            for lang in ["java", "typescript", "sql", "yaml", "other"]:
+                p = DP(file_path="X.java", diff_content="+fix", operation=op, language=lang)
+                assert p.operation == op
+                assert p.language == lang
+
+    def test_empty_diff_content_accepted(self):
+        from sacv.nodes._structured_output import DiffPayload as DP
+        p = DP(file_path="X.java", diff_content="")
+        assert p.diff_content == ""
+
+    def test_unicode_file_path(self):
+        from sacv.nodes._structured_output import DiffPayload as DP
+        p = DP(file_path="src/日本語/UserService.java", diff_content="+fix")
+        assert "日本語" in p.file_path
+
+
+class TestCriticFindingPayloadModel:
+    """Tests for the CriticFindingPayload Pydantic model."""
+
+    def test_defaults(self):
+        from sacv.nodes._structured_output import CriticFindingPayload as CFP
+        f = CFP(critic="security", severity="warning", file="X.java", message="test", resolution_hint="fix it")
+        assert f.line is None
+        assert f.rule_id == "UNKNOWN"
+
+    def test_all_severity_values(self):
+        from sacv.nodes._structured_output import CriticFindingPayload as CFP
+        for sev in ["critical", "warning", "info"]:
+            f = CFP(critic="security", severity=sev, file="X.java", message="test", resolution_hint="fix it")
+            assert f.severity == sev
+
+    def test_line_as_int(self):
+        from sacv.nodes._structured_output import CriticFindingPayload as CFP
+        f = CFP(critic="security", severity="warning", file="X.java", line=42, message="test", resolution_hint="fix it")
+        assert f.line == 42
+
+
+class TestStrategyCandidateRawModel:
+    """Tests for the StrategyCandidateRaw Pydantic model."""
+
+    def test_defaults(self):
+        from sacv.nodes._structured_output import StrategyCandidateRaw as SCR
+        s = SCR(strategy_id="s1", description="test", affected_files=["X.java"])
+        assert s.strategy_id == "s1"
+        assert s.description == "test"
+        assert s.affected_files == ["X.java"]
+
+    def test_empty_affected_files(self):
+        from sacv.nodes._structured_output import StrategyCandidateRaw as SCR
+        s = SCR(strategy_id="s1", description="test", affected_files=[])
+        assert s.affected_files == []
+
+
+class TestAgentsMdUpdateModel:
+    """Tests for the AgentsMdUpdate Pydantic model."""
+
+    def test_defaults(self):
+        from sacv.nodes._structured_output import AgentsMdUpdate as AMU
+        a = AMU()
+        assert a.common_mistakes == ""
+        assert a.architecture_decisions == ""
+
+    def test_with_values(self):
+        from sacv.nodes._structured_output import AgentsMdUpdate as AMU
+        a = AMU(common_mistakes="don't delete tests", architecture_decisions="use layers")
+        assert a.common_mistakes == "don't delete tests"
+        assert a.architecture_decisions == "use layers"
+
+
+class TestStructuredOutputResult:
+    """Tests for the StructuredOutputResult dataclass."""
+
+    def test_default_retry_count(self):
+        from sacv.nodes._structured_output import StructuredOutputResult
+        r = StructuredOutputResult(data=[1], raw_content="[]")
+        assert r.retry_count == 0
+
+    def test_data_and_raw_content(self):
+        from sacv.nodes._structured_output import StructuredOutputResult
+        r = StructuredOutputResult(data={"key": "val"}, raw_content='{"key":"val"}', retry_count=2)
+        assert r.data == {"key": "val"}
+        assert r.raw_content == '{"key":"val"}'
+        assert r.retry_count == 2

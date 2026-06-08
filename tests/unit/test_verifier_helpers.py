@@ -32,6 +32,7 @@ from sacv.nodes.verifier import (
     _check_test_deletions, _classify, _fallback_parse,
     _full_suite_cmd, _inventory_test_cmd, _has_visual_breakage,
     _is_bean_error, _make_verdict, _build_return,
+    classify_confidence,
 )
 from sacv.interfaces.agent_provider import AgentResult
 
@@ -420,3 +421,340 @@ class TestBuildReturn:
             result = _build_return(verdict, correction, "error message")
             correction = result["correction_state"]
         assert len(correction["error_history"]) <= 5
+
+
+# ── classify_confidence ───────────────────────────────────────────────────────
+
+class TestClassifyConfidence:
+
+    def test_empty_text_returns_zero(self):
+        """Empty or whitespace-only text → 0.0."""
+        assert classify_confidence("") == pytest.approx(0.0)
+        assert classify_confidence("   ") == pytest.approx(0.0)
+
+    def test_assertion_error_high_confidence(self):
+        """Classic JUnit assertion error → high confidence."""
+        text = "AssertionError: expected:<2> but was:<3>"
+        conf = classify_confidence(text)
+        assert conf >= 0.8
+
+    def test_junit_assertionerror_high_confidence(self):
+        """Fully qualified JUnit assertion error → high confidence."""
+        text = "junit.framework.AssertionError: unexpected"
+        conf = classify_confidence(text)
+        assert conf >= 0.8
+
+    def test_javascript_expect_to_be(self):
+        """JS test framework: expect(received).toBe → high confidence."""
+        text = "expect(received).toBe(expected) // Object.is equality"
+        conf = classify_confidence(text)
+        assert conf >= 0.8
+
+    def test_compile_error_medium_confidence(self):
+        """Compile error → medium-high confidence."""
+        text = "error: cannot find symbol"
+        conf = classify_confidence(text)
+        assert conf >= 0.6
+
+    def test_syntax_error(self):
+        """Syntax error → medium confidence."""
+        text = "SyntaxError: unexpected token 'import'"
+        conf = classify_confidence(text)
+        assert conf >= 0.5
+
+    def test_bean_creation_exception(self):
+        """Spring DI error → high confidence."""
+        text = "org.springframework.beans.factory.BeanCreationException"
+        conf = classify_confidence(text)
+        assert conf >= 0.8
+
+    def test_no_matching_keywords(self):
+        """Unrecognizable error text → low confidence."""
+        text = "flaky test timed out after 30 seconds"
+        conf = classify_confidence(text)
+        assert conf < 0.4
+
+    def test_vague_error_low_confidence(self):
+        """Vague error → low confidence."""
+        text = "something went wrong"
+        conf = classify_confidence(text)
+        assert conf < 0.4
+
+    def test_multiple_keyword_matches_boost(self):
+        """Multiple matching keywords boost confidence."""
+        text = "AssertionError: expected:<2> but was:<3> - assertion failed"
+        conf = classify_confidence(text)
+        # Should have more matches than single keyword → higher confidence
+        assert conf >= 0.8
+
+    def test_matched_categories_boost(self):
+        """Keywords from multiple categories boost confidence."""
+        text = "AssertionError: expected compilation error but got different"
+        # Matches both assertion and compile keywords
+        conf = classify_confidence(text)
+        assert conf > 0.0
+
+    def test_non_ascii_penalized(self):
+        """Non-ASCII text is penalized."""
+        # High-confidence English text
+        eng = "AssertionError: expected:<2> but was:<3>"
+        eng_conf = classify_confidence(eng)
+
+        # Same text with non-ASCII
+        non_ascii = "AssertionError: erwartete:<2> aber war:<3>"
+        non_ascii_conf = classify_confidence(non_ascii)
+
+        assert non_ascii_conf < eng_conf
+
+    def test_mixed_signals_reduced(self):
+        """Both assertion and compile keywords → reduced confidence."""
+        text = "AssertionError: expected compilation to fail"
+        conf = classify_confidence(text)
+        # Mixed signals reduce confidence by half
+        assert conf <= 0.5
+
+    def test_single_keyword_baseline(self):
+        """Single keyword match gives baseline confidence."""
+        text = "expected"
+        conf = classify_confidence(text)
+        # avg_weight = 0.6, base = min(0.9, 0.6 + 0.15) = 0.75
+        assert conf >= 0.7
+
+    def test_toequal_keyword(self):
+        """JS toEqual keyword detected."""
+        text = "Expected value to equal 42"
+        conf = classify_confidence(text)
+        assert conf >= 0.5
+
+    def test_tomatch_keyword(self):
+        """JS toMatch keyword detected."""
+        text = "Expected string to match pattern"
+        conf = classify_confidence(text)
+        assert conf >= 0.5
+
+    def test_non_ascii_penalized(self):
+        """Non-ASCII text is penalized."""
+        text = "AssertionError: expected «valeur» but was «autre»"
+        conf = classify_confidence(text)
+        # Has non-ASCII → 0.3x penalty; base ~1.0, so conf ~0.3
+        assert conf <= 0.3
+
+    def test_whitespace_only(self):
+        """Whitespace-only text → 0.0."""
+        assert classify_confidence("   \n  ") == 0.0
+
+    def test_multiple_assertion_keywords_boost(self):
+        """Multiple assertion keywords boost confidence."""
+        text = "AssertionError: expected 5 but was 3, expected 10 but was 0"
+        conf = classify_confidence(text)
+        assert conf >= 0.8
+
+    def test_compile_with_cannot_find_symbol(self):
+        """Compile error with 'cannot find symbol' gets high confidence (two keyword matches)."""
+        text = "Compilation failed: cannot find symbol"
+        conf = classify_confidence(text)
+        # "compilat" + "cannot find symbol" → 2 matches, boosted
+        assert conf >= 0.8
+
+    def test_bean_creation_error_high_confidence(self):
+        """Spring bean creation error → high confidence."""
+        text = "BeanCreationException: Error creating bean 'userService'"
+        conf = classify_confidence(text)
+        assert conf >= 0.7
+
+    def test_unknown_error_no_keywords(self):
+        """Unrecognizable error text → low confidence (no keyword matches)."""
+        text = "Something random happened in the service layer"
+        conf = classify_confidence(text)
+        # No keyword matches → returns 0.15
+        assert conf == pytest.approx(0.15)
+
+    def test_exact_0_8_threshold(self):
+        """Single assertion keyword gives ≥ 0.8."""
+        text = "AssertionError"
+        conf = classify_confidence(text)
+        # avg_weight = 0.8 (AssertionError weight), base = min(0.9, 0.8 + 0.15) = 0.9
+        assert conf >= 0.8
+
+    def test_single_compile_keyword(self):
+        """Single compile keyword."""
+        text = "compilation error"
+        conf = classify_confidence(text)
+        assert conf >= 0.5
+
+    def test_high_confidence_junit_error(self):
+        """JUnit assertion error → high confidence."""
+        text = "junit.framework.AssertionError: expected"
+        conf = classify_confidence(text)
+        assert conf >= 0.8
+
+    def test_many_keywords_capped_at_1_0(self):
+        """Very many keywords should be capped at 1.0."""
+        text = "AssertionError expected received but was expected expected received"
+        conf = classify_confidence(text)
+        assert conf <= 1.0
+        assert conf >= 0.9
+
+
+# ── _classify — diagnostic classification ──────────────────────────────────────
+
+class TestClassify:
+
+    def _state(self, **kw):
+        base = {
+            "session_id": "t", "task_id": "t", "task_description": "",
+            "project_mode": "greenfield", "module_type": "backend-domain",
+            "verifier_verdict": None,
+        }
+        base.update(kw)
+        return base
+
+    def test_both_phases_pass(self):
+        """Both phases pass → PASS."""
+        result = _classify(True, True, [], [], self._state())
+        assert result == str(DiagnosticVerdict.PASS.value)
+
+    def test_phase1_fails(self):
+        """Phase 1 fails → FIX_IMPL."""
+        result = _classify(False, True, [], [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    def test_both_phases_fail(self):
+        """Both phases fail → FIX_IMPL (p1 dominates)."""
+        result = _classify(False, False, [], [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    def test_p1_pass_p2_fail_assertion(self):
+        """Phase 1 pass, phase 2 fail with assertion → FIX_TEST."""
+        failures = [{"message": "AssertionError: expected 200 but got 500"}]
+        result = _classify(True, False, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_TEST.value)
+
+    def test_p1_pass_p2_fail_compile(self):
+        """Phase 1 pass, phase 2 fail with compile error → FIX_IMPL."""
+        failures = [{"message": "Compilation error in test"}]
+        result = _classify(True, False, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    def test_p1_pass_p2_fail_with_critical_finding(self):
+        """Critical critic finding → FIX_IMPL when p1 passes, p2 fails, no assertion/compile keywords."""
+        failures = [{"message": "Some generic failure"}]
+        findings = [{"severity": "critical", "critic": "security", "message": "X", "resolution_hint": "Y"}]
+        result = _classify(True, False, failures, findings, self._state())
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    def test_p1_pass_p2_fail_no_clear_signal(self):
+        """p1 pass, p2 fail, no assertion/compile keywords → FIX_IMPL (has failure text)."""
+        failures = [{"message": "Something went wrong in the test"}]
+        result = _classify(True, False, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    def test_p1_pass_p2_fail_empty_failure_text(self):
+        """p1 pass, p2 fail, empty failure text → AMBIGUOUS."""
+        failures = [{"message": ""}]
+        result = _classify(True, False, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.AMBIGUOUS.value)
+
+    def test_both_pass_not_overall_pass(self):
+        """Both phases pass but overall_pass=False with failure text → FIX_IMPL (perf/visual broke)."""
+        failures = [{"message": "Performance threshold exceeded"}]
+        result = _classify(True, True, failures, [], self._state(), overall_pass=False)
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    def test_both_pass_not_overall_pass_no_failure_text(self):
+        """Both phases pass, overall_pass=False, empty failure → AMBIGUOUS."""
+        result = _classify(True, True, [{"message": ""}], [], self._state(), overall_pass=False)
+        assert result == str(DiagnosticVerdict.AMBIGUOUS.value)
+
+    def test_compile_keywords_trigger_fix_impl(self):
+        """Compile keywords → FIX_IMPL."""
+        failures = [{"message": "cannot find symbol UserService"}]
+        result = _classify(False, True, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    def test_module_not_found_trigger_fix_impl(self):
+        """Module not found → FIX_IMPL."""
+        failures = [{"message": "Module './utils' not found"}]
+        result = _classify(False, True, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    def test_syntax_error_trigger_fix_impl(self):
+        """Syntax error → FIX_IMPL."""
+        failures = [{"message": "SyntaxError: unexpected token"}]
+        result = _classify(False, True, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    def test_junit_assertion_error(self):
+        """JUnit assertion error → FIX_TEST."""
+        failures = [{"message": "junit.framework.AssertionError: expected"}]
+        result = _classify(True, False, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_TEST.value)
+
+    def test_expect_received_to_be(self):
+        """JS expect/received/toBe → FIX_TEST."""
+        failures = [{"message": "expect(received).toBe(expected)"}]
+        result = _classify(True, False, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_TEST.value)
+
+    def test_expected_received_but_was(self):
+        """'expected' and 'but was' → FIX_TEST."""
+        failures = [{"message": "expected: 42 but was: 0"}]
+        result = _classify(True, False, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_TEST.value)
+
+    def test_expected_angle_bracket(self):
+        """'expected:<>' → FIX_TEST."""
+        failures = [{"message": "expected:<true> but was:<false>"}]
+        result = _classify(True, False, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_TEST.value)
+
+    def test_toequal_trigger_fix_test(self):
+        """JS toEqual → FIX_TEST."""
+        failures = [{"message": "toEqual failed"}]
+        result = _classify(True, False, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_TEST.value)
+
+    def test_tomatch_trigger_fix_test(self):
+        """JS toMatch → FIX_TEST."""
+        failures = [{"message": "toMatch failed"}]
+        result = _classify(True, False, failures, [], self._state())
+        assert result == str(DiagnosticVerdict.FIX_TEST.value)
+
+    def test_critical_finding_overrides(self):
+        """Critical finding → FIX_IMPL when p1 passes, p2 fails, no assertion/compile keywords."""
+        failures = [{"message": "Generic test failure"}]
+        findings = [{"severity": "critical", "critic": "security", "message": "X", "resolution_hint": "Y"}]
+        result = _classify(True, False, failures, findings, self._state())
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    def test_both_phases_pass_returns_pass(self):
+        """When both phases pass, critical findings are NOT checked — returns PASS."""
+        findings = [{"severity": "critical", "critic": "security", "message": "X", "resolution_hint": "Y"}]
+        result = _classify(True, True, [], findings, self._state())
+        assert result == str(DiagnosticVerdict.PASS.value)
+
+    def test_warning_finding_does_not_trigger_fix_impl(self):
+        """Warning finding does NOT trigger FIX_IMPL."""
+        findings = [{"severity": "warning", "critic": "style", "message": "X", "resolution_hint": "Y"}]
+        result = _classify(True, True, [], findings, self._state())
+        assert result == str(DiagnosticVerdict.PASS.value)
+
+    def test_info_finding_does_not_trigger_fix_impl(self):
+        """Info finding does NOT trigger FIX_IMPL."""
+        findings = [{"severity": "info", "critic": "style", "message": "X", "resolution_hint": "Y"}]
+        result = _classify(True, True, [], findings, self._state())
+        assert result == str(DiagnosticVerdict.PASS.value)
+
+    def test_multiple_warning_findings(self):
+        """Multiple warning findings do NOT trigger FIX_IMPL."""
+        findings = [
+            {"severity": "warning", "critic": "style", "message": "X", "resolution_hint": "Y"},
+            {"severity": "warning", "critic": "style", "message": "Z", "resolution_hint": "W"},
+        ]
+        result = _classify(True, True, [], findings, self._state())
+        assert result == str(DiagnosticVerdict.PASS.value)
+
+    def test_empty_failure_text_no_clear_signal(self):
+        """Empty failure text with p1 pass, p2 fail → AMBIGUOUS."""
+        result = _classify(True, False, [], [], self._state())
+        assert result == str(DiagnosticVerdict.AMBIGUOUS.value)
