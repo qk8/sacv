@@ -135,7 +135,14 @@ class TestCriticFanOut:
 
     async def test_malformed_response_returns_empty(self):
         from sacv.interfaces.agent_provider import AgentResult
-        agent = StubAgentProvider([AgentResult("not json", [], "stop", 5, 5)])
+        # extract_structured retries 3 times on validation failure, so we need
+        # 4 malformed responses to exhaust the retry loop
+        agent = StubAgentProvider([
+            AgentResult("not json", [], "stop", 5, 5),
+            AgentResult("still not json", [], "stop", 5, 5),
+            AgentResult("still not json", [], "stop", 5, 5),
+            AgentResult("still not json", [], "stop", 5, 5),
+        ])
         out   = await make_security_critic_node(_deps(agent))(_state())
         assert out["critic_findings"] == []
 
@@ -149,4 +156,4 @@ class TestCriticFanOut:
     async def test_brownfield_consistency_uses_different_rules(self):
         agent = StubAgentProvider([make_json_agent_result([])])
         out   = await make_consistency_critic_node(_deps(agent))(_state(mode="brownfield"))
-        assert agent.calls[0][0] == "consistency"
+        assert agent.calls[0][0] == "structured_output"

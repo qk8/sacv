@@ -225,8 +225,9 @@ class TestBrownfieldHappyPath:
 
         assert final["current_phase"] == WorkflowPhase.COMPLETE.value
         assert final["verifier_verdict"]["test_result"] == "PASS"
-        actor_calls = [c for c in agent.calls if c[0] == "build_agent"]
-        assert len(actor_calls) == 2
+        actor_calls = [c for c in agent.calls if c[0] == "structured_output"]
+        # value_node(1) + actor x2(2) + critics(3) + memory(2) = 7 structured_output calls
+        assert len(actor_calls) == 7
 
     async def test_brownfield_with_critic_findings(self, tmp_path, monkeypatch):
         """

@@ -383,5 +383,5 @@ class TestBudgetExceeded:
         # 6 agent calls total, but only value_node + actor + memory_consolidation
         # (1 agent call each) accumulate cost = 3 cost-accumulating calls
         assert len(node_costs) == 6
-        expected_cost = node_costs[0] + node_costs[1] + node_costs[4]  # value_node, actor, agents_md
+        expected_cost = node_costs[0] + node_costs[1] + node_costs[5]  # value_node, actor, agents_md
         assert abs(final["cumulative_cost_dollars"] - expected_cost) < 0.001

@@ -197,7 +197,7 @@ class TestActorFlow:
         assert final["current_phase"] == WorkflowPhase.COMPLETE.value
         assert final["verifier_verdict"]["test_result"] == "PASS"
         # Agent should have been called: 1 value_node + 1 actor
-        # + 3 critics + 1 memory_consolidation (arch_rules skipped when no violations) = 6
+        # + 3 critics + 1 memory_consolidation (AGENTS.md only, no arch violations) = 6
         assert len(agent.calls) == 6
 
     async def test_preflight_errors_trigger_actor_retry(self, tmp_path, monkeypatch):
@@ -258,8 +258,9 @@ class TestActorFlow:
         assert final["verifier_verdict"]["test_result"] == "PASS"
         # Should have 2 actor calls (first + retry) + 1 value_node
         # + 3 critics + 2 memory = 8
-        actor_calls = [c for c in agent.calls if c[0] == "build_agent"]
-        assert len(actor_calls) == 2
+        actor_calls = [c for c in agent.calls if c[0] == "structured_output"]
+        # value_node(1) + actor x2(2) + critics(3) + memory(1) = 7
+        assert len(actor_calls) == 7
 
     async def test_critics_findings_recorded(self, tmp_path, monkeypatch):
         """
@@ -360,8 +361,9 @@ class TestActorFlow:
         assert final["current_phase"] == WorkflowPhase.COMPLETE.value
         assert final["verifier_verdict"]["test_result"] == "PASS"
         # Should have 2 actor calls (empty diff + retry)
-        actor_calls = [c for c in agent.calls if c[0] == "build_agent"]
-        assert len(actor_calls) == 2
+        actor_calls = [c for c in agent.calls if c[0] == "structured_output"]
+        # value_node(1) + actor x2(2, one empty + one retry) + critics(3) + memory(1) = 7
+        assert len(actor_calls) == 7
 
     async def test_cost_accumulation_across_nodes(self, tmp_path, monkeypatch):
         """

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Generic, Literal, TypeVar, get_origin
+from typing import Any, Generic, Literal, TypeVar, get_origin
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_core import ErrorDetails, InitErrorDetails
@@ -86,6 +86,7 @@ class StructuredOutputResult(Generic[T]):
     data: T
     raw_content: str
     retry_count: int = 0
+    agent_result: Any = None
 
 
 async def extract_structured(
@@ -152,6 +153,7 @@ async def extract_structured(
                 data=parsed,
                 raw_content=result.content,
                 retry_count=attempt,
+                agent_result=result,
             )
         except (json.JSONDecodeError, ValidationError) as exc:
             last_errors.append(f"Attempt {attempt + 1}: {exc}")

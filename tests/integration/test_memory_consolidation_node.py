@@ -216,7 +216,7 @@ class TestMemoryConsolidationNode:
         assert out["arch_rules_updated"] is False
         # Only AGENTS.md agent call, no arch rules call
         agent_roles = [c[0] for c in agent.calls]
-        assert agent_roles == ["plan_agent_docs"]
+        assert agent_roles == ["structured_output"]
 
     async def test_with_arch_violations_triggers_arch_rules_update(self, tmp_path, monkeypatch):
         """When preflight has arch_violations, arch rules agent is called."""

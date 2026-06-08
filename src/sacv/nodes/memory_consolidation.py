@@ -115,10 +115,11 @@ def make_memory_consolidation_node(deps: "NodeDeps") -> "Callable[[WorkflowState
 
         # ── 6. UPDATE ARCH RULES (approach 11) ────────────────────────────
         arch_rules_updated = False
+        cost_after_arch = cost_after_agents
         preflight = state.get("preflight_result") or {}
         arch_violations = preflight.get("arch_violations", [])
         if arch_violations:
-            arch_rules_updated, _ = await _update_arch_rules(
+            arch_rules_updated, cost_after_arch = await _update_arch_rules(
                 arch_violations, module, deps, cost_after_agents,
             )
         else:
@@ -164,7 +165,7 @@ def make_memory_consolidation_node(deps: "NodeDeps") -> "Callable[[WorkflowState
             "current_phase":     WorkflowPhase.COMPLETE.value,
             "lesson_learned":    lesson,
             "arch_rules_updated": arch_rules_updated,
-            "cumulative_cost_dollars": cost_after_agents,
+            "cumulative_cost_dollars": cost_after_arch,
         }
 
     return memory_consolidation_node
@@ -257,6 +258,9 @@ async def _update_agents_md(
                 allowed_tools=[],
             )
             updates = structured.data.model_dump()
+            # ── Token budget tracking ────────────────────────────────────
+            if structured.agent_result:
+                cost = add_agent_cost(structured.agent_result, cost, deps.config)
         except StructuredOutputError:
             log.warning("memory_consolidation.agents_md_parse_failed")
             return False, state.get("cumulative_cost_dollars", 0.0)
@@ -270,7 +274,7 @@ async def _update_agents_md(
             f"sacv: update AGENTS.md after {state['task_id']} [skip ci]",
             add_all=False,
         )
-        return True, state.get("cumulative_cost_dollars", 0.0)
+        return True, cost
     except Exception as exc:
         log.warning("memory_consolidation.agents_md_failed", error=str(exc))
         return False, state.get("cumulative_cost_dollars", 0.0)
