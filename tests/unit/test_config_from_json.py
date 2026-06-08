@@ -6,7 +6,7 @@ import pathlib
 import pytest
 
 from sacv.orchestration.config import (
-    WorkflowConfig, IterationLimits, StagnationConfig,
+    WorkflowConfig, StagnationConfig,
     TokenBudget, CadenceConfig, DebugConfig,
 )
 
@@ -28,12 +28,6 @@ def test_from_json_all_fields(tmp_path: pathlib.Path) -> None:
         "max_blast_files": 100,
         "monorepo_mode": True,
         "agents_md_prompt_chars": 3000,
-        "iteration_limits": {
-            "implement_loop": 200,
-            "clarify_round": 10,
-            "spec_audit": 5,
-            "plan_review": 5,
-        },
         "stagnation": {
             "total_abort_force": 5,
             "drift_revision_limit": 3,
@@ -75,7 +69,6 @@ def test_from_json_all_fields(tmp_path: pathlib.Path) -> None:
     assert cfg.max_blast_files == 100
     assert cfg.monorepo_mode is True
     assert cfg.agents_md_prompt_chars == 3000
-    assert cfg.iteration_limits == IterationLimits(200, 10, 5, 5)
     assert cfg.stagnation == StagnationConfig(5, 3, 0.9)
     assert cfg.token_budget == TokenBudget(10.0, 60.0, 150.0, 100.0)
     assert cfg.cadence == CadenceConfig(50, 20, {"simple": 30, "medium": 25, "complex": 15})
@@ -113,13 +106,6 @@ def test_from_json_defaults_for_all_top_level(tmp_path: pathlib.Path) -> None:
     assert cfg.monorepo_mode is False
 
 
-def test_from_json_defaults_iteration_limits(tmp_path: pathlib.Path) -> None:
-    cfg_file = tmp_path / "config.json"
-    cfg_file.write_text("{}")
-    cfg = WorkflowConfig.from_json(cfg_file)
-    assert cfg.iteration_limits == IterationLimits()
-
-
 def test_from_json_defaults_stagnation(tmp_path: pathlib.Path) -> None:
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text("{}")
@@ -155,12 +141,9 @@ def test_from_json_partial_nested_overrides(tmp_path: pathlib.Path) -> None:
     """Only some nested fields provided — rest use defaults."""
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text(json.dumps({
-        "iteration_limits": {"implement_loop": 50},
         "token_budget": {"cost_per_m_input": 1.0},
     }))
     cfg = WorkflowConfig.from_json(cfg_file)
-    assert cfg.iteration_limits.implement_loop == 50
-    assert cfg.iteration_limits.clarify_round == 5  # default
     assert cfg.token_budget.cost_per_m_input == 1.0
     assert cfg.token_budget.cost_per_m_output == 30.0  # default
 

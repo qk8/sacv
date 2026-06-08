@@ -5,14 +5,6 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
-class IterationLimits:
-    implement_loop: int = 100
-    clarify_round:  int = 5
-    spec_audit:     int = 3
-    plan_review:    int = 3
-
-
-@dataclass(frozen=True)
 class StagnationConfig:
     total_abort_force:             int   = 3
     drift_revision_limit:          int   = 2
@@ -88,7 +80,6 @@ class WorkflowConfig:
     # Agents.md prompt chars (chars of AGENTS.md to include in Actor prompt)
     agents_md_prompt_chars:          int   = 2_000
     # Sub-configs
-    iteration_limits: IterationLimits  = field(default_factory=IterationLimits)
     stagnation:       StagnationConfig = field(default_factory=StagnationConfig)
     token_budget:     TokenBudget      = field(default_factory=TokenBudget)
     cadence:          CadenceConfig    = field(default_factory=CadenceConfig)
@@ -98,7 +89,6 @@ class WorkflowConfig:
     def from_json(cls, path: str | Path) -> "WorkflowConfig":
         raw = json.loads(Path(path).read_text())
         dbg = raw.get("debug", {})
-        il = raw.get("iteration_limits", {})
         cad = raw.get("cadence", {})
         stg = raw.get("stagnation", {})
         tok = raw.get("token_budget", {})
@@ -128,12 +118,6 @@ class WorkflowConfig:
                 actuator_base_url=dbg.get("actuator_base_url", "http://localhost:8080/actuator"),
                 openapi_spec_path=dbg.get("openapi_spec_path", "contracts/openapi/api.yaml"),
                 otel_query_url=dbg.get("otel_query_url", "http://localhost:16686/api/traces"),
-            ),
-            iteration_limits=IterationLimits(
-                implement_loop=il.get("implement_loop", 100),
-                clarify_round=il.get("clarify_round", 5),
-                spec_audit=il.get("spec_audit", 3),
-                plan_review=il.get("plan_review", 3),
             ),
             stagnation=StagnationConfig(
                 total_abort_force=stg.get("total_abort_force", 3),
