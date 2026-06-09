@@ -49,6 +49,12 @@ def check_stagnation(
     # Semantic stagnation (requires at least 2 error records)
     if len(history) >= 2:
         sim = _cosine_similarity_from_b64(history[-1], history[-2])
+        if sim >= 0.70:
+            log.debug(
+                "stagnation.similarity_tested",
+                similarity=sim,
+                threshold=config.stagnation.semantic_similarity_threshold,
+            )
         if sim >= config.stagnation.semantic_similarity_threshold:
             return "semantic"
 
