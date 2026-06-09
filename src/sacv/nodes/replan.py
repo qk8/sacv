@@ -156,6 +156,7 @@ def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[A
             "red_phase_evidence_path":   None,   # force tdd_gate to generate new tests
             "test_inventory_paths":      [],     # clear old test inventory for new strategies
             "tdd_gate_attempts":         0,      # reset — prevents immediate HITL escalation after replan
+            "empty_diff_retries":        0,      # BUG-003: reset for fresh replan cycle
             "cumulative_cost_dollars":   updated_cost,
         }
 

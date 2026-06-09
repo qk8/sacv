@@ -115,3 +115,14 @@ async def test_replan_clears_verdict_and_preflight():
     out = await make_replan_node(_deps())(s)
     assert out["verifier_verdict"] is None
     assert out["preflight_result"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_replan_resets_empty_diff_retries():
+    """BUG-003: replan must reset empty_diff_retries for fresh cycle."""
+    s = _state(empty_diff_retries=2)
+    out = await make_replan_node(_deps())(s)
+    assert out["empty_diff_retries"] == 0, (
+        "replan must reset empty_diff_retries to prevent poison counter"
+    )
