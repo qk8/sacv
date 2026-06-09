@@ -120,6 +120,17 @@ async def cmd_run(args: argparse.Namespace) -> None:
 
         log.info("workflow.all_deps_validated")
 
+        # ── Dump effective configuration at DEBUG level ───────────────────
+        import dataclasses
+        log.debug(
+            "workflow.config",
+            config=dataclasses.asdict(deps.config),
+            task_id=args.task_id,
+            mode=args.mode,
+            module=args.module,
+            check_profile=args.check_profile,
+        )
+
         db_path = Path(".workflow/sacv.db")
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
