@@ -168,7 +168,26 @@ async def cmd_run(args: argparse.Namespace) -> None:
         async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
             graph = build_graph(deps, checkpointer=checkpointer)
             config = {"configurable": {"thread_id": args.task_id}}
-            result = await graph.ainvoke(initial_state, config=config)
+            try:
+                result = await graph.ainvoke(initial_state, config=config)
+            except Exception:
+                try:
+                    state_snapshot = await graph.get_state(config)
+                    if state_snapshot and state_snapshot.values:
+                        sv = state_snapshot.values
+                        log.error(
+                            "workflow.fatal_exception",
+                            task_id=args.task_id,
+                            last_phase=sv.get("current_phase", "unknown"),
+                            attempt=sv.get("correction_state", {}).get("attempt_count"),
+                            last_verdict=(sv.get("verifier_verdict") or {}).get("test_result")
+                            if sv.get("verifier_verdict") else None,
+                            cost=sv.get("cumulative_cost_dollars"),
+                            exc_info=True,
+                        )
+                except Exception:
+                    log.error("workflow.fatal_exception_no_state", exc_info=True)
+                raise
 
         print(json.dumps({
             "phase": result.get("current_phase"),
