@@ -109,6 +109,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
             "project_mode":     args.mode,
             "module_type":      args.module,
             "session_id":       "",
+            "session_start_ms": None,   # set by bootstrap
             "current_phase":    WorkflowPhase.BOOTSTRAP.value,
             "check_profile":    args.check_profile,
             # All remaining fields initialised to None/[] by bootstrap

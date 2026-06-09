@@ -1,5 +1,6 @@
 """nodes/bootstrap.py — resets ALL state fields including new debug fields."""
 from __future__ import annotations
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
@@ -64,5 +65,6 @@ def make_bootstrap_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
             "escalation_payload":      None,   # set by HITL
             "lesson_learned":          None,   # set by MemoryConsolidation
             "cumulative_cost_dollars": 0.0,    # BUG-008: token budget tracking
+            "session_start_ms":          time.time() * 1000,  # BUG-002: session duration tracking
         }
     return bootstrap_node

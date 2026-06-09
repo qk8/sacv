@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
@@ -98,7 +99,7 @@ def make_memory_consolidation_node(deps: "NodeDeps") -> "Callable[[WorkflowState
             negative_constraints=_extract_constraints(findings, escalation),
             blast_radius_learned=state.get("blast_radius_map") or {},
             correction_type=correction_type,
-            session_duration_ms=0,
+            session_duration_ms=int(time.time() * 1000 - (state.get("session_start_ms") or 0)),
         )
 
         # ── 4. PERSIST TO AGENTMEMORY ─────────────────────────────────────

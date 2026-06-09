@@ -43,6 +43,7 @@ def base_state():
         state = {
             "session_id":             "sess-test",
             "task_id":                "task-unit-001",
+            "session_start_ms":       None,
             "project_mode":           "greenfield",
             "module_type":            "backend-domain",
             "current_phase":          WorkflowPhase.BOOTSTRAP.value,

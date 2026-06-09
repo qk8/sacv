@@ -62,6 +62,7 @@ def _initial_state(task_id: str = "task-af-001") -> dict:
     return {
         "session_id":             "",
         "task_id":                task_id,
+        "session_start_ms":       None,
         "project_mode":           "greenfield",
         "module_type":            "backend-domain",
         "current_phase":          WorkflowPhase.BOOTSTRAP.value,

@@ -382,6 +382,7 @@ class WorkflowState(TypedDict):
     session_id:       str
     task_id:          str
     task_description: str        # promoted to formal field (was ad-hoc)
+    session_start_ms: float | None  # epoch ms; set by bootstrap for duration tracking
 
     # ── Immutable configuration ────────────────────────────────────────────
     project_mode:  str

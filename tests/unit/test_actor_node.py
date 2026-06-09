@@ -51,6 +51,7 @@ def _deps(
 def _state(**kw):
     base = {
         "session_id": "t", "task_id": "task-actor-001",
+        "session_start_ms": None,
         "task_description": "Add findById to UserService",
         "project_mode": "greenfield", "module_type": "backend-domain",
         "current_phase": WorkflowPhase.ACTOR.value,
