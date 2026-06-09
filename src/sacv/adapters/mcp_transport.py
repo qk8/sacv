@@ -122,8 +122,23 @@ class McpStdioTransport:
         """Return True if the subprocess is alive; attempt one reconnect if not."""
         if self._proc and self._proc.returncode is None:
             return True
+
+        returncode = self._proc.returncode if self._proc else None
+
+        # ── Capture crash log from stderr before discarding the process ───────
+        crash_log = ""
+        if self._proc and self._proc.stderr:
+            try:
+                crash_bytes = await asyncio.wait_for(
+                    self._proc.stderr.read(4096), timeout=1.0
+                )
+                crash_log = crash_bytes.decode("utf-8", errors="replace").strip()
+            except (asyncio.TimeoutError, Exception):
+                pass
+
         log.error(f"{self._log_prefix}.process_dead",
-                  returncode=self._proc.returncode if self._proc else None)
+                  returncode=returncode,
+                  crash_log=crash_log[:500] if crash_log else "(empty)")
         try:
             await self.start()
             log.info(f"{self._log_prefix}.reconnected")
