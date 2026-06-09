@@ -17,16 +17,6 @@ from sacv.orchestration.config import WorkflowConfig
 
 log = structlog.get_logger(__name__)
 
-_SENTINEL = object()
-
-
-def _cfg(config: object) -> "WorkflowConfig":
-    if config is _SENTINEL:
-        from sacv.orchestration.config import WorkflowConfig as _WC
-        return _WC()
-    return config
-
-
 # ── Preflight routing ─────────────────────────────────────────────────────────
 
 def route_after_preflight(state: WorkflowState) -> str:
@@ -45,7 +35,7 @@ def route_after_preflight(state: WorkflowState) -> str:
 
 def compute_confidence_score(
     state:  WorkflowState,
-    config: object = _SENTINEL,
+    config: WorkflowConfig,
 ) -> float:
     """Pure function. No I/O.
 
@@ -53,7 +43,7 @@ def compute_confidence_score(
     The penalty scales linearly between warning_dollar and critical_dollar,
     reaching 1.0 (full penalty) at critical_dollar.
     """
-    cfg        = _cfg(config)
+    cfg        = config
     correction = state["correction_state"]
     attempt    = correction["attempt_count"]
     cost       = state.get("cumulative_cost_dollars", 0.0)
@@ -85,7 +75,7 @@ def compute_confidence_score(
 
 def route_after_actor(
     state:  WorkflowState,
-    config: object = _SENTINEL,
+    config: WorkflowConfig,
 ) -> str:
     """
     Route after Actor node.
@@ -100,7 +90,7 @@ def route_after_actor(
 
     Safety valve: prevent infinite empty-diff loops (MED-004).
     """
-    cfg = _cfg(config)
+    cfg = config
     correction = state["correction_state"]
     if correction.get("stagnation_pattern", "none") != "none":
         return "hitl_escalation"
@@ -120,9 +110,9 @@ def route_after_value_node(state: WorkflowState) -> str:
 
 def route_after_tdd_gate(
         state:  WorkflowState,
-        config: object = _SENTINEL,
+        config: WorkflowConfig,
     ) -> str:
-        cfg = _cfg(config)
+        cfg = config
         if state.get("red_phase_evidence_path"):
             return "actor"
         if state.get("tdd_gate_attempts", 0) >= cfg.max_tdd_gate_attempts:
@@ -132,7 +122,7 @@ def route_after_tdd_gate(
 
 def route_after_verifier(
     state:  WorkflowState,
-    config: object = _SENTINEL,
+    config: WorkflowConfig,
 ) -> str:
     """
     Core circuit-breaker routing.
@@ -146,7 +136,7 @@ def route_after_verifier(
     6. attempt >= 2           → speculative_branch
     7. attempt < 2            → actor  (retry with critic feedback)
     """
-    cfg     = _cfg(config)
+    cfg     = config
     verdict = state.get("verifier_verdict")
     if verdict is None:
         log.error(
@@ -199,9 +189,9 @@ def route_after_verifier(
 
 def route_after_speculative_branch(
     state:  WorkflowState,
-    config: object = _SENTINEL,
+    config: WorkflowConfig,
 ) -> str:
-    cfg     = _cfg(config)
+    cfg     = config
     verdict = state.get("verifier_verdict")
 
     if verdict and verdict["test_result"] == "PASS":

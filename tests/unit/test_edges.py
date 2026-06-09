@@ -297,12 +297,13 @@ class TestRouteAfterActor:
 
     def test_stagnation_routes_to_hitl(self):
         """Stagnation detected → HITL escalation."""
+        cfg = WorkflowConfig()
         s = _s(
             correction_state={"attempt_count": 1, "branch_name": None,
                               "last_error_hash": None, "error_history": [],
                               "stagnation_pattern": "semantic"},
         )
-        assert route_after_actor(s) == "hitl_escalation"
+        assert route_after_actor(s, cfg) == "hitl_escalation"
 
     def test_no_diff_retries_within_limit(self):
         """No diff, retries < max → actor (self-loop)."""
@@ -318,9 +319,10 @@ class TestRouteAfterActor:
 
     def test_has_diff_routes_to_preflight(self):
         """Actor produced a diff → preflight_node."""
+        cfg = WorkflowConfig()
         s = _s(diff_proposal={"strategy_id": "s1", "diffs": [],
                               "branch_name": "b", "commit_message": "m"})
-        assert route_after_actor(s) == "preflight_node"
+        assert route_after_actor(s, cfg) == "preflight_node"
 
     def test_stagnation_takes_priority_over_no_diff(self):
         """Both stagnation and no diff → stagnation wins (HITL)."""

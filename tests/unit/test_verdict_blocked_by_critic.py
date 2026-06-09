@@ -172,6 +172,11 @@ class TestActorUsesBlockedByCritic:
 class TestRouteAfterVerifierWithBlockedByCritic:
     """M-02: route_after_verifier routes to actor when blocked_by_critic=True."""
 
+    @staticmethod
+    def _cfg():
+        from sacv.orchestration.config import WorkflowConfig
+        return WorkflowConfig()
+
     def _make_state(self, **overrides):
         base = {
             "session_id": "t",
@@ -235,7 +240,7 @@ class TestRouteAfterVerifierWithBlockedByCritic:
             },
             correction_state={**self._make_state()["correction_state"], "attempt_count": 2},
         )
-        result = route_after_verifier(state)
+        result = route_after_verifier(state, self._cfg())
         assert result == "actor"
 
     def test_not_blocked_by_critic_uses_normal_routing(self):
@@ -245,7 +250,7 @@ class TestRouteAfterVerifierWithBlockedByCritic:
         state = self._make_state(
             correction_state={**self._make_state()["correction_state"], "attempt_count": 2},
         )
-        result = route_after_verifier(state)
+        result = route_after_verifier(state, self._cfg())
         assert result == "speculative_branch"
 
     def test_blocked_by_critic_at_low_attempt_still_routes_to_actor(self):
@@ -259,5 +264,5 @@ class TestRouteAfterVerifierWithBlockedByCritic:
             },
             correction_state={**self._make_state()["correction_state"], "attempt_count": 0},
         )
-        result = route_after_verifier(state)
+        result = route_after_verifier(state, self._cfg())
         assert result == "actor"
