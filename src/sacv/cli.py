@@ -233,6 +233,49 @@ async def cmd_resume(args: argparse.Namespace) -> None:
         await _stop_deps(deps)  # always runs, even on Ctrl+C or exception
 
 
+async def cmd_graph(args: argparse.Namespace) -> None:
+    """Export the compiled graph topology for inspection."""
+    from langgraph.checkpoint.memory import MemorySaver
+    from sacv.orchestration.graph import build_graph
+    from sacv.testing.stub_providers import (
+        StubAgentProvider,
+        StubCodeGraphProvider,
+        StubCrossDomainProvider,
+        StubDiffProvider,
+        StubGitProvider,
+        StubMemoryProvider,
+        StubSandboxProvider,
+    )
+    from sacv.orchestration.deps import NodeDeps
+
+    stub_deps = NodeDeps(
+        agent=StubAgentProvider(),
+        memory=StubMemoryProvider(),
+        code_graph=StubCodeGraphProvider(),
+        cross_domain=StubCrossDomainProvider(),
+        git=StubGitProvider(),
+        sandbox=StubSandboxProvider(),
+        diff=StubDiffProvider(),
+    )
+
+    graph = build_graph(stub_deps, checkpointer=MemorySaver())
+    fmt = args.format
+    if fmt == "mermaid":
+        print(graph.get_graph().draw_mermaid())
+    elif fmt == "ascii":
+        try:
+            print(graph.get_graph().draw_ascii())
+        except ImportError:
+            print(
+                "ERROR: ASCII export requires grandalf. "
+                "Install it with: pip install grandalf",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    else:
+        print(json.dumps(graph.get_graph().to_json(), indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="sacv")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -291,6 +334,25 @@ def main() -> None:
         help="Override LOG_FORMAT env var",
     )
 
+    graph_p = sub.add_parser("graph", help="Export workflow graph topology")
+    graph_p.add_argument(
+        "--format",
+        choices=["mermaid", "ascii", "json"],
+        default="mermaid",
+        help="Output format for the graph diagram",
+    )
+    graph_p.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Set log level to DEBUG (default: INFO)",
+    )
+    graph_p.add_argument(
+        "--log-format",
+        choices=["json", "console"],
+        default=None,
+        help="Override LOG_FORMAT env var",
+    )
+
     args = parser.parse_args()
     if args.verbose:
         os.environ["LOG_LEVEL"] = "DEBUG"
@@ -303,6 +365,8 @@ def main() -> None:
         asyncio.run(cmd_run(args))
     elif args.command == "resume":
         asyncio.run(cmd_resume(args))
+    elif args.command == "graph":
+        asyncio.run(cmd_graph(args))
 
 
 if __name__ == "__main__":
