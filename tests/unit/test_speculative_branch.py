@@ -9,8 +9,10 @@ Tests cover:
 """
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
-from sacv.nodes.speculative_branch import _merge_branch_state
+from sacv.nodes.speculative_branch import _evaluate_branch, _merge_branch_state
 from sacv.orchestration.state import CRITIC_RESET
 
 
@@ -233,3 +235,127 @@ class TestSpeculativeBranchCostTracking:
         # Verify the old buggy formula would have given wrong result
         buggy_cost = incremental  # drops baseline
         assert buggy_cost == 6.0  # missing $2.0 actor cost
+
+
+class TestEvaluateBranchFailureReason:
+    """Verify that _evaluate_branch returns failure reasons (DBG-005)."""
+
+    @pytest.fixture
+    def mock_deps(self):
+        deps = MagicMock()
+        deps.config.max_parallel_branches = 3
+        return deps
+
+    @pytest.fixture
+    def mock_state(self):
+        return {
+            "task_id": "T1",
+            "correction_state": {"branch_name": "main"},
+        }
+
+    @pytest.fixture
+    def mock_strategy(self):
+        return {"strategy_id": "s1", "composite_score": 0.9}
+
+    async def test_returns_failure_reason_on_preflight_fail(
+        self, mock_deps, mock_state, mock_strategy,
+    ):
+        """_evaluate_branch returns a preflight failure reason."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_subgraph = MagicMock()
+        mock_compiled = AsyncMock()
+        mock_compiled.ainvoke.return_value = {
+            "verifier_verdict": {"test_result": "FAIL"},
+            "preflight_result": {"passed": False, "lsp_errors": [], "arch_violations": []},
+        }
+        mock_subgraph.compile.return_value = mock_compiled
+
+        with patch(
+            "sacv.orchestration.graph.build_branch_subgraph",
+            return_value=mock_subgraph,
+        ):
+            result = await _evaluate_branch(mock_state, mock_strategy, mock_deps)
+
+        branch_name, verdict, reason = result
+        assert branch_name == "agent-task-T1-s1"
+        assert verdict is None
+        assert "preflight_failed" in reason
+
+    async def test_returns_failure_reason_on_verifier_fail(
+        self, mock_deps, mock_state, mock_strategy,
+    ):
+        """_evaluate_branch returns a verifier failure reason."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_subgraph = MagicMock()
+        mock_compiled = AsyncMock()
+        mock_compiled.ainvoke.return_value = {
+            "verifier_verdict": {
+                "test_result": "FAIL",
+                "diagnostic": "test_failed",
+                "phase1_passed": True,
+                "phase2_passed": False,
+            },
+            "preflight_result": {"passed": True},
+        }
+        mock_subgraph.compile.return_value = mock_compiled
+
+        with patch(
+            "sacv.orchestration.graph.build_branch_subgraph",
+            return_value=mock_subgraph,
+        ):
+            result = await _evaluate_branch(mock_state, mock_strategy, mock_deps)
+
+        branch_name, verdict, reason = result
+        assert branch_name == "agent-task-T1-s1"
+        assert verdict is not None
+        assert "verifier_fail" in reason
+
+    async def test_returns_failure_reason_on_exception(
+        self, mock_deps, mock_state, mock_strategy,
+    ):
+        """_evaluate_branch returns an exception failure reason."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_subgraph = MagicMock()
+        mock_compiled = AsyncMock()
+        mock_compiled.ainvoke.side_effect = RuntimeError("docker not available")
+        mock_subgraph.compile.return_value = mock_compiled
+
+        with patch(
+            "sacv.orchestration.graph.build_branch_subgraph",
+            return_value=mock_subgraph,
+        ):
+            result = await _evaluate_branch(mock_state, mock_strategy, mock_deps)
+
+        branch_name, verdict, reason = result
+        assert branch_name == "agent-task-T1-s1"
+        assert verdict is None
+        assert "exception" in reason
+        assert "RuntimeError" in reason
+
+    async def test_returns_pass_reason_on_success(
+        self, mock_deps, mock_state, mock_strategy,
+    ):
+        """_evaluate_branch returns 'pass' reason when branch succeeds."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_subgraph = MagicMock()
+        mock_compiled = AsyncMock()
+        mock_compiled.ainvoke.return_value = {
+            "verifier_verdict": {"test_result": "PASS"},
+            "preflight_result": {"passed": True},
+        }
+        mock_subgraph.compile.return_value = mock_compiled
+
+        with patch(
+            "sacv.orchestration.graph.build_branch_subgraph",
+            return_value=mock_subgraph,
+        ):
+            result = await _evaluate_branch(mock_state, mock_strategy, mock_deps)
+
+        branch_name, verdict, reason = result
+        assert branch_name == "agent-task-T1-s1"
+        assert verdict is not None
+        assert reason == "pass"

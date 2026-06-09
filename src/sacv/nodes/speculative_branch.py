@@ -115,13 +115,18 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
         winning_verdict:  VerifierVerdict | None = None
         new_exhausted     = list(exhausted)
 
-        for branch_name, verdict in results:
+        for branch_name, verdict, reason in results:
             if verdict and verdict["test_result"] == "PASS":
                 winning_branch  = branch_name
                 winning_verdict = verdict
                 break
             else:
                 new_exhausted.append(branch_name)
+                log.warning(
+                    "speculative_branch.branch_failed",
+                    branch=branch_name,
+                    reason=reason,
+                )
                 # _evaluate_branch's finally block already cleaned up the
                 # worktree; no checkout/stash needed here.
 
@@ -190,11 +195,12 @@ async def _evaluate_branch(
     state:    "WorkflowState",
     strategy: "StrategyCandidate",
     deps:     "NodeDeps",
-) -> tuple[str, "VerifierVerdict | None"]:
+) -> tuple[str, "VerifierVerdict | None", str]:
     """
     Run a complete Actor → Critics → Verifier cycle for one strategy.
-    Each branch is evaluated in its own git worktree with an isolated
-    Docker container mount to prevent concurrent filesystem races.
+
+    Returns a 3-tuple: (branch_name, verdict_or_none, failure_reason).
+    The failure_reason describes why the branch failed (or 'pass' on success).
     """
     task_id     = state["task_id"]
     branch_name = f"agent-task-{sanitize_branch_name(task_id[:8])}-{strategy['strategy_id']}"
@@ -249,23 +255,30 @@ async def _evaluate_branch(
         verdict = result.get("verifier_verdict")
         preflight_result = (result.get("preflight_result") or {}).copy()
         if not preflight_result.get("passed", True):
-            log.info(
-                "speculative_branch.preflight_failed",
-                branch=branch_name,
-                lsp_errors=len(preflight_result.get("lsp_errors", [])),
-            )
-            return branch_name, None  # treat as failed branch
+            lsp_count = len(preflight_result.get("lsp_errors", []))
+            arch_count = len(preflight_result.get("arch_violations", []))
+            reason = f"preflight_failed lsp={lsp_count} arch={arch_count}"
+            log.info("speculative_branch.preflight_failed", branch=branch_name, reason=reason)
+            return branch_name, None, reason
 
-        return branch_name, verdict
+        if verdict and verdict["test_result"] == "FAIL":
+            diag = verdict.get("diagnostic", "?")
+            p1 = verdict.get("phase1_passed", False)
+            p2 = verdict.get("phase2_passed", False)
+            reason = f"verifier_fail diagnostic={diag} phase1={p1} phase2={p2}"
+            return branch_name, verdict, reason
+
+        return branch_name, verdict, "pass"
 
     except Exception as exc:
+        reason = f"exception: {type(exc).__name__}: {exc}"
         log.error(
             "speculative_branch.evaluation_error",
             branch=branch_name,
-            error=str(exc),
+            error=reason,
             exc_info=True,
         )
-        return branch_name, None
+        return branch_name, None, reason
     finally:
         # Always clean up the worktree and its temp directory
         try:
