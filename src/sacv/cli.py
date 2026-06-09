@@ -213,6 +213,10 @@ async def cmd_resume(args: argparse.Namespace) -> None:
     deps = _build_deps()
     await _start_deps(deps)
     try:
+        # M-05: Bind structlog contextvars before resume so logs include task_id
+        import structlog
+        structlog.contextvars.bind_contextvars(task_id=task_id)
+
         # Use AsyncSqliteSaver for persistence (must match the run checkpointer)
         db_path = Path(".workflow/sacv.db")
         db_path.parent.mkdir(parents=True, exist_ok=True)
