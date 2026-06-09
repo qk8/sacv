@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -80,7 +81,6 @@ async def _stop_deps(deps: "NodeDeps") -> None:
 
 
 async def cmd_run(args: argparse.Namespace) -> None:
-    import os
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print(
             "ERROR: ANTHROPIC_API_KEY environment variable is not set.\n"
@@ -211,14 +211,43 @@ def main() -> None:
             "performance delta, and visual diff checks."
         ),
     )
+    run_p.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Set log level to DEBUG (default: INFO)",
+    )
+    run_p.add_argument(
+        "--log-format",
+        choices=["json", "console"],
+        default=None,
+        help="Override LOG_FORMAT env var",
+    )
 
     res_p = sub.add_parser("resume", help="Resume a paused HITL escalation")
     res_p.add_argument(
         "--escalation-id", required=True,
         help="Escalation ID from the .workflow/escalations/<id>.json file",
     )
+    res_p.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Set log level to DEBUG (default: INFO)",
+    )
+    res_p.add_argument(
+        "--log-format",
+        choices=["json", "console"],
+        default=None,
+        help="Override LOG_FORMAT env var",
+    )
 
     args = parser.parse_args()
+    if args.verbose:
+        os.environ["LOG_LEVEL"] = "DEBUG"
+    if args.log_format:
+        os.environ["LOG_FORMAT"] = args.log_format
+    from sacv.logging_config import configure_logging
+    configure_logging()
+
     if args.command == "run":
         asyncio.run(cmd_run(args))
     elif args.command == "resume":

@@ -5,6 +5,10 @@ from __future__ import annotations
 
 import pytest
 
+# Configure structlog once for all tests so log output is consistent.
+from sacv.logging_config import configure_logging  # noqa: E402
+configure_logging()  # LOG_FORMAT defaults to "json" — fine for pytest output capture
+
 from sacv.orchestration.config import WorkflowConfig
 from sacv.orchestration.state import WorkflowPhase, ProjectMode
 from sacv.testing.stub_providers import (
