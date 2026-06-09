@@ -122,6 +122,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
 
         # ── Dump effective configuration at DEBUG level ───────────────────
         import dataclasses
+        from sacv.cli_progress import run_with_progress, format_result
         log.debug(
             "workflow.config",
             config=dataclasses.asdict(deps.config),
@@ -169,7 +170,9 @@ async def cmd_run(args: argparse.Namespace) -> None:
             graph = build_graph(deps, checkpointer=checkpointer)
             config = {"configurable": {"thread_id": args.task_id}}
             try:
-                result = await graph.ainvoke(initial_state, config=config)
+                result = await run_with_progress(
+                    graph, initial_state, config, args.task_id,
+                )
             except Exception:
                 try:
                     state_snapshot = await graph.get_state(config)
@@ -189,10 +192,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
                     log.error("workflow.fatal_exception_no_state", exc_info=True)
                 raise
 
-        print(json.dumps({
-            "phase": result.get("current_phase"),
-            "task": args.task_id,
-        }))
+        print(format_result(result, args.task_id))
     finally:
         await _stop_deps(deps)  # always runs, even on Ctrl+C or exception
 
