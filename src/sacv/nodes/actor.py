@@ -174,7 +174,12 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
             raw_diffs: list[dict[str, object]] = [d.model_dump() for d in structured.data]
             updated_cost = structured.updated_cost
         except StructuredOutputError as exc:
-            log.error("actor.parse_error", error=str(exc))
+            log.error(
+                "actor.parse_error",
+                error=str(exc),
+                raw_content_preview=exc.last_raw_content[:500],
+                raw_content_len=len(exc.last_raw_content),
+            )
             raw_diffs = []
             updated_cost = state.get("cumulative_cost_dollars", 0.0)
 

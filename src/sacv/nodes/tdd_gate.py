@@ -114,8 +114,13 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
             )
             test_files: list[dict[str, Any]] = [tf.model_dump() for tf in structured.data]
             updated_cost = structured.updated_cost
-        except StructuredOutputError:
-            log.error("tdd_gate.parse_error")
+        except StructuredOutputError as exc:
+            log.error(
+                "tdd_gate.parse_error",
+                error=str(exc),
+                raw_content_preview=exc.last_raw_content[:500],
+                raw_content_len=len(exc.last_raw_content),
+            )
             return {
                 "red_phase_evidence_path": None,
                 "test_inventory_paths":    [],

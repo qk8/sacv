@@ -98,8 +98,13 @@ def make_value_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
             )
             raw_strategies: list[dict[str, Any]] = [s.model_dump() for s in structured.data]
             updated_cost = structured.updated_cost
-        except StructuredOutputError:
-            log.error("value_node.parse_error")
+        except StructuredOutputError as exc:
+            log.error(
+                "value_node.parse_error",
+                error=str(exc),
+                raw_content_preview=exc.last_raw_content[:500],
+                raw_content_len=len(exc.last_raw_content),
+            )
             raw_strategies = []
             updated_cost = state.get("cumulative_cost_dollars", 0.0)
 

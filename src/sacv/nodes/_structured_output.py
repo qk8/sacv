@@ -32,7 +32,11 @@ from typing import Any, Generic, Literal, TypeVar, get_origin
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_core import ErrorDetails, InitErrorDetails
 
+import structlog
+
 from sacv.interfaces.agent_provider import AgentProvider, AgentConfig
+
+log = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel | dict[str, object] | str | list[object])
 
@@ -77,7 +81,9 @@ class AgentsMdUpdate(BaseModel):
 
 class StructuredOutputError(Exception):
     """Raised when all retries fail to produce valid structured output."""
-    pass
+    def __init__(self, message: str, last_raw_content: str = "") -> None:
+        super().__init__(message)
+        self.last_raw_content = last_raw_content
 
 
 @dataclass
@@ -165,12 +171,20 @@ async def extract_structured(
                 updated_cost=updated_cost,
             )
         except (json.JSONDecodeError, ValidationError) as exc:
+            log.warning(
+                "structured_output.validation_failed",
+                attempt=attempt + 1,
+                max_retries=max_retries,
+                error=str(exc)[:200],
+                raw_preview=result.content[:300] if result else "",
+            )
             last_errors.append(f"Attempt {attempt + 1}: {exc}")
             accumulated_context.append(str(exc))
 
     raise StructuredOutputError(
         f"Failed to extract valid {response_model!r} after "
-        f"{max_retries} retries. Errors:\n" + "\n".join(last_errors)
+        f"{max_retries} retries. Errors:\n" + "\n".join(last_errors),
+        last_raw_content=result.content if result else "",
     )
 
 
