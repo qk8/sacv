@@ -149,10 +149,9 @@ def make_memory_consolidation_node(deps: "NodeDeps") -> "Callable[[WorkflowState
                 # baseline.
                 await asyncio.to_thread(deps.git.stash_drop, stash_ref)
                 log.info("memory_consolidation.stash_dropped", ref=stash_ref)
-            except Exception as exc:
+            except Exception:
                 # Non-fatal: log and continue (stash may already be gone)
-                log.warning("memory_consolidation.stash_drop_failed",
-                            error=str(exc))
+                log.warning("memory_consolidation.stash_drop_failed", exc_info=True)
 
         log.info(
             "memory_consolidation.complete",
@@ -218,8 +217,8 @@ async def _commit_production_code_no_record(task_id: str, deps: "NodeDeps") -> s
                 f"sacv: implement {task_id}", add_all=True
             )
             return str(sha)
-        except Exception as exc:
-            log.warning("memory_consolidation.commit_failed", error=str(exc))
+        except Exception:
+            log.warning("memory_consolidation.commit_failed", exc_info=True)
             return ""
     return str(await asyncio.to_thread(_sync_work))
 
@@ -276,8 +275,8 @@ async def _update_agents_md(
             add_all=False,
         )
         return True, cost
-    except Exception as exc:
-        log.warning("memory_consolidation.agents_md_failed", error=str(exc))
+    except Exception:
+        log.warning("memory_consolidation.agents_md_failed", exc_info=True)
         return False, state.get("cumulative_cost_dollars", 0.0)
 
 
@@ -370,8 +369,8 @@ async def _update_arch_rules(
 
         log.info("memory_consolidation.arch_rule_added", module=module_type)
         return True, new_cost
-    except Exception as exc:
-        log.warning("memory_consolidation.arch_rules_failed", error=str(exc))
+    except Exception:
+        log.warning("memory_consolidation.arch_rules_failed", exc_info=True)
         return False, new_cost
 
 

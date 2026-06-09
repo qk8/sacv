@@ -94,7 +94,7 @@ def make_hitl_escalation_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Co
             await asyncio.to_thread(deps.git.checkout, "main")
         except Exception as exc:
             git_reset_error = str(exc)
-            log.error("hitl.git_reset_failed", error=git_reset_error, green_sha=green_sha)
+            log.error("hitl.git_reset_failed", error=git_reset_error, green_sha=green_sha, exc_info=True)
 
         git_state = {
             "active_branch":       current_branch,

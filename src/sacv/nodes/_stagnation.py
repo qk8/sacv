@@ -87,7 +87,7 @@ def _cosine_similarity_from_b64(b64_a: str, b64_b: str) -> float:
         vec_b = struct.unpack(f"{n}f", raw_b)
     except Exception:
         log.warning("stagnation.similarity_error",
-                     a_len=len(b64_a), b_len=len(b64_b))
+                     a_len=len(b64_a), b_len=len(b64_b), exc_info=True)
         return 0.0
 
     dot   = float(sum((a * b for a, b in zip(vec_a, vec_b)), 0.0))

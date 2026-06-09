@@ -368,8 +368,8 @@ async def _run_jdwp_session(
                                 "thread_id":  step_hit.thread_name,
                             })
 
-    except Exception as exc:
-        log.warning("debugger.jdwp_session_error", error=str(exc))
+    except Exception:
+        log.warning("debugger.jdwp_session_error", exc_info=True)
 
     return obs
 
@@ -472,8 +472,8 @@ async def _run_cdp_session(
                                                for f in step_paused.call_frames],
                                 "thread_id": "main",
                             })
-    except Exception as exc:
-        log.warning("debugger.cdp_session_error", error=str(exc))
+    except Exception:
+        log.warning("debugger.cdp_session_error", exc_info=True)
 
     return obs
 

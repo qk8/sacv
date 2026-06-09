@@ -137,9 +137,9 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
                     deps.git.delete_branch, exhausted_branch, force=True
                 )
                 log.info("speculative_branch.branch_deleted", branch=exhausted_branch)
-            except Exception as exc:
+            except Exception:
                 log.warning("speculative_branch.branch_delete_failed",
-                            branch=exhausted_branch, error=str(exc))
+                            branch=exhausted_branch, exc_info=True)
 
         if winning_branch:
             log.info("speculative_branch.winner", branch=winning_branch)
@@ -271,8 +271,16 @@ async def _evaluate_branch(
         try:
             await asyncio.to_thread(deps.git.remove_worktree, worktree_path)
         except Exception:
-            pass  # worktree may already be gone
+            log.debug(
+                "speculative_branch.worktree_cleanup_failed",
+                path=str(worktree_path),
+                exc_info=True,
+            )
         try:
             shutil.rmtree(str(worktree_path), ignore_errors=True)
         except Exception:
-            pass  # temp dir may already be gone
+            log.debug(
+                "speculative_branch.tempdir_cleanup_failed",
+                path=str(worktree_path),
+                exc_info=True,
+            )
