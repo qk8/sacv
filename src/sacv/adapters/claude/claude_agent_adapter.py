@@ -156,12 +156,13 @@ class ClaudeAgentAdapter(AgentProvider):
 
         content = "\n".join(text_parts).strip()
 
-        log.debug(
+        log.info(
             "claude_adapter.complete",
             role=config.role,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             content_len=len(content),
+            total_cost_usd=total_cost_usd,
         )
 
         return AgentResult(
