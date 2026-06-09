@@ -399,3 +399,85 @@ class TestActorFlow:
         assert final["current_phase"] == WorkflowPhase.COMPLETE.value
         # Cost should be > 0 (token tracking is working)
         assert final["cumulative_cost_dollars"] > 0
+
+    async def test_cost_accumulates_from_value_node_and_actor(self, tmp_path, monkeypatch):
+        """
+        BUG-001: value_node, actor, and critics must accumulate LLM costs.
+
+        Each LLM call uses 1_000_000 input + 1_000_000 output tokens.
+        With cost_per_m_input=5.0 and cost_per_m_output=30.0, each call costs $35.
+
+        The chain has 7 structured_output calls:
+          value_node(1) + actor(1) + critics(3) + memory_consolidation(2) = 7
+
+        Expected total: 7 * 35.0 = $245.0
+
+        BUG-001 symptom: only memory_consolidation accumulates cost,
+        so the total would be 2 * 35.0 = $70.0 — the test would pass
+        the > 0 assertion but fail the precise expected-cost assertion.
+        """
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+
+        COST_PER_CALL = 35.0  # 1M in * $5/M + 1M out * $30/M
+
+        # Build a chain where every LLM call uses 1M tokens for easy math
+        def big_tokens(content):
+            return make_json_agent_result(content, tokens=1_000_000)
+
+        chain = [
+            # value_node: 1 call
+            big_tokens([{
+                "strategy_id": "s1", "description": "Add findById",
+                "affected_files": ["UserService.java"],
+            }]),
+            # actor: 1 call
+            big_tokens([{
+                "file_path": "src/main/java/com/example/UserService.java",
+                "diff_content": "@@ -10 +10 @@\n+ new code",
+                "operation": "modify",
+                "language": "java",
+            }]),
+            # critics: 3 calls (all empty)
+            big_tokens([]),
+            big_tokens([]),
+            big_tokens([]),
+            # memory_consolidation: 2 calls (agents_md + arch_rules)
+            big_tokens({"common_mistakes": "", "architecture_decisions": ""}),
+            big_tokens({"name": "rule1", "from": {}, "to": {}}),
+        ]
+        agent = StubAgentProvider(chain)
+
+        deps = NodeDeps(
+            agent=agent,
+            memory=StubMemoryProvider(),
+            code_graph=StubCodeGraphProvider(),
+            cross_domain=StubCrossDomainProvider(),
+            git=StubGitProvider(),
+            sandbox=_passing_sandbox(),
+            diff=StubDiffProvider(),
+            config=WorkflowConfig(max_self_correction_cycles=3),
+        )
+
+        state = _initial_state("task-af-cost-full")
+
+        graph = build_graph(deps, checkpointer=MemorySaver())
+        cfg = {"configurable": {"thread_id": "af-cost-full"}}
+
+        final = await graph.ainvoke(state, cfg)
+
+        assert final["current_phase"] == WorkflowPhase.COMPLETE.value
+
+        # All LLM calls should have accumulated their costs.
+        # Actual calls made: value_node(1) + actor(1) + critics(3)
+        #   + memory_consolidation.agents_md(1) = 6 calls
+        # arch_rules does NOT call LLM because arch_violations is empty.
+        # 6 calls * $35/call = $210.0
+        # Allow a small tolerance for floating-point.
+        expected = 6 * COST_PER_CALL
+        actual = final["cumulative_cost_dollars"]
+        assert actual == pytest.approx(expected, abs=0.01), (
+            f"Expected cost ~${expected:.1f} (6 calls * $35), got ${actual:.4f}. "
+            "This indicates LLM costs from value_node, actor, or critics "
+            "are not being accumulated — BUG-001."
+        )

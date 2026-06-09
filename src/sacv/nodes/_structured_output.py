@@ -87,6 +87,7 @@ class StructuredOutputResult(Generic[T]):
     raw_content: str
     retry_count: int = 0
     agent_result: Any = None
+    updated_cost: float = 0.0  # cumulative cost after this call (BUG-001)
 
 
 async def extract_structured(
@@ -97,6 +98,8 @@ async def extract_structured(
     context: dict[str, object] | None = None,
     max_retries: int = 3,
     allowed_tools: list[str] | None = None,
+    current_cost: float = 0.0,
+    workflow_config: Any = None,        # BUG-001: WorkflowConfig for cost calc
 ) -> StructuredOutputResult[T]:
     """
     Extract structured data from LLM output with automatic retry.
@@ -149,11 +152,17 @@ async def extract_structured(
         # Try to parse and validate
         try:
             parsed = _validate(result.content, response_model)
+            # BUG-001: accumulate token cost after successful parse
+            updated_cost = current_cost
+            if workflow_config is not None and result is not None:
+                from sacv.orchestration.verifier_utils import add_agent_cost
+                updated_cost = add_agent_cost(result, current_cost, workflow_config)
             return StructuredOutputResult(
                 data=parsed,
                 raw_content=result.content,
                 retry_count=attempt,
                 agent_result=result,
+                updated_cost=updated_cost,
             )
         except (json.JSONDecodeError, ValidationError) as exc:
             last_errors.append(f"Attempt {attempt + 1}: {exc}")

@@ -85,11 +85,15 @@ def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[A
                 context={"failure_summary": failure_summary},
                 max_retries=3,
                 allowed_tools=[],
+                current_cost=state.get("cumulative_cost_dollars", 0.0),
+                workflow_config=cfg,
             )
             raw: list[dict[str, Any]] = [s.model_dump() for s in structured.data]
+            updated_cost = structured.updated_cost
         except StructuredOutputError:
             log.error("replan.parse_error")
             raw = []
+            updated_cost = state.get("cumulative_cost_dollars", 0.0)
 
         # Remap to StrategyCandidate format with real scoring
         from sacv.orchestration.state import StrategyCandidate
@@ -152,7 +156,7 @@ def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[A
             "red_phase_evidence_path":   None,   # force tdd_gate to generate new tests
             "test_inventory_paths":      [],     # clear old test inventory for new strategies
             "tdd_gate_attempts":         0,      # reset — prevents immediate HITL escalation after replan
-            "cumulative_cost_dollars":   state.get("cumulative_cost_dollars", 0.0),
+            "cumulative_cost_dollars":   updated_cost,
         }
 
     return replan_node

@@ -207,8 +207,8 @@ class TestStyleCriticNode:
 
         assert out["critic_findings"] == []
 
-    async def test_cost_passed_through(self):
-        """Cost passed through (structured_output wrapper doesn't expose token counts)."""
+    async def test_cost_accumulated(self):
+        """Cost accumulated from token counts via extract_structured."""
         agent = StubAgentProvider([AgentResult(
             content="[]",
             tool_calls=[], finish_reason="stop",
@@ -219,5 +219,5 @@ class TestStyleCriticNode:
 
         out = await node(_state())
 
-        # extract_structured() doesn't expose AgentResult token counts
-        assert out["cumulative_cost_dollars"] == 0.0
+        # 100/1M * 5.0 + 200/1M * 30.0 = 0.0065
+        assert out["cumulative_cost_dollars"] == pytest.approx(0.0065, abs=0.001)

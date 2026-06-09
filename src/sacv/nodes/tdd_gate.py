@@ -89,6 +89,7 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                 "red_phase_evidence_path": None,
                 "test_inventory_paths":    [],
                 "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
+                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
             }
 
         # ── 1. Generate tests via Test Oracle ─────────────────────────────
@@ -108,8 +109,11 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                 context={"strategy": strategy},
                 max_retries=3,
                 allowed_tools=[],
+                current_cost=state.get("cumulative_cost_dollars", 0.0),
+                workflow_config=deps.config,
             )
             test_files: list[dict[str, Any]] = [tf.model_dump() for tf in structured.data]
+            updated_cost = structured.updated_cost
         except StructuredOutputError:
             log.error("tdd_gate.parse_error")
             return {
@@ -165,7 +169,7 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                     "red_phase_evidence_path": None,
                     "test_inventory_paths":    [],
                     "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
-                    "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                    "cumulative_cost_dollars": updated_cost,
                 }
 
             # ── 4. Commit test inventory to git (MEDIUM-003) ─────────────
@@ -210,7 +214,7 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                 "current_phase":          WorkflowPhase.ACTOR.value,
                 "red_phase_evidence_path": str(evidence_path),
                 "test_inventory_paths":   permanent_paths,
-                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                "cumulative_cost_dollars": updated_cost,
             }
         finally:
             await deps.sandbox.destroy_container(handle)

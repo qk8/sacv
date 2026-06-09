@@ -302,7 +302,7 @@ class TestActorNode:
         assert "findById" in user_prompt
 
     async def test_cost_accumulation_on_success(self):
-        """Cost is passed through (structured_output wrapper doesn't expose token counts)."""
+        """BUG-001 fix: cost is accumulated from token counts."""
         agent = StubAgentProvider([AgentResult(
             content='[{"file_path":"X.java","diff_content":"+x","operation":"modify","language":"java"}]',
             tool_calls=[], finish_reason="stop",
@@ -313,9 +313,8 @@ class TestActorNode:
 
         out = await node(_state())
 
-        # extract_structured() doesn't expose AgentResult token counts,
-        # so cumulative cost is passed through unchanged
-        assert out["cumulative_cost_dollars"] == 0.0
+        # BUG-001 fix: cost = (1000/1M * 5.0) + (2000/1M * 30.0) = 0.065
+        assert out["cumulative_cost_dollars"] == pytest.approx(0.065, abs=0.001)
 
     async def test_empty_diff_list_from_valid_json(self):
         """LLM returns valid JSON but empty array → self-loop retry."""

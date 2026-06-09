@@ -87,8 +87,11 @@ async def _run_critic(
                 context={"proposal": proposal},
                 max_retries=3,
                 allowed_tools=[],
+                current_cost=state.get("cumulative_cost_dollars", 0.0),
+                workflow_config=deps.config,
             )
             raw_payloads = structured.data
+            updated_cost = structured.updated_cost
         except StructuredOutputError:
             log.error(f"{critic_name}.parse_error")
             return [], state.get("cumulative_cost_dollars", 0.0)
@@ -111,6 +114,6 @@ async def _run_critic(
         findings=len(findings),
         critical=sum(1 for f in findings if f["severity"] == "critical"),
     )
-    return findings, state.get("cumulative_cost_dollars", 0.0)
+    return findings, updated_cost
 
 

@@ -217,8 +217,8 @@ class TestTddGateNode:
         assert out["test_inventory_paths"] == []
         assert len(deps.agent.calls) == 0
 
-    async def test_cost_passed_through(self):
-        """Cost passed through (structured_output wrapper doesn't expose token counts)."""
+    async def test_cost_accumulated(self):
+        """Cost accumulated from token counts via extract_structured."""
         agent = StubAgentProvider([
             AgentResult(
                 content=json.dumps([{
@@ -237,8 +237,8 @@ class TestTddGateNode:
 
         out = await node(state)
 
-        # extract_structured() doesn't expose AgentResult token counts
-        assert out["cumulative_cost_dollars"] == 0.5
+        # 0.5 + (100/1M * 5.0 + 200/1M * 30.0) = 0.5065
+        assert out["cumulative_cost_dollars"] == pytest.approx(0.5065, abs=0.001)
 
     async def test_multiple_test_files_written(self):
         """Multiple test files from agent → all written to canonical paths."""

@@ -88,6 +88,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                  has_debug_obs=debug_obs is not None)
 
         # ── 0. Stagnation guard ───────────────────────────────────────────
+        updated_cost = state.get("cumulative_cost_dollars", 0.0)
         stagnation = check_stagnation(correction, deps.config)
         if stagnation:
             log.warning("actor.stagnation", pattern=stagnation)
@@ -115,7 +116,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                     actuator_snapshot=None,
                 ),
                 "diff_proposal": None,
-                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                "cumulative_cost_dollars": updated_cost,
             }
 
         # ── 1. Git branch ─────────────────────────────────────────────────
@@ -167,11 +168,15 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 context={"strategy": strategy, "skeleton": skeleton},
                 max_retries=3,
                 allowed_tools=["Read", "Bash", "Glob", "Grep", "LS"],
+                current_cost=state.get("cumulative_cost_dollars", 0.0),
+                workflow_config=deps.config,
             )
             raw_diffs: list[dict[str, object]] = [d.model_dump() for d in structured.data]
+            updated_cost = structured.updated_cost
         except StructuredOutputError as exc:
             log.error("actor.parse_error", error=str(exc))
             raw_diffs = []
+            updated_cost = state.get("cumulative_cost_dollars", 0.0)
 
         diffs = [
             UnifiedDiffPayload(
@@ -194,7 +199,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 "diff_proposal": None,
                 "empty_diff_retries": state.get("empty_diff_retries", 0) + 1,
                 "critic_findings": CRITIC_RESET,   # clear stale findings to avoid misleading next prompt
-                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                "cumulative_cost_dollars": updated_cost,
             }
 
         errors = await deps.diff.validate_no_full_overwrite(
@@ -210,7 +215,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 "diff_proposal":   None,
                 "empty_diff_retries": state.get("empty_diff_retries", 0) + 1,
                 "critic_findings": CRITIC_RESET,  # clear stale critic feedback from prior diff
-                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                "cumulative_cost_dollars": updated_cost,
             }
 
         apply_result = await deps.diff.apply_diffs([UnifiedDiff(**p) for p in diffs])
@@ -224,7 +229,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 },
                 "diff_proposal":   None,
                 "critic_findings": CRITIC_RESET,  # clear stale critic feedback from prior diff
-                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                "cumulative_cost_dollars": updated_cost,
             }
 
         proposal = DiffProposal(
@@ -246,7 +251,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 "attempt_count": correction["attempt_count"] + 1,
                 "branch_name":   branch_name,
             },
-            "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+            "cumulative_cost_dollars": updated_cost,
         }
 
     return actor_node

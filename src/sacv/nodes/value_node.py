@@ -93,11 +93,15 @@ def make_value_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 context={"skeleton": skeleton, "blast": blast},
                 max_retries=3,
                 allowed_tools=[],
+                current_cost=state.get("cumulative_cost_dollars", 0.0),
+                workflow_config=deps.config,
             )
             raw_strategies: list[dict[str, Any]] = [s.model_dump() for s in structured.data]
+            updated_cost = structured.updated_cost
         except StructuredOutputError:
             log.error("value_node.parse_error")
             raw_strategies = []
+            updated_cost = state.get("cumulative_cost_dollars", 0.0)
 
         # ── 3. Score each strategy (deterministic) ────────────────────────
         blast_files = set(blast["affected_files"]) if blast else set()
@@ -156,7 +160,7 @@ def make_value_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
             "strategy_candidates": passing,
             "selected_strategy":   selected,
             "pruned_strategies":   pruned,
-            "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+            "cumulative_cost_dollars": updated_cost,
         }
 
     return value_node_fn
