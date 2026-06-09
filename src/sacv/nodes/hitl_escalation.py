@@ -18,6 +18,7 @@ back to AgentMemory as procedural constraints (see memory_consolidation.py).
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import json
 import uuid
 from datetime import datetime, timezone
@@ -36,7 +37,10 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_WORKFLOW_VERSION = "sacv-1.0"
+try:
+    _WORKFLOW_VERSION = f"sacv-{importlib.metadata.version('sacv-workflow')}"
+except importlib.metadata.PackageNotFoundError:
+    _WORKFLOW_VERSION = "sacv-unknown"
 
 
 def make_hitl_escalation_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":

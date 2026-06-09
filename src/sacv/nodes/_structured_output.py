@@ -81,9 +81,12 @@ class AgentsMdUpdate(BaseModel):
 
 class StructuredOutputError(Exception):
     """Raised when all retries fail to produce valid structured output."""
-    def __init__(self, message: str, last_raw_content: str = "") -> None:
+    def __init__(
+        self, message: str, last_raw_content: str = "", updated_cost: float = 0.0,
+    ) -> None:
         super().__init__(message)
         self.last_raw_content = last_raw_content
+        self.updated_cost = updated_cost
 
 
 @dataclass
@@ -181,10 +184,17 @@ async def extract_structured(
             last_errors.append(f"Attempt {attempt + 1}: {exc}")
             accumulated_context.append(str(exc))
 
+    # Compute updated_cost from last agent result for M-07
+    error_cost = current_cost
+    if workflow_config is not None and result is not None:
+        from sacv.orchestration.verifier_utils import add_agent_cost
+        error_cost = add_agent_cost(result, current_cost, workflow_config)
+
     raise StructuredOutputError(
         f"Failed to extract valid {response_model!r} after "
         f"{max_retries} retries. Errors:\n" + "\n".join(last_errors),
         last_raw_content=result.content if result else "",
+        updated_cost=error_cost,
     )
 
 

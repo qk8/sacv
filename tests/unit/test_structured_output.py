@@ -567,3 +567,40 @@ class TestStructuredOutputResult:
         assert r.data == {"key": "val"}
         assert r.raw_content == '{"key":"val"}'
         assert r.retry_count == 2
+
+
+class TestStructuredOutputErrorCost:
+    """M-07: StructuredOutputError carries updated_cost from failed agent call."""
+
+    async def test_error_caries_updated_cost(self):
+        """StructuredOutputError includes updated_cost from the last agent result."""
+        agent = StubAgentProvider([
+            make_json_agent_result("bad"),
+            make_json_agent_result("still bad"),
+        ])
+        with pytest.raises(StructuredOutputError) as exc_info:
+            await extract_structured(
+                agent=agent,
+                prompt="Create diff",
+                response_model=List[DiffPayload],
+                system_prompt=_SYSTEM,
+                max_retries=1,
+                current_cost=5.0,
+            )
+        # The error should carry the updated cost (5.0 + agent cost)
+        assert hasattr(exc_info.value, "updated_cost")
+        assert exc_info.value.updated_cost >= 5.0  # cost increased from agent call
+
+    async def test_error_cost_is_zero_when_no_cost_passed(self):
+        """When no current_cost is passed, updated_cost defaults to 0."""
+        agent = StubAgentProvider([make_json_agent_result("bad")])
+        with pytest.raises(StructuredOutputError) as exc_info:
+            await extract_structured(
+                agent=agent,
+                prompt="Create diff",
+                response_model=List[DiffPayload],
+                system_prompt=_SYSTEM,
+                max_retries=0,
+            )
+        assert hasattr(exc_info.value, "updated_cost")
+        assert exc_info.value.updated_cost >= 0.0

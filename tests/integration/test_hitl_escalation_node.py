@@ -546,4 +546,7 @@ class TestHITLEscalationNode:
 
         esc_files = list((tmp_path / ".workflow" / "escalations").glob("*.json"))
         data = json.loads(esc_files[0].read_text())
-        assert data["workflow_version"] == "sacv-1.0"
+        # M-08: workflow_version uses package version (not hardcoded "sacv-1.0")
+        import importlib.metadata
+        expected = f"sacv-{importlib.metadata.version('sacv-workflow')}"
+        assert data["workflow_version"] == expected

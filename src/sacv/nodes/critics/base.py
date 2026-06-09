@@ -99,7 +99,7 @@ async def _run_critic(
                 raw_content_preview=exc.last_raw_content[:500],
                 raw_content_len=len(exc.last_raw_content),
             )
-            return [], state.get("cumulative_cost_dollars", 0.0)
+            return [], exc.updated_cost
 
     findings: list[CriticFinding] = [
         CriticFinding(
