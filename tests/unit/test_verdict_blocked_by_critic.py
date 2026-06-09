@@ -17,8 +17,7 @@ retry with critic feedback or escalate.
 Tests verify:
 1. _make_verdict accepts blocked_by_critic parameter
 2. _build_return includes blocked_by_critic in output
-3. route_after_verifier does NOT change behavior based on this flag
-   (the flag is informational for the Actor, not a routing signal)
+3. route_after_verifier routes to actor when blocked_by_critic=True (M-02)
 4. Verdict without critic block has blocked_by_critic = False/None
 5. _classify is unaffected by this change
 """
@@ -168,3 +167,97 @@ class TestActorUsesBlockedByCritic:
 
         verdict = state.get("verifier_verdict") or {}
         assert verdict.get("blocked_by_critic") is True
+
+
+class TestRouteAfterVerifierWithBlockedByCritic:
+    """M-02: route_after_verifier routes to actor when blocked_by_critic=True."""
+
+    def _make_state(self, **overrides):
+        base = {
+            "session_id": "t",
+            "task_id": "T1",
+            "task_description": "",
+            "project_mode": "greenfield",
+            "module_type": "backend-domain",
+            "current_phase": "verifier",
+            "context_skeleton": None,
+            "blast_radius_map": None,
+            "agents_md_context": None,
+            "strategy_candidates": [],
+            "selected_strategy": None,
+            "pruned_strategies": [],
+            "red_phase_evidence_path": None,
+            "test_inventory_paths": [],
+            "diff_proposal": None,
+            "preflight_result": None,
+            "critic_findings": [],
+            "verifier_verdict": {
+                "test_result": "FAIL",
+                "diagnostic": "FIX_IMPL",
+                "phase1_passed": False,
+                "phase2_passed": True,
+                "test_failures": [{"message": "NPE"}],
+                "performance_delta": None,
+                "visual_diff_result": None,
+                "docker_exit_code": 1,
+                "blocked_by_critic": False,
+            },
+            "correction_state": {
+                "attempt_count": 0,
+                "branch_name": None,
+                "last_error_hash": None,
+                "error_history": [],
+                "stagnation_pattern": "none",
+            },
+            "confidence_score": 1.0,
+            "replan_count": 0,
+            "active_branches": [],
+            "exhausted_branches": [],
+            "escalation_payload": None,
+            "procedural_constraints": [],
+            "lesson_learned": None,
+            "arch_rules_updated": False,
+            "debug_observations": None,
+            "cumulative_cost_dollars": 0.0,
+            "speculative_stash_ref": None,
+        }
+        base.update(overrides)
+        return base
+
+    def test_blocked_by_critic_routes_to_actor_not_speculative(self):
+        """When blocked_by_critic=True, route to actor even at attempt >= 2."""
+        from sacv.orchestration.edges import route_after_verifier
+
+        state = self._make_state(
+            verifier_verdict={
+                **self._make_state()["verifier_verdict"],
+                "blocked_by_critic": True,
+            },
+            correction_state={**self._make_state()["correction_state"], "attempt_count": 2},
+        )
+        result = route_after_verifier(state)
+        assert result == "actor"
+
+    def test_not_blocked_by_critic_uses_normal_routing(self):
+        """When blocked_by_critic=False, normal routing applies."""
+        from sacv.orchestration.edges import route_after_verifier
+
+        state = self._make_state(
+            correction_state={**self._make_state()["correction_state"], "attempt_count": 2},
+        )
+        result = route_after_verifier(state)
+        assert result == "speculative_branch"
+
+    def test_blocked_by_critic_at_low_attempt_still_routes_to_actor(self):
+        """blocked_by_critic=True routes to actor regardless of attempt count."""
+        from sacv.orchestration.edges import route_after_verifier
+
+        state = self._make_state(
+            verifier_verdict={
+                **self._make_state()["verifier_verdict"],
+                "blocked_by_critic": True,
+            },
+            correction_state={**self._make_state()["correction_state"], "attempt_count": 0},
+        )
+        result = route_after_verifier(state)
+        assert result == "actor"

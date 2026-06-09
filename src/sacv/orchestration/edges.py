@@ -140,10 +140,11 @@ def route_after_verifier(
     Priority order:
     1. PASS                   → memory_consolidation
     2. Low confidence         → hitl_escalation  (approach 4 — early exit)
-    3. MAX attempts           → hitl_escalation
-    4. diagnostic == AMBIGUOUS → intelligent_debugger  (NEW — debugging session)
-    5. attempt >= 2           → speculative_branch
-    6. attempt < 2            → actor  (retry with critic feedback)
+    3. CRITIC block           → actor  (M-02: targeted critic-guided fix)
+    4. MAX attempts           → hitl_escalation
+    5. diagnostic == AMBIGUOUS → intelligent_debugger  (NEW — debugging session)
+    6. attempt >= 2           → speculative_branch
+    7. attempt < 2            → actor  (retry with critic feedback)
     """
     cfg     = _cfg(config)
     verdict = state.get("verifier_verdict")
@@ -171,6 +172,13 @@ def route_after_verifier(
     confidence = state.get("confidence_score", 1.0)
     if confidence < cfg.confidence_escalation_threshold:
         return "hitl_escalation"
+
+    # M-02: When blocked by critical critic findings, route to actor
+    # for a targeted critic-guided fix (bypass speculative branch)
+    if verdict.get("blocked_by_critic"):
+        log.info("route_after_verifier.critic_blocked",
+                 task_id=state.get("task_id"))
+        return "actor"
 
     attempt    = state["correction_state"]["attempt_count"]
     diagnostic = verdict.get("diagnostic", "UNKNOWN")
