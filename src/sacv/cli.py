@@ -100,6 +100,26 @@ async def cmd_run(args: argparse.Namespace) -> None:
         # Validate Docker image exists before starting the graph
         await DockerContainerManager.validate_image()
 
+        # ── Validate MCP server connectivity ──────────────────────────────
+        from sacv.adapters.memory.agentmemory_adapter import AgentMemoryAdapter
+        from sacv.adapters.graph.codegraph_adapter import CodeGraphAdapter
+        from sacv.adapters.graph.graphify_adapter import GraphifyAdapter
+
+        for adapter, name in [
+            (deps.memory, "agentmemory"),
+            (deps.code_graph, "codegraph"),
+            (deps.cross_domain, "graphify"),
+        ]:
+            if hasattr(adapter, "validate"):
+                try:
+                    await adapter.validate()
+                except RuntimeError as exc:
+                    print(f"ERROR: {name} MCP server is not available: {exc}",
+                          file=sys.stderr)
+                    sys.exit(1)
+
+        log.info("workflow.all_deps_validated")
+
         db_path = Path(".workflow/sacv.db")
         db_path.parent.mkdir(parents=True, exist_ok=True)
 

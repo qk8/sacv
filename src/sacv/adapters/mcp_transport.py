@@ -109,6 +109,24 @@ class McpStdioTransport:
             self._proc.terminate()
             await self._proc.wait()
 
+    async def validate(self) -> None:
+        """
+        Check that the server binary is available and the MCP handshake succeeds.
+        Raises RuntimeError with a clear message if anything is wrong.
+        Call this once at startup before invoking any tool.
+        """
+        import shutil
+        if self._cmd:
+            binary = self._cmd[0]
+            if not shutil.which(binary):
+                raise RuntimeError(
+                    f"{self._log_prefix}: server binary '{binary}' not found on PATH. "
+                    f"Install it or set the correct path in your configuration."
+                )
+        # Start the subprocess and perform the handshake
+        await self.start()
+        log.info(f"{self._log_prefix}.validated")
+
     async def __aenter__(self) -> "McpStdioTransport":
         await self.start()
         return self
