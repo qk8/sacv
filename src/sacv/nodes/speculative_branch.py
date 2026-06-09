@@ -284,7 +284,7 @@ async def _evaluate_branch(
         try:
             await asyncio.to_thread(deps.git.remove_worktree, worktree_path)
         except Exception:
-            log.debug(
+            log.warning(
                 "speculative_branch.worktree_cleanup_failed",
                 path=str(worktree_path),
                 exc_info=True,
@@ -292,7 +292,7 @@ async def _evaluate_branch(
         try:
             shutil.rmtree(str(worktree_path), ignore_errors=True)
         except Exception:
-            log.debug(
+            log.warning(
                 "speculative_branch.tempdir_cleanup_failed",
                 path=str(worktree_path),
                 exc_info=True,
