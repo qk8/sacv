@@ -3,6 +3,18 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 
+import structlog
+
+_log = structlog.get_logger(__name__)
+
+_KNOWN_TOP_LEVEL_KEYS = frozenset({
+    "max_self_correction_cycles", "confidence_escalation_threshold",
+    "max_replan_attempts", "max_tdd_gate_attempts", "max_empty_diff_retries",
+    "max_parallel_branches", "max_parallel_critics", "min_strategy_score",
+    "max_strategies", "max_blast_files", "monorepo_mode", "agents_md_prompt_chars",
+    "stagnation", "token_budget", "cadence", "debug",
+})
+
 
 @dataclass(frozen=True)
 class StagnationConfig:
@@ -88,6 +100,17 @@ class WorkflowConfig:
     @classmethod
     def from_json(cls, path: str | Path) -> "WorkflowConfig":
         raw = json.loads(Path(path).read_text())
+
+        # ── Warn on unknown top-level keys ────────────────────────────────
+        unknown = set(raw.keys()) - _KNOWN_TOP_LEVEL_KEYS
+        if unknown:
+            _log.warning(
+                "config.unknown_keys",
+                path=str(path),
+                unknown_keys=sorted(unknown),
+                hint="These keys are unrecognised and will have no effect. Check for typos.",
+            )
+
         dbg = raw.get("debug", {})
         cad = raw.get("cadence", {})
         stg = raw.get("stagnation", {})
