@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import AsyncIterator
 
 import structlog
@@ -71,6 +72,19 @@ class ClaudeAgentAdapter(AgentProvider):
             raise ImportError(
                 "claude-agent-sdk is required. Install with: "
                 "pip install claude-agent-sdk"
+            )
+        # Validate API key at construction time for a clear early error message.
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            raise ValueError(
+                "ANTHROPIC_API_KEY environment variable is not set. "
+                "Set it with: export ANTHROPIC_API_KEY=sk-ant-..."
+            )
+        if not api_key.startswith("sk-ant-"):
+            log.warning(
+                "claude_adapter.api_key_format",
+                hint="ANTHROPIC_API_KEY does not start with 'sk-ant-'. "
+                     "This may be a test key or an invalid key.",
             )
         self._cwd     = cwd
         self._timeout = timeout

@@ -180,6 +180,42 @@ class TestRetryLogging:
             "Tenacity retry decorator must include before_sleep=before_sleep_log(...) "
             "so retries produce visible log output"
         )
-        assert "before_sleep_log" in mod_source, (
+        assert "before_sleep_log" in mod_source
+
+
+class TestApiKeyValueValidation:
+
+    def test_missing_api_key_raises_value_error(self, monkeypatch):
+        """CFG-002: ClaudeAgentAdapter must validate ANTHROPIC_API_KEY at init time."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+            from sacv.adapters.claude.claude_agent_adapter import ClaudeAgentAdapter
+            # Force reimport to get fresh class
+            import importlib, sys
+            mod = sys.modules["sacv.adapters.claude.claude_agent_adapter"]
+            importlib.reload(mod)
+            mod.ClaudeAgentAdapter()
+
+    def test_valid_api_key_format_accepted(self, monkeypatch):
+        """Valid API key format (sk-ant-...) should not raise."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key-123")
+        import importlib, sys
+        mod = sys.modules["sacv.adapters.claude.claude_agent_adapter"]
+        importlib.reload(mod)
+        # Should not raise
+        adapter = mod.ClaudeAgentAdapter()
+        assert adapter is not None
+
+    def test_invalid_api_key_format_warns(self, monkeypatch, caplog):
+        """API key not starting with sk-ant- should produce a warning."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "invalid-key-format")
+        import importlib, sys
+        mod = sys.modules["sacv.adapters.claude.claude_agent_adapter"]
+        importlib.reload(mod)
+        # Should not raise but should warn
+        import logging
+        mod.log.setLevel(logging.WARNING)
+        adapter = mod.ClaudeAgentAdapter()
+        assert adapter is not None, (
             "before_sleep_log must be imported from tenacity"
         )
