@@ -94,7 +94,22 @@ class DockerContainerManager(SandboxProvider):
     ) -> ExecResult:
         """
         Execute a shell command inside the warm container via ``docker exec``.
+
+        Checks container health before executing — if the container has died
+        (e.g. OOM-killed, crashed), raises a clear RuntimeError instead of
+        letting docker fail with an opaque "No such container" error.
         """
+        if not await self._container_alive(handle.container_id):
+            log.error(
+                "docker.container_died",
+                container_id=handle.container_id[:12],
+                command_preview=command[:100],
+            )
+            raise RuntimeError(
+                f"Sandbox container {handle.container_id[:12]} is no longer running. "
+                "It may have been OOM-killed or crashed. "
+                "The current node will fail; the workflow will route to HITL or retry."
+            )
         env_flags: list[str] = []
         for k, v in (env or {}).items():
             env_flags += ["-e", f"{k}={v}"]
