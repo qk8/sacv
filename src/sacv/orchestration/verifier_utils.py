@@ -62,9 +62,44 @@ async def run_verifier_with_confidence(
     """Run the verifier node and compute confidence_score in the returned dict."""
     from sacv.nodes.verifier import make_verifier_node
     from sacv.orchestration.edges import compute_confidence_score
+    from sacv.orchestration.state import WorkflowPhase, VerifierVerdict, DiagnosticVerdict
+    import structlog
 
+    _log = structlog.get_logger(__name__)
     _inner = make_verifier_node(deps)
-    out    = await _inner(state)
+    try:
+        out = await _inner(state)
+    except Exception as exc:
+        _log.error(
+            "verifier.unhandled_exception",
+            error=str(exc),
+            exc_type=type(exc).__name__,
+            task_id=state.get("task_id"),
+            exc_info=True,
+        )
+        out = {
+            "current_phase":   WorkflowPhase.VERIFIER.value,
+            "verifier_verdict": VerifierVerdict(
+                test_result="FAIL",
+                diagnostic=DiagnosticVerdict.AMBIGUOUS.value,
+                phase1_passed=False,
+                phase2_passed=False,
+                test_failures=[{"message": f"verifier_exception: {type(exc).__name__}: {exc}",
+                                "file": None}],
+                performance_delta=None,
+                visual_diff_result=None,
+                docker_exit_code=-2,
+                playwright_trace_path=None,
+                otel_trace=None,
+                actuator_snapshot=None,
+                blocked_by_critic=False,
+            ),
+            "correction_state": {
+                **state["correction_state"],
+                "attempt_count": state["correction_state"]["attempt_count"] + 1,
+            },
+        }
+
     merged = {**state, **out}
     score  = compute_confidence_score(merged, deps.config)
     # The verifier node makes no LLM calls; cost does not change here.

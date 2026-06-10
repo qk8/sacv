@@ -18,6 +18,11 @@ import pytest
 from sacv.orchestration.config import WorkflowConfig, TokenBudget
 from sacv.orchestration.verifier_utils import accumulate_cost, add_agent_cost
 from sacv.interfaces.agent_provider import AgentResult
+from sacv.testing.stub_providers import (
+    StubAgentProvider, StubMemoryProvider, StubCodeGraphProvider,
+    StubCrossDomainProvider, StubDiffProvider, StubGitProvider,
+    StubSandboxProvider,
+)
 
 
 @pytest.mark.unit
@@ -222,3 +227,72 @@ class TestRunVerifierWithConfidence:
         # Should have verifier_verdict and confidence_score
         assert "verifier_verdict" in result
         assert "confidence_score" in result
+
+    async def test_verifier_exception_returns_fail_verdict(self):
+        """ERR-004: When verifier raises, must return FAIL verdict and increment attempt_count.
+
+        Unhandled exceptions (Docker unavailable, network timeout) should not
+        crash the graph. Instead, a synthetic FAIL verdict is returned so
+        route_after_verifier can escalate to HITL cleanly.
+        """
+        from sacv.orchestration.deps import NodeDeps
+        from sacv.orchestration.state import WorkflowPhase, DiagnosticVerdict
+        from unittest.mock import AsyncMock, patch
+
+        deps = NodeDeps(
+            agent=StubAgentProvider(),
+            memory=StubMemoryProvider(),
+            code_graph=StubCodeGraphProvider(),
+            cross_domain=StubCrossDomainProvider(),
+            git=StubGitProvider(),
+            sandbox=StubSandboxProvider(),
+            diff=StubDiffProvider(),
+            config=WorkflowConfig(),
+        )
+
+        state = {
+            "session_id": "t", "task_id": "t", "task_description": "",
+            "project_mode": "greenfield", "module_type": "backend-domain",
+            "current_phase": WorkflowPhase.VERIFIER.value,
+            "context_skeleton": None, "blast_radius_map": None,
+            "agents_md_context": None, "strategy_candidates": [],
+            "selected_strategy": None, "pruned_strategies": [],
+            "red_phase_evidence_path": None, "test_inventory_paths": [],
+            "diff_proposal": None, "preflight_result": None,
+            "critic_findings": [], "verifier_verdict": None,
+            "debug_observations": None,
+            "correction_state": {
+                "attempt_count": 1, "branch_name": None,
+                "last_error_hash": None, "error_history": [],
+                "stagnation_pattern": "none",
+            },
+            "confidence_score": 1.0, "replan_count": 0,
+            "active_branches": [], "exhausted_branches": [],
+            "escalation_payload": None, "procedural_constraints": [],
+            "lesson_learned": None, "arch_rules_updated": False,
+            "cumulative_cost_dollars": 0.0,
+        }
+
+        async def _failing_verifier(s):
+            raise RuntimeError("Docker daemon not running")
+
+        with patch(
+            "sacv.nodes.verifier.make_verifier_node",
+            return_value=_failing_verifier,
+        ):
+            result = await __import__(
+                'sacv.orchestration.verifier_utils',
+                fromlist=['run_verifier_with_confidence'],
+            ).run_verifier_with_confidence(state, deps)
+
+        # Must return a FAIL verdict, not propagate the exception
+        verdict = result["verifier_verdict"]
+        assert isinstance(verdict, dict)
+        assert verdict["test_result"] == "FAIL"
+        assert verdict["diagnostic"] == DiagnosticVerdict.AMBIGUOUS.value
+        # attempt_count must be incremented
+        assert result["correction_state"]["attempt_count"] == 2
+        # confidence_score must be computed
+        assert "confidence_score" in result
+        # docker_exit_code should indicate internal error
+        assert verdict["docker_exit_code"] == -2
