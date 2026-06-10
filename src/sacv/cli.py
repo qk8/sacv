@@ -181,6 +181,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
                         graph, initial_state, config, args.task_id,
                     )
             except asyncio.TimeoutError:
+                _t, _v, _tb = sys.exc_info()
                 try:
                     state_snapshot = await graph.get_state(config)
                     if state_snapshot and state_snapshot.values:
@@ -197,9 +198,10 @@ async def cmd_run(args: argparse.Namespace) -> None:
                         )
                 except Exception:
                     log.error("workflow_timeout_no_state", task_id=args.task_id,
-                              max_duration=timeout)
+                              max_duration=timeout, exc_info=(_t, _v, _tb))
                 raise
             except Exception:
+                _t, _v, _tb = sys.exc_info()
                 try:
                     state_snapshot = await graph.get_state(config)
                     if state_snapshot and state_snapshot.values:
@@ -212,10 +214,10 @@ async def cmd_run(args: argparse.Namespace) -> None:
                             last_verdict=(sv.get("verifier_verdict") or {}).get("test_result")
                             if sv.get("verifier_verdict") else None,
                             cost=sv.get("cumulative_cost_dollars"),
-                            exc_info=True,
+                            exc_info=(_t, _v, _tb),
                         )
                 except Exception:
-                    log.error("workflow.fatal_exception_no_state", exc_info=True)
+                    log.error("workflow.fatal_exception_no_state", exc_info=(_t, _v, _tb))
                 raise
 
         print(format_result(result, args.task_id))

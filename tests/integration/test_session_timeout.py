@@ -182,3 +182,48 @@ class TestCmdRunSessionTimeout:
                 # Verify the logged message mentions timeout
                 log_call = mock_log.error.call_args[0][0] if mock_log.error.call_args[0] else ""
                 assert "workflow_timeout" in log_call
+
+    async def test_cmd_run_timeout_preserves_exc_info_on_state_failure(self) -> None:
+        """When get_state fails during timeout, log.error includes exc_info."""
+        os.environ["ANTHROPIC_API_KEY"] = "test-key"
+        from sacv.cli import cmd_run
+
+        args = argparse.Namespace(
+            task_id="timeout-exc-test",
+            description="Test task",
+            mode="greenfield",
+            module="backend-domain",
+            check_profile="standard",
+        )
+
+        with patch("sacv.cli._build_deps") as mock_deps, \
+             patch("sacv.cli._start_deps") as mock_start, \
+             patch("sacv.cli._stop_deps") as mock_stop, \
+             patch("sacv.adapters.sandbox.DockerContainerManager") as mock_docker, \
+             patch("sacv.orchestration.graph.build_graph") as mock_build, \
+             patch("sacv.cli_progress.run_with_progress") as mock_run, \
+             patch("sacv.cli.print") as mock_print:
+
+            mock_deps_instance = MagicMock()
+            mock_deps_instance.config = replace(WorkflowConfig(), max_workflow_duration=1)
+            mock_deps_instance.memory.validate = AsyncMock()
+            mock_deps_instance.code_graph.validate = AsyncMock()
+            mock_deps_instance.cross_domain.validate = AsyncMock()
+            mock_deps.return_value = mock_deps_instance
+
+            mock_docker.validate_image = AsyncMock()
+            mock_run.side_effect = asyncio.TimeoutError("workflow timed out")
+
+            mock_graph = AsyncMock()
+            mock_graph.get_state = AsyncMock(side_effect=RuntimeError("db locked"))
+            mock_build.return_value = mock_graph
+
+            with patch("sacv.cli.log") as mock_log:
+                with pytest.raises(asyncio.TimeoutError):
+                    await cmd_run(args)
+
+                # Should log workflow_timeout_no_state with exc_info
+                mock_log.error.assert_called()
+                call_kwargs = mock_log.error.call_args[1]
+                assert "exc_info" in call_kwargs
+                assert call_kwargs["exc_info"] is not None
