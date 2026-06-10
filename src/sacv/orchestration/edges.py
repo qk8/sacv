@@ -21,14 +21,20 @@ log = structlog.get_logger(__name__)
 
 def route_after_preflight(state: WorkflowState) -> str:
     result = state.get("preflight_result") or {}
-    if (
+    has_violations = bool(
         result.get("lsp_errors")
         or result.get("arch_violations")
         or result.get("cross_stack_errors")
         or result.get("blast_errors")
-    ):
-        return "actor"
-    return "all_critics"
+    )
+    destination = "actor" if has_violations else "all_critics"
+    log.info(
+        "route.preflight_decision",
+        destination=destination,
+        has_violations=has_violations,
+        task_id=state.get("task_id"),
+    )
+    return destination
 
 
 # ── Confidence score ──────────────────────────────────────────────────────────
@@ -94,19 +100,38 @@ def route_after_actor(
     cfg = config
     correction = state["correction_state"]
     if correction.get("stagnation_pattern", "none") != "none":
+        log.info("route.actor_decision", destination="hitl_escalation",
+                 reason="stagnation", task_id=state.get("task_id"))
         return "hitl_escalation"
     # If actor produced no diff, retry without wasting Docker/critic cycles
     if state.get("diff_proposal") is None:
         if state.get("empty_diff_retries", 0) >= cfg.max_empty_diff_retries:
+            log.info("route.actor_decision", destination="hitl_escalation",
+                     reason="empty_diff_retries_exceeded",
+                     empty_diff_retries=state.get("empty_diff_retries", 0),
+                     task_id=state.get("task_id"))
             return "hitl_escalation"
+        log.info("route.actor_decision", destination="actor",
+                 reason="empty_diff_retry",
+                 empty_diff_retries=state.get("empty_diff_retries", 0),
+                 task_id=state.get("task_id"))
         return "actor"
+    log.info("route.actor_decision", destination="preflight_node",
+             task_id=state.get("task_id"))
     return "preflight_node"
 
 
 # ── Main routing functions ────────────────────────────────────────────────────
 
 def route_after_value_node(state: WorkflowState) -> str:
-    return "hitl_escalation" if not state.get("strategy_candidates") else "tdd_gate"
+    candidates = state.get("strategy_candidates")
+    if not candidates:
+        log.info("route.value_node_decision", destination="hitl_escalation",
+                 reason="no_strategies", task_id=state.get("task_id"))
+        return "hitl_escalation"
+    log.info("route.value_node_decision", destination="tdd_gate",
+             strategy_count=len(candidates), task_id=state.get("task_id"))
+    return "tdd_gate"
 
 
 def route_after_tdd_gate(
@@ -114,10 +139,20 @@ def route_after_tdd_gate(
         config: WorkflowConfig,
     ) -> str:
         cfg = config
+        task_id = state.get("task_id")
         if state.get("red_phase_evidence_path"):
+            log.info("route.tdd_gate_decision", destination="actor",
+                     has_evidence=True, task_id=task_id)
             return "actor"
         if state.get("tdd_gate_attempts", 0) >= cfg.max_tdd_gate_attempts:
+            log.info("route.tdd_gate_decision", destination="hitl_escalation",
+                     reason="tdd_gate_attempts_exceeded",
+                     tdd_gate_attempts=state.get("tdd_gate_attempts", 0),
+                     task_id=task_id)
             return "hitl_escalation"
+        log.info("route.tdd_gate_decision", destination="tdd_gate",
+                 tdd_gate_attempts=state.get("tdd_gate_attempts", 0),
+                 task_id=task_id)
         return "tdd_gate"
 
 
@@ -183,9 +218,29 @@ def route_after_verifier(
         return "intelligent_debugger"
 
     if attempt >= 2:
-        return "speculative_branch"
+        destination = "speculative_branch"
+        log.info(
+            "route.verifier_decision",
+            destination=destination,
+            diagnostic=diagnostic,
+            attempt=attempt,
+            confidence=round(confidence, 3),
+            cost=round(cost, 4),
+            task_id=state.get("task_id"),
+        )
+        return destination
 
-    return "actor"
+    destination = "actor"
+    log.info(
+        "route.verifier_decision",
+        destination=destination,
+        diagnostic=diagnostic,
+        attempt=attempt,
+        confidence=round(confidence, 3),
+        cost=round(cost, 4),
+        task_id=state.get("task_id"),
+    )
+    return destination
 
 
 def route_after_speculative_branch(
@@ -194,18 +249,32 @@ def route_after_speculative_branch(
 ) -> str:
     cfg     = config
     verdict = state.get("verifier_verdict")
+    task_id = state.get("task_id")
 
     if verdict and verdict["test_result"] == "PASS":
+        log.info("route.speculative_branch_decision", destination="memory_consolidation",
+                 test_result="PASS", task_id=task_id)
         return "memory_consolidation"
 
     replan_count = state.get("replan_count", 0)
     if replan_count < cfg.max_replan_attempts:
+        log.info("route.speculative_branch_decision", destination="replan",
+                 replan_count=replan_count, task_id=task_id)
         return "replan"
+    log.info("route.speculative_branch_decision", destination="hitl_escalation",
+             reason="replan_attempts_exceeded", replan_count=replan_count,
+             task_id=task_id)
     return "hitl_escalation"
 
 
 def route_after_replan(state: WorkflowState) -> str:
     """After replan, go straight to TDD gate with the new candidates."""
+    task_id = state.get("task_id")
     if not state.get("strategy_candidates"):
+        log.info("route.replan_decision", destination="hitl_escalation",
+                 reason="no_strategies", task_id=task_id)
         return "hitl_escalation"
+    log.info("route.replan_decision", destination="tdd_gate",
+             candidate_count=len(state["strategy_candidates"]),
+             task_id=task_id)
     return "tdd_gate"
