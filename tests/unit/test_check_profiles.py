@@ -48,7 +48,7 @@ class TestGetChecks:
         assert checks[1].timeout == 30
 
     def test_backend_domain_full(self):
-        checks = get_checks("backend-domain", "full")
+        checks = get_checks("backend-domain", "full", monorepo_mode=True)
         names = [c.name for c in checks]
         assert names == ["lsp", "arch", "cross_stack", "perf"]
         assert checks[2].required is False
@@ -61,7 +61,7 @@ class TestGetChecks:
         assert checks[2].required is False
 
     def test_backend_api_full(self):
-        checks = get_checks("backend-api", "full")
+        checks = get_checks("backend-api", "full", monorepo_mode=True)
         names = [c.name for c in checks]
         assert names == ["lsp", "arch", "blast_radius", "cross_stack"]
         # In full mode, blast_radius and cross_stack are required
@@ -86,7 +86,7 @@ class TestGetChecks:
         assert names == ["lsp", "arch"]
 
     def test_frontend_data_full(self):
-        checks = get_checks("frontend-data", "full")
+        checks = get_checks("frontend-data", "full", monorepo_mode=True)
         names = [c.name for c in checks]
         assert names == ["lsp", "arch", "cross_stack"]
         assert checks[2].timeout == 90

@@ -85,11 +85,21 @@ _DEFAULT_PROFILE = [CheckSpec("lsp", timeout=60)]
 
 
 def get_checks(
-    module_type: str,
-    profile: str = "standard",
+    module_type:   str,
+    profile:       str  = "standard",
+    monorepo_mode: bool = False,
 ) -> list[CheckSpec]:
-    """Return active checks for the given module_type and profile name."""
-    return _MATRIX.get(module_type, {}).get(profile, _DEFAULT_PROFILE)
+    """Return active checks for the given module_type and profile name.
+
+    When ``monorepo_mode=False``, the ``cross_stack`` check is removed
+    from the result since cross-stack type checks are only relevant
+    for monorepo projects.
+    """
+    checks = _MATRIX.get(module_type, {}).get(profile, _DEFAULT_PROFILE)
+    # Preserve _DEFAULT_PROFILE identity when no filtering needed
+    if checks is _DEFAULT_PROFILE or monorepo_mode:
+        return checks
+    return [c for c in checks if c.name != "cross_stack"]
 
 
 def get_active_checks_with_blast_radius(

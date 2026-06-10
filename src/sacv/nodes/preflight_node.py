@@ -64,7 +64,7 @@ def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
                     "critic_findings": CRITIC_RESET,
                 }
 
-            active_checks: list[CheckSpec] = get_checks(module, profile)
+            active_checks: list[CheckSpec] = get_checks(module, profile, monorepo_mode=cfg.monorepo_mode)
             check_names = {c.name for c in active_checks}
             check_timeout = {c.name: c.timeout for c in active_checks}
 
