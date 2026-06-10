@@ -118,6 +118,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                         playwright_trace_path=None,
                         otel_trace=None,
                         actuator_snapshot=None,
+                        blocked_by_critic=False,
                     ),
                     "diff_proposal": None,
                     "cumulative_cost_dollars": updated_cost,

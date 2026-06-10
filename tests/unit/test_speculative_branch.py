@@ -359,3 +359,104 @@ class TestEvaluateBranchFailureReason:
         assert branch_name == "agent-task-T1-s1"
         assert verdict is not None
         assert reason == "pass"
+
+
+class TestSpeculativeBranchVerdictFields:
+    """Verify VerifierVerdict constructions include blocked_by_critic (HIGH-07)."""
+
+    async def test_all_strategies_exhausted_verdict_has_blocked_by_critic(self):
+        """When all strategies exhausted, verdict includes blocked_by_critic=False."""
+        from unittest.mock import AsyncMock, patch
+
+        agent = MagicMock()
+        agent.call_async = AsyncMock(return_value={
+            "strategies_evaluated": [],
+        })
+
+        deps = MagicMock()
+        deps.config.max_parallel_branches = 3
+        deps.agent = agent
+
+        node = self._make_node(deps)
+
+        state = {
+            "session_id": "t", "task_id": "T1", "task_description": "",
+            "project_mode": "brownfield", "module_type": "backend-domain",
+            "current_phase": "speculative_branch",
+            "context_skeleton": None, "blast_radius_map": None,
+            "agents_md_context": None,
+            "strategy_candidates": [],
+            "selected_strategy": None, "pruned_strategies": [],
+            "red_phase_evidence_path": None, "test_inventory_paths": [],
+            "diff_proposal": None, "preflight_result": None,
+            "critic_findings": [], "verifier_verdict": None,
+            "correction_state": {
+                "attempt_count": 2, "branch_name": "main",
+                "last_error_hash": None, "error_history": [],
+                "stagnation_pattern": "none",
+            },
+            "confidence_score": 0.5, "replan_count": 0,
+            "active_branches": [], "exhausted_branches": [],
+            "speculative_stash_ref": None, "escalation_payload": None,
+            "procedural_constraints": [], "lesson_learned": None,
+            "arch_rules_updated": False, "debug_observations": None,
+            "cumulative_cost_dollars": 1.0,
+        }
+
+        result = await node(state)
+        verdict = result.get("verifier_verdict")
+        assert verdict is not None
+        assert "blocked_by_critic" in verdict
+
+    async def test_all_evaluated_branches_failed_verdict_has_blocked_by_critic(self):
+        """When all evaluated branches fail, verdict includes blocked_by_critic=False."""
+        from unittest.mock import AsyncMock, patch
+
+        agent = MagicMock()
+        agent.call_async = AsyncMock(return_value={
+            "strategies_evaluated": [
+                {"strategy_id": "s1", "composite_score": 0.9},
+            ],
+        })
+
+        deps = MagicMock()
+        deps.config.max_parallel_branches = 3
+        deps.agent = agent
+
+        node = self._make_node(deps)
+
+        state = {
+            "session_id": "t", "task_id": "T1", "task_description": "",
+            "project_mode": "brownfield", "module_type": "backend-domain",
+            "current_phase": "speculative_branch",
+            "context_skeleton": None, "blast_radius_map": None,
+            "agents_md_context": None,
+            "strategy_candidates": [
+                {"strategy_id": "s1", "composite_score": 0.9, "affected_files": []},
+            ],
+            "selected_strategy": None, "pruned_strategies": [],
+            "red_phase_evidence_path": None, "test_inventory_paths": [],
+            "diff_proposal": None, "preflight_result": None,
+            "critic_findings": [], "verifier_verdict": None,
+            "correction_state": {
+                "attempt_count": 2, "branch_name": "main",
+                "last_error_hash": None, "error_history": [],
+                "stagnation_pattern": "none",
+            },
+            "confidence_score": 0.5, "replan_count": 0,
+            "active_branches": [], "exhausted_branches": [],
+            "speculative_stash_ref": None, "escalation_payload": None,
+            "procedural_constraints": [], "lesson_learned": None,
+            "arch_rules_updated": False, "debug_observations": None,
+            "cumulative_cost_dollars": 1.0,
+        }
+
+        result = await node(state)
+        verdict = result.get("verifier_verdict")
+        assert verdict is not None
+        assert "blocked_by_critic" in verdict
+
+    @staticmethod
+    def _make_node(deps):
+        from sacv.nodes.speculative_branch import make_speculative_branch_node
+        return make_speculative_branch_node(deps)

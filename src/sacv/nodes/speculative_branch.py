@@ -101,6 +101,7 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
                         playwright_trace_path=None,
                         otel_trace=None,
                         actuator_snapshot=None,
+                        blocked_by_critic=False,
                     ),
                 }
 
@@ -191,6 +192,7 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
                     playwright_trace_path=None,
                     otel_trace=None,
                     actuator_snapshot=None,
+                    blocked_by_critic=False,
                 ),
                 "critic_findings": CRITIC_RESET,
             }
