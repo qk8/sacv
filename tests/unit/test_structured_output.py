@@ -604,3 +604,55 @@ class TestStructuredOutputErrorCost:
             )
         assert hasattr(exc_info.value, "updated_cost")
         assert exc_info.value.updated_cost >= 0.0
+
+
+class TestStructuredOutputCostAccumulation:
+    """CRIT-05: Cost from ALL retry attempts is accumulated, not just the last."""
+
+    async def test_success_accumulates_cost_from_all_attempts(self):
+        """When retry succeeds on attempt 3, updated_cost includes all 3 attempts."""
+        from sacv.orchestration.config import WorkflowConfig
+        # Each attempt costs: input=1000, output=1000 → (1000/1M*5) + (1000/1M*30) = 0.035
+        agent = StubAgentProvider([
+            make_json_agent_result("bad 1", tokens=1000),  # attempt 1
+            make_json_agent_result("bad 2", tokens=1000),  # attempt 2
+            make_json_agent_result([{                      # attempt 3 — succeeds
+                "file_path": "X.java",
+                "diff_content": "+fix",
+            }], tokens=1000),
+        ])
+        result = await extract_structured(
+            agent=agent,
+            prompt="Create diff",
+            response_model=List[DiffPayload],
+            system_prompt=_SYSTEM,
+            max_retries=3,
+            current_cost=1.0,  # start with $1.0
+            workflow_config=WorkflowConfig(),
+        )
+        # Each attempt costs 0.035, so total = 1.0 + 3*0.035 = 1.105
+        expected = 1.0 + 3 * (1000 / 1_000_000 * 5.0 + 1000 / 1_000_000 * 30.0)
+        assert result.updated_cost == pytest.approx(expected, abs=0.001)
+
+    async def test_error_accumulates_cost_from_all_failed_attempts(self):
+        """StructuredOutputError.updated_cost includes ALL failed attempts' costs."""
+        from sacv.orchestration.config import WorkflowConfig
+        agent = StubAgentProvider([
+            make_json_agent_result("bad 1", tokens=1000),
+            make_json_agent_result("bad 2", tokens=1000),
+            make_json_agent_result("bad 3", tokens=1000),
+            make_json_agent_result("bad 4", tokens=1000),
+        ])
+        with pytest.raises(StructuredOutputError) as exc_info:
+            await extract_structured(
+                agent=agent,
+                prompt="Create diff",
+                response_model=List[DiffPayload],
+                system_prompt=_SYSTEM,
+                max_retries=3,
+                current_cost=2.0,
+                workflow_config=WorkflowConfig(),
+            )
+        # 4 attempts × 0.035 each + 2.0 base = 2.14
+        expected = 2.0 + 4 * (1000 / 1_000_000 * 5.0 + 1000 / 1_000_000 * 30.0)
+        assert exc_info.value.updated_cost == pytest.approx(expected, abs=0.001)

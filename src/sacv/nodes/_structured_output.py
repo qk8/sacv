@@ -134,6 +134,8 @@ async def extract_structured(
     """
     last_errors: list[str] = []
     accumulated_context: list[str] = []
+    running_cost = current_cost
+    result = None
 
     for attempt in range(max_retries + 1):
         # Build prompt with accumulated validation errors for retry attempts
@@ -158,20 +160,20 @@ async def extract_structured(
             config=config,
         )
 
+        # Update running cost immediately after every call, before validation
+        if workflow_config is not None and result is not None:
+            from sacv.orchestration.verifier_utils import add_agent_cost
+            running_cost = add_agent_cost(result, running_cost, workflow_config)
+
         # Try to parse and validate
         try:
             parsed = _validate(result.content, response_model)
-            # BUG-001: accumulate token cost after successful parse
-            updated_cost = current_cost
-            if workflow_config is not None and result is not None:
-                from sacv.orchestration.verifier_utils import add_agent_cost
-                updated_cost = add_agent_cost(result, current_cost, workflow_config)
             return StructuredOutputResult(
                 data=parsed,
                 raw_content=result.content,
                 retry_count=attempt,
                 agent_result=result,
-                updated_cost=updated_cost,
+                updated_cost=running_cost,
             )
         except (json.JSONDecodeError, ValidationError) as exc:
             log.warning(
@@ -180,21 +182,16 @@ async def extract_structured(
                 max_retries=max_retries,
                 error=str(exc)[:200],
                 raw_preview=result.content[:300] if result else "",
+                cost_so_far=running_cost - current_cost,
             )
             last_errors.append(f"Attempt {attempt + 1}: {exc}")
             accumulated_context.append(str(exc))
-
-    # Compute updated_cost from last agent result for M-07
-    error_cost = current_cost
-    if workflow_config is not None and result is not None:
-        from sacv.orchestration.verifier_utils import add_agent_cost
-        error_cost = add_agent_cost(result, current_cost, workflow_config)
 
     raise StructuredOutputError(
         f"Failed to extract valid {response_model!r} after "
         f"{max_retries} retries. Errors:\n" + "\n".join(last_errors),
         last_raw_content=result.content if result else "",
-        updated_cost=error_cost,
+        updated_cost=running_cost,
     )
 
 
