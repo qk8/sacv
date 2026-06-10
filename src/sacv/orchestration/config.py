@@ -34,6 +34,14 @@ class TokenBudget:
 
 @dataclass(frozen=True)
 class CadenceConfig:
+    """
+    Reserved for future implementation.
+
+    cleanup_interval:     purge stale LangGraph checkpoints every N nodes
+    llm_quality_interval: run a self-evaluation on output quality every N LLM calls
+    drift_check_interval: check semantic drift in error history every N iterations
+                          (by complexity)
+    """
     cleanup_interval:     int = 25
     llm_quality_interval: int = 10
     drift_check_interval: dict[str, int] = field(
