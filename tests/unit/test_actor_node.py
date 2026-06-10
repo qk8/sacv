@@ -383,6 +383,41 @@ class TestActorNode:
         # DiffProposal is a TypedDict — use dict key access
         assert out["diff_proposal"]["strategy_id"] == "unknown"
 
+    async def test_empty_diff_retries_reset_on_successful_diff(self):
+        """ST-001: empty_diff_retries must reset to 0 when actor produces a valid diff.
+
+        Without this fix, empty_diff_retries accumulates across correction cycles.
+        A session where the actor occasionally produces empty diffs (e.g. attempt 0
+        fails, attempt 1 succeeds, attempt 2 fails, attempt 3 succeeds) would
+        prematurely hit the empty_diff_retries limit and escalate to HITL even
+        though the system still had remaining correction cycles.
+        """
+        agent = StubAgentProvider([make_json_agent_result([{
+            "file_path": "src/main/java/UserService.java",
+            "diff_content": "@@ -10 +10 @@\n+public User findById(Long id) { ... }",
+            "operation": "modify", "language": "java",
+        }])])
+        deps = _deps(agent=agent, diff=StubDiffProvider())
+        node = make_actor_node(deps)
+
+        # Simulate state where empty_diff_retries has accumulated from prior cycles
+        state = _state(
+            empty_diff_retries=3,
+            correction_state={
+                "attempt_count": 2,
+                "branch_name": "agent-task-task-act-a2",
+                "last_error_hash": None, "error_history": [],
+                "stagnation_pattern": "none",
+            },
+        )
+        out = await node(state)
+
+        # The key assertion: successful diff must reset empty_diff_retries to 0
+        assert out["empty_diff_retries"] == 0, (
+            f"empty_diff_retries should be 0 on successful diff, got {out['empty_diff_retries']}. "
+            "This causes premature HITL escalation in multi-attempt sessions."
+        )
+
 
 @pytest.mark.unit
 class TestFormatDebugObservations:

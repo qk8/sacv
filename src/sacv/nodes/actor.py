@@ -263,6 +263,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 "critic_findings":  CRITIC_RESET,
                 "preflight_result": None,
                 "debug_observations": None,  # reset after actor uses them
+                "empty_diff_retries": 0,     # ST-001: reset so counter doesn't accumulate across cycles
                 "correction_state": {
                     **correction,
                     "attempt_count": correction["attempt_count"] + 1,
