@@ -18,13 +18,67 @@ class MockGraph:
 
     def __init__(self, events):
         self._events = events
+        self._canonical_state = None
 
     async def astream_events(self, *args, **kwargs):
         for event in self._events:
             yield event
 
+    async def aget_state(self, config):
+        if self._canonical_state is not None:
+            snap = MagicMock()
+            snap.values = self._canonical_state
+            return snap
+        return None
+
+    def set_canonical_state(self, state):
+        self._canonical_state = state
+
 
 class TestRunWithProgress:
+
+    async def test_returns_canonical_state_via_aget_state(self):
+        """CRIT-07: run_with_progress must return canonical LangGraph state via aget_state."""
+        mock_snapshot = MagicMock()
+        mock_snapshot.values = {
+            "current_phase": "complete",
+            "session_id": "sess-canonical",
+            "critic_findings": [],  # reduced (not CRITIC_RESET sentinel)
+            "correction_state": {"attempt_count": 2},  # fully merged
+        }
+
+        async def mock_aget_state(cfg):
+            return mock_snapshot
+
+        graph = MagicMock()
+        graph.astream_events.return_value = self._events_generator([
+            {
+                "event": "on_chain_end",
+                "name": "bootstrap",
+                "data": {"output": {"current_phase": "scout", "session_id": "sess-partial"}},
+            },
+            {
+                "event": "on_chain_end",
+                "name": "scout",
+                "data": {"output": {"current_phase": "actor"}},
+            },
+        ])
+        graph.aget_state = mock_aget_state
+
+        result = await cli_progress.run_with_progress(
+            graph, {}, {"configurable": {"thread_id": "T1"}}, "T1",
+        )
+
+        # Must use canonical state, not accumulated partial outputs
+        assert result["session_id"] == "sess-canonical"
+        assert result["current_phase"] == "complete"
+
+    @staticmethod
+    def _events_generator(events):
+        async def gen():
+            for e in events:
+                yield e
+        return gen()
 
     async def test_streams_node_completion_events(self):
         """run_with_progress streams node completion events to stderr."""
@@ -51,6 +105,11 @@ class TestRunWithProgress:
                 },
             },
         ])
+        graph.set_canonical_state({
+            "current_phase": "actor",
+            "session_id": "sess-1",
+            "cumulative_cost_dollars": 1.2,
+        })
 
         result = await cli_progress.run_with_progress(
             graph, {}, {"configurable": {"thread_id": "T1"}}, "T1",
@@ -71,6 +130,7 @@ class TestRunWithProgress:
                 "data": {"output": {"current_phase": "actor"}},
             },
         ])
+        graph.set_canonical_state({"current_phase": "actor"})
 
         result = await cli_progress.run_with_progress(
             graph, {}, {"configurable": {"thread_id": "T1"}}, "T1",
@@ -87,6 +147,7 @@ class TestRunWithProgress:
                 "data": {"error": "LLM timeout"},
             },
         ])
+        graph.set_canonical_state({})
 
         await cli_progress.run_with_progress(
             graph, {}, {"configurable": {"thread_id": "T1"}}, "T1",
@@ -109,6 +170,10 @@ class TestRunWithProgress:
                 "data": {"output": {"current_phase": "actor", "cumulative_cost_dollars": 1.0}},
             },
         ])
+        graph.set_canonical_state({
+            "current_phase": "actor",
+            "cumulative_cost_dollars": 1.0,
+        })
 
         await cli_progress.run_with_progress(
             graph, {}, {"configurable": {"thread_id": "T1"}}, "T1",
@@ -132,6 +197,11 @@ class TestRunWithProgress:
                 "data": {"output": {"blast_radius_map": {}, "cumulative_cost_dollars": 0.3}},
             },
         ])
+        graph.set_canonical_state({
+            "session_id": "s1",
+            "blast_radius_map": {},
+            "cumulative_cost_dollars": 0.3,
+        })
 
         result = await cli_progress.run_with_progress(
             graph, {}, {"configurable": {"thread_id": "T1"}}, "T1",

@@ -62,6 +62,11 @@ async def run_with_progress(
             error = event.get("data", {}).get("error", "unknown")
             print(f"[sacv] {node_name} ERROR: {error}", file=sys.stderr)
 
+    # Fetch canonical final state with all reducers applied
+    snapshot = await graph.aget_state(config)
+    if snapshot and snapshot.values:
+        return dict(snapshot.values)
+
     return final_state
 
 
