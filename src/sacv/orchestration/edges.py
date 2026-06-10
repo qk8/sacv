@@ -44,17 +44,18 @@ def compute_confidence_score(
     reaching 1.0 (full penalty) at critical_dollar.
     """
     cfg        = config
+    weights    = cfg.confidence_weights
     correction = state["correction_state"]
     attempt    = correction["attempt_count"]
     cost       = state.get("cumulative_cost_dollars", 0.0)
 
     attempt_penalty    = min(1.0, attempt / max(cfg.max_self_correction_cycles, 1))
-    stagnation_penalty = 0.40 if correction.get("stagnation_pattern", "none") != "none" else 0.0
+    stagnation_penalty = weights.stagnation_penalty if correction.get("stagnation_pattern", "none") != "none" else 0.0
     blast              = state.get("blast_radius_map") or {}
-    blast_penalty      = float(blast.get("risk_score", 0.0)) * 0.30
+    blast_penalty      = float(blast.get("risk_score", 0.0)) * weights.blast_penalty_scale
     findings           = state.get("critic_findings") or []
-    critic_penalty     = min(0.30, sum(
-        0.10 for f in findings if f.get("severity") == "critical"
+    critic_penalty     = min(weights.max_critic_penalty, sum(
+        weights.critic_penalty_per_crit for f in findings if f.get("severity") == "critical"
     ))
 
     # Cost penalty: linear ramp from 0 at warning_dollar to 1.0 at critical_dollar

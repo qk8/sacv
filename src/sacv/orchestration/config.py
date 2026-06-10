@@ -12,7 +12,7 @@ _KNOWN_TOP_LEVEL_KEYS = frozenset({
     "max_replan_attempts", "max_tdd_gate_attempts", "max_empty_diff_retries",
     "max_parallel_branches", "max_parallel_critics", "min_strategy_score",
     "max_strategies", "max_blast_files", "monorepo_mode", "agents_md_prompt_chars",
-    "max_workflow_duration",
+    "max_workflow_duration", "confidence_weights",
     "stagnation", "token_budget", "cadence", "debug",
 })
 
@@ -70,6 +70,18 @@ class DebugConfig:
 
 
 @dataclass(frozen=True)
+class ConfidenceWeights:
+    """Coefficients for compute_confidence_score penalties.
+
+    Defaults match the original hardcoded values in edges.py.
+    """
+    stagnation_penalty:        float = 0.40
+    blast_penalty_scale:       float = 0.30
+    critic_penalty_per_crit:   float = 0.10
+    max_critic_penalty:        float = 0.30
+
+
+@dataclass(frozen=True)
 class WorkflowConfig:
     # Circuit breaker
     max_self_correction_cycles:      int   = 3
@@ -95,10 +107,11 @@ class WorkflowConfig:
     # Workflow-level session timeout (seconds; 0 = no timeout)
     max_workflow_duration:           int   = 3600
     # Sub-configs
-    stagnation:       StagnationConfig = field(default_factory=StagnationConfig)
-    token_budget:     TokenBudget      = field(default_factory=TokenBudget)
-    cadence:          CadenceConfig    = field(default_factory=CadenceConfig)
-    debug:            DebugConfig      = field(default_factory=DebugConfig)
+    stagnation:         StagnationConfig  = field(default_factory=StagnationConfig)
+    token_budget:       TokenBudget       = field(default_factory=TokenBudget)
+    cadence:            CadenceConfig     = field(default_factory=CadenceConfig)
+    debug:              DebugConfig       = field(default_factory=DebugConfig)
+    confidence_weights: ConfidenceWeights = field(default_factory=ConfidenceWeights)
 
     @classmethod
     def from_json(cls, path: str | Path) -> "WorkflowConfig":
@@ -165,6 +178,20 @@ class WorkflowConfig:
                 llm_quality_interval=cad.get("llm_quality_interval", 10),
                 drift_check_interval=cad.get(
                     "drift_check_interval", {"simple": 20, "medium": 15, "complex": 10}
+                ),
+            ),
+            confidence_weights=ConfidenceWeights(
+                stagnation_penalty=raw.get("confidence_weights", {}).get(
+                    "stagnation_penalty", 0.40
+                ),
+                blast_penalty_scale=raw.get("confidence_weights", {}).get(
+                    "blast_penalty_scale", 0.30
+                ),
+                critic_penalty_per_crit=raw.get("confidence_weights", {}).get(
+                    "critic_penalty_per_crit", 0.10
+                ),
+                max_critic_penalty=raw.get("confidence_weights", {}).get(
+                    "max_critic_penalty", 0.30
                 ),
             ),
         )
