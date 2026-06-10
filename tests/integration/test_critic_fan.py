@@ -157,3 +157,30 @@ class TestCriticFanOut:
         agent = StubAgentProvider([make_json_agent_result([])])
         out   = await make_consistency_critic_node(_deps(agent))(_state(mode="brownfield"))
         assert agent.calls[0][0] == "structured_output"
+
+    async def test_one_critic_exception_does_not_crash_all_critics(self):
+        """CRIT-03: asyncio.gather must use return_exceptions=True so one
+        critic's unexpected exception doesn't kill the other two."""
+        from unittest.mock import patch
+        from sacv.orchestration.graph import _make_all_critics_node
+
+        def _failing_node(state):
+            async def _inner(s):
+                raise RuntimeError("simulated critic crash")
+            return _inner(state)
+
+        agent = StubAgentProvider([
+            make_json_agent_result([{"critic": "style", "message": "ok"}]),
+            make_json_agent_result([{"critic": "consistency", "message": "ok"}]),
+        ])
+        deps = _deps(agent)
+        with patch(
+            "sacv.nodes.critics.security.make_security_critic_node",
+            return_value=_failing_node,
+        ):
+            out = await _make_all_critics_node(deps)(_state())
+
+        # Must not raise — graceful degradation
+        assert "critic_findings" in out
+        assert isinstance(out["critic_findings"], list)
+        assert out["current_phase"] == WorkflowPhase.CRITICS.value

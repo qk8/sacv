@@ -13,6 +13,10 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
+import structlog
+
+log = structlog.get_logger(__name__)
+
 from langgraph.graph import StateGraph, START, END
 
 from sacv.orchestration.config import WorkflowConfig
@@ -58,11 +62,28 @@ def _make_all_critics_node(deps: "NodeDeps") -> Any:
         sty_node = make_style_critic_node(deps)
         con_node = make_consistency_critic_node(deps)
 
-        sec_out, sty_out, con_out = await asyncio.gather(
+        results = await asyncio.gather(
             sec_node(state),
             sty_node(state),
             con_node(state),
+            return_exceptions=True,
         )
+
+        def _safe_out(result, name):
+            if isinstance(result, Exception):
+                log.warning(
+                    "critic_node_exception",
+                    critic=name,
+                    error=str(result),
+                    exc_info=True,
+                )
+                return {"critic_findings": [], "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0)}
+            return result
+
+        sec_out = _safe_out(results[0], "security")
+        sty_out = _safe_out(results[1], "style")
+        con_out = _safe_out(results[2], "consistency")
+
         all_findings = (
             sec_out.get("critic_findings", [])
             + sty_out.get("critic_findings", [])
