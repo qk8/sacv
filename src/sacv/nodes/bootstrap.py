@@ -69,7 +69,8 @@ def make_bootstrap_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
                 "speculative_stash_ref":   None,   # set by SpeculativeBranch
                 "escalation_payload":      None,   # set by HITL
                 "lesson_learned":          None,   # set by MemoryConsolidation
-                "cumulative_cost_dollars": 0.0,    # BUG-008: token budget tracking
+                "cumulative_cost_dollars": 0.0,       # BUG-008: token budget tracking
                 "session_start_ms":          time.time() * 1000,  # BUG-002: session duration tracking
+                "workflow_audit_trail":      [],       # HIGH-04: structured audit trail
             }
     return bootstrap_node
