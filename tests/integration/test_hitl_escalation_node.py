@@ -548,5 +548,8 @@ class TestHITLEscalationNode:
         data = json.loads(esc_files[0].read_text())
         # M-08: workflow_version uses package version (not hardcoded "sacv-1.0")
         import importlib.metadata
-        expected = f"sacv-{importlib.metadata.version('sacv-workflow')}"
+        try:
+            expected = f"sacv-{importlib.metadata.version('sacv-workflow')}"
+        except importlib.metadata.PackageNotFoundError:
+            expected = "sacv-unknown"
         assert data["workflow_version"] == expected
