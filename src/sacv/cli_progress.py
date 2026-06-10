@@ -14,8 +14,32 @@ Usage::
 from __future__ import annotations
 
 import json
+import logging
 import sys
+
+import structlog
+
 from typing import Any, Dict
+
+log = structlog.get_logger(__name__)
+
+# Threshold for summarising scalar strings in delta logs
+_DELTA_SUMMARY_THRESHOLD = 200
+
+
+def _format_delta_summary(value: Any) -> Any:
+    """Summarise a value for state-delta logging.
+
+    Scalars and short strings pass through unchanged.
+    Long strings, lists, and dicts are replaced with a summary marker.
+    """
+    if isinstance(value, str) and len(value) <= _DELTA_SUMMARY_THRESHOLD:
+        return value
+    if isinstance(value, (dict, list)):
+        return f"<{type(value).__name__} len={len(value)}>"
+    if isinstance(value, str):
+        return f"<str len={len(value)}>"
+    return value
 
 
 async def run_with_progress(
@@ -62,6 +86,18 @@ async def run_with_progress(
 
             print(progress_line, file=sys.stderr)
             final_state.update(output)
+
+            # State-delta logging at DEBUG level (HIGH-06)
+            if output and logging.getLogger().isEnabledFor(logging.DEBUG):
+                summary = {
+                    k: _format_delta_summary(v) for k, v in output.items()
+                }
+                log.debug(
+                    "node.state_delta",
+                    node=node_name,
+                    changed_keys=list(output.keys()),
+                    delta_summary=summary,
+                )
 
         # Node errored
         elif kind == "on_chain_error":
