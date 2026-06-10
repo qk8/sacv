@@ -36,6 +36,13 @@ async def run_with_progress(
     async for event in graph.astream_events(initial_state, config=config, version="v2"):
         kind = event.get("event", "")
 
+        # Node starting
+        if kind == "on_chain_start" and event.get("name") not in (
+            "LangGraph",
+            "__start__",
+        ):
+            print(f"[sacv] {event.get('name', '?')} STARTED", file=sys.stderr)
+
         # Node completed — extract phase transition and cost
         if kind == "on_chain_end" and event.get("name") not in (
             "LangGraph",

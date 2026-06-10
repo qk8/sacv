@@ -156,6 +156,56 @@ class TestRunWithProgress:
         captured = capsys.readouterr()
         assert "actor ERROR: LLM timeout" in captured.err
 
+    async def test_reports_node_start_events(self, capsys):
+        """on_chain_start events are printed to stderr."""
+        graph = MockGraph([
+            {
+                "event": "on_chain_start",
+                "name": "scout",
+                "data": {},
+            },
+            {
+                "event": "on_chain_end",
+                "name": "scout",
+                "data": {"output": {"current_phase": "actor"}},
+            },
+        ])
+        graph.set_canonical_state({"current_phase": "actor"})
+
+        await cli_progress.run_with_progress(
+            graph, {}, {"configurable": {"thread_id": "T1"}}, "T1",
+        )
+
+        captured = capsys.readouterr()
+        assert "scout STARTED" in captured.err
+
+    async def test_skips_internal_on_chain_start_events(self, capsys):
+        """Internal LangGraph on_chain_start events are skipped."""
+        graph = MockGraph([
+            {"event": "on_chain_start", "name": "LangGraph", "data": {}},
+            {"event": "on_chain_start", "name": "__start__", "data": {}},
+            {
+                "event": "on_chain_start",
+                "name": "bootstrap",
+                "data": {},
+            },
+            {
+                "event": "on_chain_end",
+                "name": "bootstrap",
+                "data": {"output": {"current_phase": "scout"}},
+            },
+        ])
+        graph.set_canonical_state({"current_phase": "scout"})
+
+        await cli_progress.run_with_progress(
+            graph, {}, {"configurable": {"thread_id": "T1"}}, "T1",
+        )
+
+        captured = capsys.readouterr()
+        assert "bootstrap STARTED" in captured.err
+        assert "LangGraph STARTED" not in captured.err
+        assert "__start__ STARTED" not in captured.err
+
     async def test_tracks_phase_transitions(self, capsys):
         """Phase transitions are shown in progress output."""
         graph = MockGraph([
