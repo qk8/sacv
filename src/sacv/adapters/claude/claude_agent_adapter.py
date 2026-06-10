@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import AsyncIterator
 
 import structlog
 from tenacity import (
+    before_sleep_log,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
@@ -85,6 +87,7 @@ class ClaudeAgentAdapter(AgentProvider):
         wait=wait_exponential(multiplier=2, min=4, max=120),
         stop=stop_after_attempt(5),
         reraise=True,
+        before_sleep=before_sleep_log(log, logging.WARNING),
     )
     async def run_task(
         self,

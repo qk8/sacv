@@ -150,3 +150,36 @@ class TestTruncateContext:
     def test_max_chars_equal_to_length_unchanged(self):
         result = _truncate_context("hello", max_chars=5)
         assert result == "hello"
+
+
+class TestRetryLogging:
+
+    def test_retry_decorator_has_before_sleep(self):
+        """The Tenacity retry on run_task must log before each sleep (OBS-004).
+
+        Without before_sleep logging, retries on TimeoutError/ConnectionError
+        produce up to 4 minutes of silence with no indication of what's happening.
+        """
+        import inspect
+        from sacv.adapters.claude.claude_agent_adapter import ClaudeAgentAdapter
+
+        source = inspect.getsource(ClaudeAgentAdapter.run_task)
+        # The decorated method's source is the original function source,
+        # but the decorator is applied at class-definition time.
+        # Instead, check the module source for the before_sleep import and usage.
+        import os
+        adapter_path = os.path.join(
+            os.path.dirname(__file__),
+            "../../src/sacv/adapters/claude/claude_agent_adapter.py",
+        )
+        adapter_path = os.path.normpath(adapter_path)
+        with open(adapter_path) as f:
+            mod_source = f.read()
+
+        assert "before_sleep" in mod_source, (
+            "Tenacity retry decorator must include before_sleep=before_sleep_log(...) "
+            "so retries produce visible log output"
+        )
+        assert "before_sleep_log" in mod_source, (
+            "before_sleep_log must be imported from tenacity"
+        )
