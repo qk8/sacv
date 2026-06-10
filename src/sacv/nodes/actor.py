@@ -187,7 +187,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                     raw_content_len=len(exc.last_raw_content),
                 )
                 raw_diffs = []
-                updated_cost = state.get("cumulative_cost_dollars", 0.0)
+                updated_cost = exc.updated_cost
 
             diffs = [
                 UnifiedDiffPayload(

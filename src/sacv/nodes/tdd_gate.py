@@ -132,7 +132,7 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                     "red_phase_evidence_path": None,
                     "test_inventory_paths":    [],
                     "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
-                    "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                    "cumulative_cost_dollars": exc.updated_cost,
                 }
 
             # ── 2. Write test files to PERMANENT locations in sandbox ──────────

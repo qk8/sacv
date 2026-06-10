@@ -110,7 +110,7 @@ def make_value_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                     raw_content_len=len(exc.last_raw_content),
                 )
                 raw_strategies = []
-                updated_cost = state.get("cumulative_cost_dollars", 0.0)
+                updated_cost = exc.updated_cost
 
             # ── 3. Score each strategy (deterministic) ────────────────────────
             blast_files = set(blast["affected_files"]) if blast else set()

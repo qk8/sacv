@@ -102,7 +102,7 @@ def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[A
                     raw_content_len=len(exc.last_raw_content),
                 )
                 raw = []
-                updated_cost = state.get("cumulative_cost_dollars", 0.0)
+                updated_cost = exc.updated_cost
 
             # Remap to StrategyCandidate format with real scoring
             from sacv.orchestration.state import StrategyCandidate

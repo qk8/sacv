@@ -268,9 +268,9 @@ async def _update_agents_md(
             # ── Token budget tracking ────────────────────────────────────
             if structured.agent_result:
                 cost = add_agent_cost(structured.agent_result, cost, deps.config)
-        except StructuredOutputError:
+        except StructuredOutputError as exc:
             log.warning("memory_consolidation.agents_md_parse_failed")
-            return False, state.get("cumulative_cost_dollars", 0.0)
+            return False, exc.updated_cost
 
         updated = _splice_sections(current, updates)
         agents_md_path.write_text(updated, encoding="utf-8")
