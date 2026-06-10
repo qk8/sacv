@@ -11,6 +11,7 @@ Refactoring additions (debugging session):
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
@@ -74,14 +75,17 @@ def _make_all_critics_node(deps: "NodeDeps") -> Any:
                 return_exceptions=True,
             )
 
+            critic_errors: list[str] = []
+
             def _safe_out(result, name):
                 if isinstance(result, Exception):
-                    log.warning(
+                    log.error(
                         "critic_node_exception",
                         critic=name,
                         error=str(result),
                         exc_info=True,
                     )
+                    critic_errors.append(name)
                     return {"critic_findings": [], "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0)}
                 return result
 
@@ -107,11 +111,23 @@ def _make_all_critics_node(deps: "NodeDeps") -> Any:
                 - 3.0 * baseline
             )
             timing["findings"] = len(all_findings)
+            timing["critic_errors"] = critic_errors
+
+            audit_entries: list[dict[str, object]] | None = None
+            if critic_errors:
+                audit_entries = [{
+                    "timestamp_ms": time.time() * 1000,
+                    "node": "all_critics",
+                    "decision": f"critic_exceptions: {', '.join(critic_errors)}",
+                    "key_values": {"failed_critics": critic_errors, "findings_count": len(all_findings)},
+                }]
 
             return {
                 "current_phase":           WorkflowPhase.CRITICS.value,
                 "critic_findings":         all_findings,
+                "critic_errors":           critic_errors,
                 "cumulative_cost_dollars": final_cost,
+                "workflow_audit_trail":    audit_entries,
             }
 
     return all_critics_node

@@ -40,6 +40,7 @@ def make_bootstrap_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
                 "procedural_constraints": [c.description for c in constraints],
                 "check_profile":          state.get("check_profile", "standard"),
                 "critic_findings":        CRITIC_RESET,
+                "critic_errors":          [],
                 "active_branches":        [],
                 "exhausted_branches":     [],
                 "test_inventory_paths":   [],

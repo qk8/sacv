@@ -184,3 +184,37 @@ class TestCriticFanOut:
         assert "critic_findings" in out
         assert isinstance(out["critic_findings"], list)
         assert out["current_phase"] == WorkflowPhase.CRITICS.value
+
+    async def test_critic_exception_populates_critic_errors(self):
+        """ERR-001: When a critic raises, critic_errors must list the failed critic names.
+
+        This ensures operators can diagnose why critic findings were empty
+        and that the failure is recorded in the persistent state.
+        """
+        from unittest.mock import patch
+        from sacv.orchestration.graph import _make_all_critics_node
+
+        def _failing_node(state):
+            async def _inner(s):
+                raise RuntimeError("simulated critic crash")
+            return _inner(state)
+
+        agent = StubAgentProvider([
+            make_json_agent_result([{"critic": "style", "severity": "info", "file": "X.java", "line": 1, "rule_id": "S", "message": "ok", "resolution_hint": ""}]),
+            make_json_agent_result([{"critic": "consistency", "severity": "info", "file": "X.java", "line": 1, "rule_id": "S", "message": "ok", "resolution_hint": ""}]),
+        ])
+        deps = _deps(agent)
+        with patch(
+            "sacv.nodes.critics.security.make_security_critic_node",
+            return_value=_failing_node,
+        ):
+            out = await _make_all_critics_node(deps)(_state())
+
+        # critic_errors must list the failed critic
+        assert "critic_errors" in out, "critic_errors field must be populated when critics fail"
+        assert "security" in out["critic_errors"], (
+            "The failed critic name (security) must be listed in critic_errors"
+        )
+        # Other critics should not be in the error list
+        assert "style" not in out["critic_errors"]
+        assert "consistency" not in out["critic_errors"]

@@ -445,6 +445,7 @@ class WorkflowState(TypedDict):
 
     # ── Critic outputs ────────────────────────────────────────────────────
     critic_findings: Annotated[list[CriticFinding], _merge_lists]
+    critic_errors:   list[str]   # names of critics that raised exceptions
 
     # ── Verifier output ───────────────────────────────────────────────────
     verifier_verdict: VerifierVerdict | None
