@@ -117,6 +117,19 @@ def make_intelligent_debugger_node(deps: "NodeDeps") -> "Callable[[WorkflowState
                         observations = await _run_delta_debug(
                             observations, payload, state, handle, module, deps
                         )
+                    else:
+                        log.warning(
+                            "debugger.delta_debug_skipped",
+                            reason="could_not_extract_request_payload",
+                            error_type=strategy.error_type.value,
+                            module=module,
+                        )
+                        observations["root_cause"] = (
+                            "Delta-debug strategy was selected but no extractable HTTP request "
+                            "payload was found in the test failure output. "
+                            "The test may use a non-standard request format. "
+                            "Manual inspection of the test fixture is recommended."
+                        )
 
                 elif needs_jdwp(strategy) and pruned:
                     observations = await _run_jdwp_session(
