@@ -35,7 +35,10 @@ class TokenBudget:
 @dataclass(frozen=True)
 class CadenceConfig:
     """
-    Reserved for future implementation.
+    CADENCE FEATURES ARE NOT YET IMPLEMENTED.
+
+    These fields are reserved for future implementation and currently have NO EFFECT.
+    Setting them will not change workflow behavior.
 
     cleanup_interval:     purge stale LangGraph checkpoints every N nodes
     llm_quality_interval: run a self-evaluation on output quality every N LLM calls
