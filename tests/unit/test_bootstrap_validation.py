@@ -76,7 +76,7 @@ def _state(**kw):
 class TestBootstrapValidation:
 
     async def test_bootstrap_includes_workflow_audit_trail(self):
-        """Bootstrap must initialise workflow_audit_trail (HIGH-04 field)."""
+        """Bootstrap must initialise workflow_audit_trail with session_started entry (ST-002)."""
         memory = StubMemoryProvider(procedural=[])
         deps = _deps(memory=memory)
         node = make_bootstrap_node(deps)
@@ -86,7 +86,10 @@ class TestBootstrapValidation:
         assert "workflow_audit_trail" in out, (
             "bootstrap_node must initialise workflow_audit_trail"
         )
-        assert out["workflow_audit_trail"] == []
+        audit = out["workflow_audit_trail"]
+        assert len(audit) >= 1, "bootstrap must emit a session_started audit entry"
+        assert audit[0]["node"] == "bootstrap"
+        assert audit[0]["decision"] == "session_started"
 
     async def test_bootstrap_includes_all_workflow_state_fields(self):
         """Bootstrap return dict must cover every WorkflowState field

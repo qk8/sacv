@@ -211,3 +211,26 @@ class TestBootstrapNode:
         event = memory.stored_events[0]
         assert event.payload["mode"] == "brownfield"
         assert event.payload["module_type"] == "frontend-feature"
+
+    async def test_audit_trail_entry_on_session_start(self):
+        """ST-002: Bootstrap must emit an audit trail entry with session info.
+
+        The bootstrap node is the very first event in every session.
+        It must record session_id, task_id, module_type, project_mode,
+        constraints_loaded, and session_start_ms in the audit trail.
+        """
+        out = await make_bootstrap_node(_deps())(_state())
+
+        audit = out.get("workflow_audit_trail", [])
+        assert len(audit) >= 1, "workflow_audit_trail must contain at least one entry"
+        entry = audit[0]
+        assert entry["node"] == "bootstrap"
+        assert entry["decision"] == "session_started"
+        kv = entry["key_values"]
+        # session_id in audit must match the generated session_id
+        assert kv["session_id"] == out["session_id"]
+        assert kv["task_id"] == "task-bs-001"
+        assert kv["module_type"] == "backend-domain"
+        assert kv["project_mode"] == "greenfield"
+        assert kv["constraints_loaded"] >= 0
+        assert "session_start_ms" in kv

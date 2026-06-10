@@ -72,6 +72,18 @@ def make_bootstrap_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
                 "lesson_learned":          None,   # set by MemoryConsolidation
                 "cumulative_cost_dollars": 0.0,       # BUG-008: token budget tracking
                 "session_start_ms":          time.time() * 1000,  # BUG-002: session duration tracking
-                "workflow_audit_trail":      [],       # HIGH-04: structured audit trail
+                "workflow_audit_trail": [{           # ST-002: audit trail entry on session start
+                    "timestamp_ms": time.time() * 1000,
+                    "node": "bootstrap",
+                    "decision": "session_started",
+                    "key_values": {
+                        "session_id":         session_id,
+                        "task_id":            state["task_id"],
+                        "module_type":        state["module_type"],
+                        "project_mode":       state["project_mode"],
+                        "constraints_loaded": len(constraints),
+                        "session_start_ms":   time.time() * 1000,
+                    },
+                }],
             }
     return bootstrap_node
