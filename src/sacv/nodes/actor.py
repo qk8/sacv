@@ -185,9 +185,31 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                     error=str(exc),
                     raw_content_preview=exc.last_raw_content[:500],
                     raw_content_len=len(exc.last_raw_content),
+                    attempt=attempt,
+                    task_id=task_id,
                 )
-                raw_diffs = []
-                updated_cost = exc.updated_cost
+                # Return immediately — do not fall through to the empty-diff path.
+                # Clearing debug_observations ensures a fresh debug session can be
+                # triggered on the next verifier AMBIGUOUS verdict rather than
+                # replaying stale observations.
+                return {
+                    "current_phase": WorkflowPhase.ACTOR.value,
+                    "correction_state": {
+                        **correction,
+                        "attempt_count": correction["attempt_count"] + 1,
+                    },
+                    "diff_proposal": None,
+                    "empty_diff_retries": state.get("empty_diff_retries", 0) + 1,
+                    "critic_findings": CRITIC_RESET,
+                    "debug_observations": None,
+                    "cumulative_cost_dollars": exc.updated_cost,
+                    "workflow_audit_trail": [{
+                        "timestamp_ms": time.time() * 1000,
+                        "node": "actor",
+                        "decision": "parse_error_no_diff",
+                        "key_values": {"attempt": attempt, "error": str(exc)[:200]},
+                    }],
+                }
 
             diffs = [
                 UnifiedDiffPayload(

@@ -140,7 +140,11 @@ class TestActorNode:
         assert out["current_phase"] == WorkflowPhase.ACTOR.value
 
     async def test_json_parse_failure_returns_empty_diff(self):
-        """LLM returns non-JSON → retries exhausted → empty diffs → self-loop retry."""
+        """LLM returns non-JSON → retries exhausted → StructuredOutputError → immediate return.
+
+        ERR-002: parse errors now return immediately (not fall through to empty-diff path).
+        attempt_count IS incremented because this is a real failure, not an empty-diff case.
+        """
         agent = StubAgentProvider([
             AgentResult(content="not json 1", tool_calls=[], finish_reason="stop",
                         input_tokens=5, output_tokens=5),
@@ -157,10 +161,12 @@ class TestActorNode:
         out = await node(_state())
 
         assert out["diff_proposal"] is None
-        # attempt_count stays 0 — empty diffs use dedicated counter
-        assert out["correction_state"]["attempt_count"] == 0
+        # ERR-002: parse error counts as a real attempt
+        assert out["correction_state"]["attempt_count"] == 1
         assert out["empty_diff_retries"] == 1
         assert out["critic_findings"] is CRITIC_RESET
+        # debug_observations cleared on parse error
+        assert out["debug_observations"] is None
 
     async def test_retry_on_malformed_json_succeeds_second_time(self):
         """First call returns non-JSON, second call returns valid diffs → succeeds."""
@@ -417,6 +423,59 @@ class TestActorNode:
             f"empty_diff_retries should be 0 on successful diff, got {out['empty_diff_retries']}. "
             "This causes premature HITL escalation in multi-attempt sessions."
         )
+
+    async def test_structured_output_error_clears_debug_observations(self):
+        """ERR-002: StructuredOutputError must clear debug_observations and return immediately.
+
+        When extract_structured exhausts all retries, the actor must not fall
+        through to the empty-diff path. Instead it should return immediately
+        with debug_observations cleared, attempt_count incremented, and an
+        audit entry written.
+        """
+        from sacv.nodes._structured_output import StructuredOutputError
+
+        exc = StructuredOutputError(
+            "Failed to extract valid list[DiffPayload] after 3 retries",
+            last_raw_content="not json",
+            updated_cost=0.001,
+        )
+
+        agent = StubAgentProvider()
+        deps = _deps(agent=agent)
+        node = make_actor_node(deps)
+
+        state = _state(
+            debug_observations={"error_type": "NullPointerException"},
+            correction_state={
+                "attempt_count": 1,
+                "branch_name": "agent-task-task-act-a1",
+                "last_error_hash": None, "error_history": [],
+                "stagnation_pattern": "none",
+            },
+        )
+
+        with patch(
+            "sacv.nodes.actor.extract_structured",
+            side_effect=exc,
+        ):
+            out = await node(state)
+
+        # Must return immediately — not fall through to empty-diff path
+        assert out["diff_proposal"] is None
+        # debug_observations must be cleared so stale debug context is not replayed
+        assert out["debug_observations"] is None
+        # Parse error counts as a real attempt (unlike empty-diff path)
+        assert out["correction_state"]["attempt_count"] == 2
+        # empty_diff_retries incremented (no valid diffs produced)
+        assert out["empty_diff_retries"] == 1
+        # critic_findings reset
+        assert out["critic_findings"] is not None
+        # Audit entry must be written for operator diagnosis
+        audit = out.get("workflow_audit_trail", [])
+        assert any(
+            entry.get("node") == "actor" and "parse_error" in entry.get("decision", "")
+            for entry in audit
+        ), "workflow_audit_trail must contain a parse_error audit entry"
 
 
 @pytest.mark.unit
