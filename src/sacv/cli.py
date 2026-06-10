@@ -28,6 +28,30 @@ if TYPE_CHECKING:
 log = structlog.get_logger(__name__)
 
 
+def _safe_build(label: str, factory) -> object:
+    """Wrap adapter construction with user-friendly error messages.
+
+    Catches ImportError and generic Exception, prints a clear message
+    to stderr, and calls sys.exit(1). Returns the factory result on success.
+    """
+    try:
+        return factory()
+    except ImportError as exc:
+        print(
+            f"ERROR: Missing dependency for {label}: {exc}\n"
+            f"Install requirements: pip install -e .[dev]",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except Exception as exc:
+        print(
+            f"ERROR: Failed to initialise {label}: {type(exc).__name__}: {exc}\n"
+            f"Check your configuration and working directory.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def _build_deps() -> "NodeDeps":
     """Build NodeDeps with production adapters. Adjust paths as needed."""
     from sacv.orchestration.deps import NodeDeps
@@ -41,13 +65,13 @@ def _build_deps() -> "NodeDeps":
     from sacv.git.diff_engine import DiffEngine
 
     return NodeDeps(
-        agent=ClaudeAgentAdapter(),
-        memory=AgentMemoryAdapter(),
-        code_graph=CodeGraphAdapter(),
-        cross_domain=GraphifyAdapter(),
-        git=BranchManager(),
-        sandbox=DockerContainerManager(),
-        diff=DiffEngine(),
+        agent=_safe_build("ClaudeAgentAdapter", ClaudeAgentAdapter),
+        memory=_safe_build("AgentMemoryAdapter", AgentMemoryAdapter),
+        code_graph=_safe_build("CodeGraphAdapter", CodeGraphAdapter),
+        cross_domain=_safe_build("GraphifyAdapter", GraphifyAdapter),
+        git=_safe_build("BranchManager", BranchManager),
+        sandbox=_safe_build("DockerContainerManager", DockerContainerManager),
+        diff=_safe_build("DiffEngine", DiffEngine),
         config=WorkflowConfig(),
     )
 
