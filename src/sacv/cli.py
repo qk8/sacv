@@ -169,10 +169,36 @@ async def cmd_run(args: argparse.Namespace) -> None:
         async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
             graph = build_graph(deps, checkpointer=checkpointer)
             config = {"configurable": {"thread_id": args.task_id}}
+            timeout = deps.config.max_workflow_duration
             try:
-                result = await run_with_progress(
-                    graph, initial_state, config, args.task_id,
-                )
+                if timeout > 0:
+                    async with asyncio.timeout(timeout):
+                        result = await run_with_progress(
+                            graph, initial_state, config, args.task_id,
+                        )
+                else:
+                    result = await run_with_progress(
+                        graph, initial_state, config, args.task_id,
+                    )
+            except asyncio.TimeoutError:
+                try:
+                    state_snapshot = await graph.get_state(config)
+                    if state_snapshot and state_snapshot.values:
+                        sv = state_snapshot.values
+                        log.error(
+                            "workflow_timeout",
+                            task_id=args.task_id,
+                            max_duration=timeout,
+                            last_phase=sv.get("current_phase", "unknown"),
+                            attempt=sv.get("correction_state", {}).get("attempt_count"),
+                            last_verdict=(sv.get("verifier_verdict") or {}).get("test_result")
+                            if sv.get("verifier_verdict") else None,
+                            cost=sv.get("cumulative_cost_dollars"),
+                        )
+                except Exception:
+                    log.error("workflow_timeout_no_state", task_id=args.task_id,
+                              max_duration=timeout)
+                raise
             except Exception:
                 try:
                     state_snapshot = await graph.get_state(config)

@@ -12,6 +12,7 @@ _KNOWN_TOP_LEVEL_KEYS = frozenset({
     "max_replan_attempts", "max_tdd_gate_attempts", "max_empty_diff_retries",
     "max_parallel_branches", "max_parallel_critics", "min_strategy_score",
     "max_strategies", "max_blast_files", "monorepo_mode", "agents_md_prompt_chars",
+    "max_workflow_duration",
     "stagnation", "token_budget", "cadence", "debug",
 })
 
@@ -91,6 +92,8 @@ class WorkflowConfig:
     monorepo_mode:                   bool  = False
     # Agents.md prompt chars (chars of AGENTS.md to include in Actor prompt)
     agents_md_prompt_chars:          int   = 2_000
+    # Workflow-level session timeout (seconds; 0 = no timeout)
+    max_workflow_duration:           int   = 3600
     # Sub-configs
     stagnation:       StagnationConfig = field(default_factory=StagnationConfig)
     token_budget:     TokenBudget      = field(default_factory=TokenBudget)
@@ -131,6 +134,7 @@ class WorkflowConfig:
             max_blast_files=raw.get("max_blast_files", 50),
             monorepo_mode=raw.get("monorepo_mode", False),
             agents_md_prompt_chars=raw.get("agents_md_prompt_chars", 2_000),
+            max_workflow_duration=raw.get("max_workflow_duration", 3600),
             debug=DebugConfig(
                 user_java_package=dbg.get("user_java_package", "com.example"),
                 user_ts_src_root=dbg.get("user_ts_src_root", "src"),
