@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
-from sacv.orchestration.state import WorkflowPhase, EscalationPayload, ResolutionHint, VerifierVerdict
+from sacv.orchestration.state import WorkflowPhase, EscalationPayload, ResolutionHint, VerifierVerdict, AuditEntry
 from sacv.interfaces.memory_provider import EpisodicEvent
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
@@ -143,6 +143,7 @@ def make_hitl_escalation_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Co
                         "then run the resume command."
                     ),
                 },
+                audit_trail=state.get("workflow_audit_trail", []),
             )
 
             # ── 4. Persist payload and esc_id marker (before interrupt) ────────

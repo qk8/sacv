@@ -114,6 +114,18 @@ def _merge_branches(existing: list[str] | None, new: list[str] | None) -> list[s
     return existing or []
 
 
+def _append_audit(
+    existing: list["AuditEntry"] | None,
+    new:      list["AuditEntry"] | None,
+) -> list["AuditEntry"]:
+    """Reducer for workflow_audit_trail — appends new audit entries."""
+    if new is None:
+        return existing or []
+    if isinstance(new, list) and len(new) == 0:
+        return existing or []
+    return (existing or []) + new  # type: ignore[return-value]
+
+
 def _merge_lists(existing: list[CriticFinding] | None, new: list[CriticFinding] | _CriticReset | None) -> list[CriticFinding]:
     """
     Reducer for critic fan-in.
@@ -149,6 +161,19 @@ def _merge_lists(existing: list[CriticFinding] | None, new: list[CriticFinding] 
             return existing or []        # empty list = no findings = no change
         return (existing or []) + new
     return existing or []
+
+
+# ── Audit trail ───────────────────────────────────────────────────────────────
+
+class AuditEntry(TypedDict):
+    """A single entry in the workflow audit trail.
+
+    Appended by nodes and routing functions to record key decisions.
+    """
+    timestamp_ms: float                # epoch time in milliseconds
+    node:         str                  # node or routing function name
+    decision:     str                  # human-readable decision description
+    key_values:   dict[str, object]    # most important state values at this point
 
 
 # ── Sub-state TypedDicts ──────────────────────────────────────────────────────
@@ -310,6 +335,7 @@ class EscalationPayload(TypedDict):
     git_state:           GitState
     resolution_hints:    list[ResolutionHint]
     resume_instructions: ResumeInstructions
+    audit_trail:         list[AuditEntry]   # HIGH-04: decision history for human reviewer
 
 class LessonLearned(TypedDict):
     task_id:              str
@@ -448,3 +474,6 @@ class WorkflowState(TypedDict):
 
     # ── Token budget tracking (BUG-008) ──────────────────────────────────
     cumulative_cost_dollars: float
+
+    # ── Structured audit trail (HIGH-04) ─────────────────────────────────
+    workflow_audit_trail: Annotated[list[AuditEntry], _append_audit]

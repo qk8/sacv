@@ -164,6 +164,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
             "procedural_constraints":  [], "lesson_learned": None,
             "arch_rules_updated":      False,
             "cumulative_cost_dollars": 0.0,    # BUG-008: token budget tracking
+            "workflow_audit_trail":    [],     # HIGH-04: structured audit trail
         }
 
         async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:

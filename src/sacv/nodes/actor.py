@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
 from sacv.orchestration.state import (
     WorkflowPhase, DiffProposal, UnifiedDiffPayload,
-    VerifierVerdict, DiagnosticVerdict, CRITIC_RESET,
+    VerifierVerdict, DiagnosticVerdict, CRITIC_RESET, AuditEntry,
 )
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.interfaces.diff_provider import UnifiedDiff
@@ -268,6 +269,16 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                     "branch_name":   branch_name,
                 },
                 "cumulative_cost_dollars": updated_cost,
+                "workflow_audit_trail": [{
+                    "timestamp_ms": time.time() * 1000,
+                    "node":         "actor",
+                    "decision":     f"diff_applied files={len(diffs)}",
+                    "key_values": {
+                        "attempt":    correction["attempt_count"],
+                        "branch":     branch_name,
+                        "files":      [d["file_path"] for d in raw_diffs],
+                    },
+                }],
             }
 
     return actor_node

@@ -34,9 +34,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
+import time
 
 from sacv.orchestration.state import (
-    WorkflowPhase, VerifierVerdict, DiagnosticVerdict,
+    WorkflowPhase, VerifierVerdict, DiagnosticVerdict, AuditEntry,
 )
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
@@ -558,4 +559,15 @@ def _build_return(verdict: VerifierVerdict, correction: dict[str, Any], failure_
         "current_phase":    WorkflowPhase.VERIFIER.value,
         "verifier_verdict": verdict,
         "correction_state": new_correction,
+        "workflow_audit_trail": [{
+            "timestamp_ms": time.time() * 1000,
+            "node":         "verifier",
+            "decision":     f"{verdict['test_result']} diag={verdict['diagnostic']}",
+            "key_values": {
+                "attempt":      correction["attempt_count"],
+                "phase1":       verdict["phase1_passed"],
+                "phase2":       verdict["phase2_passed"],
+                "blocked_by_critic": verdict.get("blocked_by_critic"),
+            },
+        }],
     }
