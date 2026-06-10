@@ -220,3 +220,100 @@ def test_from_json_invalid_json_raises(tmp_path: pathlib.Path) -> None:
     cfg_file.write_text("{not valid json")
     with pytest.raises(json.JSONDecodeError):
         WorkflowConfig.from_json(cfg_file)
+
+
+# ── CFG-001: Config value range validation ────────────────────────────────────
+
+
+class TestConfigValidation:
+
+    def test_rejects_zero_correction_cycles(self):
+        with pytest.raises(ValueError, match="max_self_correction_cycles"):
+            WorkflowConfig(max_self_correction_cycles=0)
+
+    def test_rejects_negative_correction_cycles(self):
+        with pytest.raises(ValueError, match="max_self_correction_cycles"):
+            WorkflowConfig(max_self_correction_cycles=-1)
+
+    def test_accepts_one_correction_cycle(self):
+        # 1 is the minimum valid value
+        cfg = WorkflowConfig(max_self_correction_cycles=1)
+        assert cfg.max_self_correction_cycles == 1
+
+    def test_rejects_confidence_threshold_zero(self):
+        with pytest.raises(ValueError, match="confidence_escalation_threshold"):
+            WorkflowConfig(confidence_escalation_threshold=0.0)
+
+    def test_rejects_confidence_threshold_above_one(self):
+        with pytest.raises(ValueError, match="confidence_escalation_threshold"):
+            WorkflowConfig(confidence_escalation_threshold=1.5)
+
+    def test_accepts_confidence_threshold_one(self):
+        cfg = WorkflowConfig(confidence_escalation_threshold=1.0)
+        assert cfg.confidence_escalation_threshold == 1.0
+
+    def test_rejects_negative_replan_attempts(self):
+        with pytest.raises(ValueError, match="max_replan_attempts"):
+            WorkflowConfig(max_replan_attempts=-1)
+
+    def test_accepts_zero_replan_attempts(self):
+        cfg = WorkflowConfig(max_replan_attempts=0)
+        assert cfg.max_replan_attempts == 0
+
+    def test_rejects_zero_tdd_gate_attempts(self):
+        with pytest.raises(ValueError, match="max_tdd_gate_attempts"):
+            WorkflowConfig(max_tdd_gate_attempts=0)
+
+    def test_rejects_zero_empty_diff_retries(self):
+        with pytest.raises(ValueError, match="max_empty_diff_retries"):
+            WorkflowConfig(max_empty_diff_retries=0)
+
+    def test_rejects_inverted_budget(self):
+        with pytest.raises(ValueError, match="warning_dollar"):
+            WorkflowConfig(token_budget=TokenBudget(warning_dollar=100.0, critical_dollar=50.0))
+
+    def test_rejects_equal_budget_values(self):
+        with pytest.raises(ValueError, match="warning_dollar"):
+            WorkflowConfig(token_budget=TokenBudget(warning_dollar=80.0, critical_dollar=80.0))
+
+    def test_accepts_valid_budget(self):
+        cfg = WorkflowConfig(token_budget=TokenBudget(warning_dollar=50.0, critical_dollar=80.0))
+        assert cfg.token_budget.warning_dollar < cfg.token_budget.critical_dollar
+
+    def test_rejects_zero_critical_dollar(self):
+        with pytest.raises(ValueError, match="critical_dollar"):
+            WorkflowConfig(token_budget=TokenBudget(critical_dollar=0.0))
+
+    def test_rejects_excessive_critical_dollar(self):
+        with pytest.raises(ValueError, match="critical_dollar"):
+            WorkflowConfig(token_budget=TokenBudget(critical_dollar=1001.0))
+
+    def test_rejects_low_similarity_threshold(self):
+        with pytest.raises(ValueError, match="semantic_similarity_threshold"):
+            WorkflowConfig(stagnation=StagnationConfig(semantic_similarity_threshold=0.0))
+
+    def test_rejects_similarity_threshold_above_one(self):
+        with pytest.raises(ValueError, match="semantic_similarity_threshold"):
+            WorkflowConfig(stagnation=StagnationConfig(semantic_similarity_threshold=1.1))
+
+    def test_accepts_boundary_similarity_threshold(self):
+        cfg = WorkflowConfig(stagnation=StagnationConfig(semantic_similarity_threshold=0.5))
+        assert cfg.stagnation.semantic_similarity_threshold == 0.5
+
+    def test_rejects_negative_min_strategy_score(self):
+        with pytest.raises(ValueError, match="min_strategy_score"):
+            WorkflowConfig(min_strategy_score=-0.1)
+
+    def test_rejects_min_strategy_score_one(self):
+        with pytest.raises(ValueError, match="min_strategy_score"):
+            WorkflowConfig(min_strategy_score=1.0)
+
+    def test_accepts_boundary_min_strategy_score(self):
+        cfg = WorkflowConfig(min_strategy_score=0.0)
+        assert cfg.min_strategy_score == 0.0
+
+    def test_default_config_passes_validation(self):
+        """Default WorkflowConfig must pass all validation checks."""
+        cfg = WorkflowConfig()
+        assert cfg.max_self_correction_cycles == 3
+        assert 0.0 < cfg.confidence_escalation_threshold <= 1.0

@@ -326,9 +326,9 @@ class TestRouteAfterActor:
 
     def test_stagnation_takes_priority_over_no_diff(self):
         """Both stagnation and no diff → stagnation wins (HITL)."""
-        cfg = WorkflowConfig(max_empty_diff_retries=0)
+        cfg = WorkflowConfig(max_empty_diff_retries=1)
         s = _s(
-            diff_proposal=None, empty_diff_retries=0,
+            diff_proposal=None, empty_diff_retries=1,
             correction_state={"attempt_count": 1, "branch_name": None,
                               "last_error_hash": None, "error_history": [],
                               "stagnation_pattern": "iteration"},

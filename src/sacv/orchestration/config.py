@@ -2,10 +2,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
+from typing import Any
 
 import structlog
 
 _log = structlog.get_logger(__name__)
+_cfg_log = structlog.get_logger("sacv.orchestration.config")
 
 _KNOWN_TOP_LEVEL_KEYS = frozenset({
     "max_self_correction_cycles", "confidence_escalation_threshold",
@@ -123,6 +125,75 @@ class WorkflowConfig:
     cadence:            CadenceConfig     = field(default_factory=CadenceConfig)
     debug:              DebugConfig       = field(default_factory=DebugConfig)
     confidence_weights: ConfidenceWeights = field(default_factory=ConfidenceWeights)
+
+    def __post_init__(self) -> None:
+        """Validate all config values are within sensible ranges."""
+        errors: list[str] = []
+
+        if self.max_self_correction_cycles < 1:
+            errors.append(
+                f"max_self_correction_cycles must be >= 1 (got {self.max_self_correction_cycles}). "
+                "Setting to 0 causes immediate HITL escalation on every failure."
+            )
+        if not (0.0 < self.confidence_escalation_threshold <= 1.0):
+            errors.append(
+                f"confidence_escalation_threshold must be in (0, 1] "
+                f"(got {self.confidence_escalation_threshold}). "
+                "Values > 1.0 cause HITL escalation on every run."
+            )
+        if self.max_replan_attempts < 0:
+            errors.append(
+                f"max_replan_attempts must be >= 0 (got {self.max_replan_attempts})."
+            )
+        if self.max_tdd_gate_attempts < 1:
+            errors.append(
+                f"max_tdd_gate_attempts must be >= 1 (got {self.max_tdd_gate_attempts})."
+            )
+        if self.max_empty_diff_retries < 1:
+            errors.append(
+                f"max_empty_diff_retries must be >= 1 (got {self.max_empty_diff_retries})."
+            )
+        if self.token_budget.warning_dollar >= self.token_budget.critical_dollar:
+            errors.append(
+                f"token_budget.warning_dollar ({self.token_budget.warning_dollar}) "
+                f"must be < critical_dollar ({self.token_budget.critical_dollar}). "
+                "The warning path is unreachable with this configuration."
+            )
+        if not (0.0 < self.token_budget.critical_dollar <= 1000.0):
+            errors.append(
+                f"token_budget.critical_dollar must be in (0, 1000] "
+                f"(got {self.token_budget.critical_dollar})."
+            )
+        if not (0.5 <= self.stagnation.semantic_similarity_threshold <= 1.0):
+            errors.append(
+                f"stagnation.semantic_similarity_threshold must be in [0.5, 1.0] "
+                f"(got {self.stagnation.semantic_similarity_threshold}). "
+                "Values below 0.5 trigger stagnation on every pair of different errors."
+            )
+        if self.min_strategy_score < 0.0 or self.min_strategy_score >= 1.0:
+            errors.append(
+                f"min_strategy_score must be in [0, 1) (got {self.min_strategy_score})."
+            )
+
+        if errors:
+            raise ValueError(
+                "WorkflowConfig validation failed:\n"
+                + "\n".join(f"  - {e}" for e in errors)
+            )
+
+        # Warn on potentially problematic but technically valid values
+        if self.max_self_correction_cycles < 2:
+            _cfg_log.warning(
+                "config.low_correction_cycles",
+                value=self.max_self_correction_cycles,
+                hint="Very low max_self_correction_cycles reduces self-healing ability.",
+            )
+        if self.max_parallel_branches > 4:
+            _cfg_log.warning(
+                "config.high_parallel_branches",
+                value=self.max_parallel_branches,
+                hint="High parallel_branches multiplies LLM cost and Docker resource usage.",
+            )
 
     @classmethod
     def from_json(cls, path: str | Path) -> "WorkflowConfig":
