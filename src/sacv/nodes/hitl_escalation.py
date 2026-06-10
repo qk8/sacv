@@ -49,7 +49,7 @@ def make_hitl_escalation_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Co
 
     async def hitl_escalation_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "hitl_escalation")
-        async with node_timer("hitl_escalation") as timing:
+        async with node_timer("hitl_escalation", state=state) as timing:
             task_id = state["task_id"]
 
             # ── Resume guard: file-backed check survives process restarts ─────

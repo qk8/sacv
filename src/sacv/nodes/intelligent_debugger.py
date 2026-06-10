@@ -64,7 +64,7 @@ def make_intelligent_debugger_node(deps: "NodeDeps") -> "Callable[[WorkflowState
 
     async def intelligent_debugger_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "intelligent_debugger")
-        async with node_timer("intelligent_debugger") as timing:
+        async with node_timer("intelligent_debugger", state=state) as timing:
             task_id   = state["task_id"]
             module    = state["module_type"]
             verdict   = state["verifier_verdict"] or {}

@@ -82,7 +82,7 @@ def make_mode_router_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Corout
 
     async def mode_router_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "mode_router")
-        async with node_timer("mode_router") as timing:
+        async with node_timer("mode_router", state=state) as timing:
             # Honour explicitly provided mode; auto-detect only if absent
             provided = state.get("project_mode")
             if provided in (ProjectMode.GREENFIELD.value, ProjectMode.BROWNFIELD.value):

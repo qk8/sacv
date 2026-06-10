@@ -55,7 +55,7 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
 
     async def speculative_branch_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "speculative_branch")
-        async with node_timer("speculative_branch") as timing:
+        async with node_timer("speculative_branch", state=state) as timing:
             task_id    = state["task_id"]
             candidates = state.get("strategy_candidates", [])
             exhausted  = list(state.get("exhausted_branches", []))

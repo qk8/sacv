@@ -76,7 +76,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
 
     async def actor_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "actor")
-        async with node_timer("actor") as timing:
+        async with node_timer("actor", state=state) as timing:
             task_id      = state["task_id"]
             strategy     = state.get("selected_strategy")
             correction   = state["correction_state"]

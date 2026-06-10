@@ -36,7 +36,7 @@ def make_scout_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
 
     async def scout_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "scout")
-        async with node_timer("scout") as timing:
+        async with node_timer("scout", state=state) as timing:
             task_id     = state["task_id"]
             mode        = state["project_mode"]
             description = state.get("task_description", "")

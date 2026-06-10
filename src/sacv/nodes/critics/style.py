@@ -41,7 +41,7 @@ General:
 def make_style_critic_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
     async def style_critic_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "style")
-        async with node_timer("style") as timing:
+        async with node_timer("style", state=state) as timing:
             findings, new_cost = await _run_critic(
                 role="principal engineer enforcing DDD and Clean Architecture",
                 critic_name="style",

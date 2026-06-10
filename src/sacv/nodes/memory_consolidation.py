@@ -68,7 +68,7 @@ def make_memory_consolidation_node(deps: "NodeDeps") -> "Callable[[WorkflowState
 
     async def memory_consolidation_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "memory_consolidation")
-        async with node_timer("memory_consolidation") as timing:
+        async with node_timer("memory_consolidation", state=state) as timing:
             session_id = state["session_id"]
             task_id    = state["task_id"]
             correction = state["correction_state"]

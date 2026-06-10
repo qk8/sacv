@@ -46,7 +46,7 @@ def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
 
     async def preflight_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "preflight")
-        async with node_timer("preflight") as timing:
+        async with node_timer("preflight", state=state) as timing:
             t0        = time.monotonic()
             module    = state["module_type"]
             profile   = state.get("check_profile", "standard")

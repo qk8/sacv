@@ -69,7 +69,7 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
 
     async def tdd_gate_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "tdd_gate")
-        async with node_timer("tdd_gate") as timing:
+        async with node_timer("tdd_gate", state=state) as timing:
             task_id   = state["task_id"]
             strategy  = state.get("selected_strategy")
             desc      = state.get("task_description", "")

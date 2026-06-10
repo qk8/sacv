@@ -74,6 +74,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "scout"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "scout"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_bootstrap_calls_bind_node_context_and_node_timer(self):
         """bootstrap_node calls bind_node_context and node_timer."""
@@ -95,6 +96,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "bootstrap"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "bootstrap"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_mode_router_calls_bind_node_context_and_node_timer(self):
         """mode_router_node calls bind_node_context and node_timer."""
@@ -116,6 +118,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "mode_router"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "mode_router"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_value_node_calls_bind_node_context_and_node_timer(self):
         """value_node_fn calls bind_node_context and node_timer."""
@@ -137,6 +140,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "value_node"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "value_node"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_preflight_calls_bind_node_context_and_node_timer(self):
         """preflight_node calls bind_node_context and node_timer."""
@@ -155,6 +159,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "preflight"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "preflight"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_verifier_calls_bind_node_context_and_node_timer(self):
         """verifier_node calls bind_node_context and node_timer."""
@@ -177,6 +182,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "verifier"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "verifier"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_replan_calls_bind_node_context_and_node_timer(self):
         """replan_node calls bind_node_context and node_timer."""
@@ -198,6 +204,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "replan"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "replan"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_intelligent_debugger_calls_bind_node_context_and_node_timer(self):
         """intelligent_debugger_node calls bind_node_context and node_timer."""
@@ -219,6 +226,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "intelligent_debugger"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "intelligent_debugger"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_hitl_escalation_calls_bind_node_context_and_node_timer(self):
         """hitl_escalation_node calls bind_node_context and node_timer."""
@@ -237,6 +245,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "hitl_escalation"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "hitl_escalation"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_memory_consolidation_calls_bind_node_context_and_node_timer(self):
         """memory_consolidation_node calls bind_node_context and node_timer."""
@@ -255,6 +264,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "memory_consolidation"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "memory_consolidation"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_all_critics_node_calls_bind_node_context_and_node_timer(self):
         """all_critics_node calls bind_node_context and node_timer."""
@@ -278,6 +288,7 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "all_critics"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "all_critics"
+        assert mock_timer.call_args[1]["state"] is state
 
     async def test_verifier_with_confidence_calls_bind_node_context_and_node_timer(self):
         """verifier_with_confidence calls bind_node_context and node_timer."""
@@ -300,3 +311,4 @@ class TestNodeCallsContextUtilities:
         assert mock_bind.call_args[0][1] == "verifier_with_confidence"
         mock_timer.assert_called_once()
         assert mock_timer.call_args[0][0] == "verifier_with_confidence"
+        assert mock_timer.call_args[1]["state"] is state

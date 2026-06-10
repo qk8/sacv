@@ -53,7 +53,7 @@ def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[A
 
     async def replan_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "replan")
-        async with node_timer("replan") as timing:
+        async with node_timer("replan", state=state) as timing:
             task_id    = state["task_id"]
             replan_cnt = state.get("replan_count", 0)
             cfg        = deps.config

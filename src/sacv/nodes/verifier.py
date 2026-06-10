@@ -57,7 +57,7 @@ def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
 
     async def verifier_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "verifier")
-        async with node_timer("verifier") as timing:
+        async with node_timer("verifier", state=state) as timing:
             task_id   = state["task_id"]
             module    = state["module_type"]
             correction = state["correction_state"]

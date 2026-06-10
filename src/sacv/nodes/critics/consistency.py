@@ -43,7 +43,7 @@ Greenfield mode — internal consistency within this diff:
 def make_consistency_critic_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
     async def consistency_critic_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "consistency")
-        async with node_timer("consistency") as timing:
+        async with node_timer("consistency", state=state) as timing:
             mode  = state.get("project_mode", "greenfield")
             rules = (
                 _CONSISTENCY_RULES_BROWNFIELD

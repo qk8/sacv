@@ -62,7 +62,7 @@ def _make_all_critics_node(deps: "NodeDeps") -> Any:
 
     async def all_critics_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "all_critics")
-        async with node_timer("all_critics") as timing:
+        async with node_timer("all_critics", state=state) as timing:
             sec_node = make_security_critic_node(deps)
             sty_node = make_style_critic_node(deps)
             con_node = make_consistency_critic_node(deps)
@@ -120,7 +120,7 @@ def _make_all_critics_node(deps: "NodeDeps") -> Any:
 def _inject_confidence(deps: "NodeDeps") -> Any:
     async def verifier_with_confidence(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "verifier_with_confidence")
-        async with node_timer("verifier_with_confidence") as timing:
+        async with node_timer("verifier_with_confidence", state=state) as timing:
             result = await _run_verifier_with_confidence(state, deps)
             timing["confidence"] = result.get("verifier_confidence")
             return {k: v for k, v in result.items()}

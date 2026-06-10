@@ -47,7 +47,7 @@ def make_value_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
 
     async def value_node_fn(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "value_node")
-        async with node_timer("value_node") as timing:
+        async with node_timer("value_node", state=state) as timing:
             cfg          = deps.config
             skeleton     = state.get("context_skeleton") or {}
             blast        = state.get("blast_radius_map")

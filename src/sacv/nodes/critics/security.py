@@ -39,7 +39,7 @@ Common:
 def make_security_critic_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
     async def security_critic_node(state: "WorkflowState") -> dict[str, object]:
         bind_node_context(state, "security")
-        async with node_timer("security") as timing:
+        async with node_timer("security", state=state) as timing:
             findings, new_cost = await _run_critic(
                 role="security engineer specialising in OWASP Top 10",
                 critic_name="security",
