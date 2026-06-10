@@ -15,6 +15,9 @@ from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import structlog
 
+from sacv.nodes._node_context import bind_node_context
+from sacv.nodes._node_timer import node_timer
+
 log = structlog.get_logger(__name__)
 
 from langgraph.graph import StateGraph, START, END
@@ -58,62 +61,69 @@ def _make_all_critics_node(deps: "NodeDeps") -> Any:
     from sacv.orchestration.state import WorkflowPhase
 
     async def all_critics_node(state: "WorkflowState") -> dict[str, object]:
-        sec_node = make_security_critic_node(deps)
-        sty_node = make_style_critic_node(deps)
-        con_node = make_consistency_critic_node(deps)
+        bind_node_context(state, "all_critics")
+        async with node_timer("all_critics") as timing:
+            sec_node = make_security_critic_node(deps)
+            sty_node = make_style_critic_node(deps)
+            con_node = make_consistency_critic_node(deps)
 
-        results = await asyncio.gather(
-            sec_node(state),
-            sty_node(state),
-            con_node(state),
-            return_exceptions=True,
-        )
+            results = await asyncio.gather(
+                sec_node(state),
+                sty_node(state),
+                con_node(state),
+                return_exceptions=True,
+            )
 
-        def _safe_out(result, name):
-            if isinstance(result, Exception):
-                log.warning(
-                    "critic_node_exception",
-                    critic=name,
-                    error=str(result),
-                    exc_info=True,
-                )
-                return {"critic_findings": [], "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0)}
-            return result
+            def _safe_out(result, name):
+                if isinstance(result, Exception):
+                    log.warning(
+                        "critic_node_exception",
+                        critic=name,
+                        error=str(result),
+                        exc_info=True,
+                    )
+                    return {"critic_findings": [], "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0)}
+                return result
 
-        sec_out = _safe_out(results[0], "security")
-        sty_out = _safe_out(results[1], "style")
-        con_out = _safe_out(results[2], "consistency")
+            sec_out = _safe_out(results[0], "security")
+            sty_out = _safe_out(results[1], "style")
+            con_out = _safe_out(results[2], "consistency")
 
-        all_findings = (
-            sec_out.get("critic_findings", [])
-            + sty_out.get("critic_findings", [])
-            + con_out.get("critic_findings", [])
-        )
-        # Each critic receives the same state snapshot; each returns
-        # baseline + its own cost. Sum all three outputs and subtract 3x
-        # the baseline to isolate the incremental cost. Add baseline back
-        # so the cumulative total (including prior nodes' costs) is preserved.
-        baseline = state.get("cumulative_cost_dollars", 0.0)
-        final_cost = (
-            baseline
-            + sec_out.get("cumulative_cost_dollars", baseline)
-            + sty_out.get("cumulative_cost_dollars", baseline)
-            + con_out.get("cumulative_cost_dollars", baseline)
-            - 3.0 * baseline
-        )
-        return {
-            "current_phase":           WorkflowPhase.CRITICS.value,
-            "critic_findings":         all_findings,
-            "cumulative_cost_dollars": final_cost,
-        }
+            all_findings = (
+                sec_out.get("critic_findings", [])
+                + sty_out.get("critic_findings", [])
+                + con_out.get("critic_findings", [])
+            )
+            # Each critic receives the same state snapshot; each returns
+            # baseline + its own cost. Sum all three outputs and subtract 3x
+            # the baseline to isolate the incremental cost. Add baseline back
+            # so the cumulative total (including prior nodes' costs) is preserved.
+            baseline = state.get("cumulative_cost_dollars", 0.0)
+            final_cost = (
+                baseline
+                + sec_out.get("cumulative_cost_dollars", baseline)
+                + sty_out.get("cumulative_cost_dollars", baseline)
+                + con_out.get("cumulative_cost_dollars", baseline)
+                - 3.0 * baseline
+            )
+            timing["findings"] = len(all_findings)
+
+            return {
+                "current_phase":           WorkflowPhase.CRITICS.value,
+                "critic_findings":         all_findings,
+                "cumulative_cost_dollars": final_cost,
+            }
 
     return all_critics_node
 
 
 def _inject_confidence(deps: "NodeDeps") -> Any:
     async def verifier_with_confidence(state: "WorkflowState") -> dict[str, object]:
-        result = await _run_verifier_with_confidence(state, deps)
-        return {k: v for k, v in result.items()}
+        bind_node_context(state, "verifier_with_confidence")
+        async with node_timer("verifier_with_confidence") as timing:
+            result = await _run_verifier_with_confidence(state, deps)
+            timing["confidence"] = result.get("verifier_confidence")
+            return {k: v for k, v in result.items()}
 
     return verifier_with_confidence
 

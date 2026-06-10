@@ -29,6 +29,8 @@ import structlog
 
 from sacv.orchestration.state import WorkflowPhase, EscalationPayload, ResolutionHint, VerifierVerdict
 from sacv.interfaces.memory_provider import EpisodicEvent
+from sacv.nodes._node_context import bind_node_context
+from sacv.nodes._node_timer import node_timer
 
 if TYPE_CHECKING:
     from sacv.orchestration.config import WorkflowConfig
@@ -46,128 +48,130 @@ except importlib.metadata.PackageNotFoundError:
 def make_hitl_escalation_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
     async def hitl_escalation_node(state: "WorkflowState") -> dict[str, object]:
-        task_id = state["task_id"]
+        bind_node_context(state, "hitl_escalation")
+        async with node_timer("hitl_escalation") as timing:
+            task_id = state["task_id"]
 
-        # ── Resume guard: file-backed check survives process restarts ─────
-        esc_id_marker = deps.repo_root / ".workflow" / "escalations" / f"task-{task_id}.esc_id"
-        if esc_id_marker.exists():
-            esc_id = esc_id_marker.read_text().strip()
-            payload_path = deps.repo_root / ".workflow" / "escalations" / f"{esc_id}.json"
-            if payload_path.exists():
-                payload = json.loads(payload_path.read_text())
-                return {
-                    "current_phase":      WorkflowPhase.HITL_ESCALATION.value,
-                    "escalation_payload": payload,
-                }
+            # ── Resume guard: file-backed check survives process restarts ─────
+            esc_id_marker = deps.repo_root / ".workflow" / "escalations" / f"task-{task_id}.esc_id"
+            if esc_id_marker.exists():
+                esc_id = esc_id_marker.read_text().strip()
+                payload_path = deps.repo_root / ".workflow" / "escalations" / f"{esc_id}.json"
+                if payload_path.exists():
+                    payload = json.loads(payload_path.read_text())
+                    return {
+                        "current_phase":      WorkflowPhase.HITL_ESCALATION.value,
+                        "escalation_payload": payload,
+                    }
 
-        # ── First execution: perform all one-time setup ───────────────────
-        esc_id     = str(uuid.uuid4())
-        correction = state["correction_state"]
-        verdict    = state.get("verifier_verdict")
-        exhausted  = state.get("exhausted_branches", [])
+            # ── First execution: perform all one-time setup ───────────────────
+            esc_id     = str(uuid.uuid4())
+            correction = state["correction_state"]
+            verdict    = state.get("verifier_verdict")
+            exhausted  = state.get("exhausted_branches", [])
 
-        log.warning(
-            "hitl.escalating",
-            task_id=task_id,
-            esc_id=esc_id,
-            attempts=correction["attempt_count"],
-            branches_exhausted=len(exhausted),
-        )
-
-        # ── 1. Build resolution hints ─────────────────────────────────────
-        hints: list[ResolutionHint] = _build_hints(verdict, state, deps.config)
-
-        # ── 2. Capture git state ───────────────────────────────────────────
-        stash_ref: str | None = None
-        current_branch = (
-            correction.get("branch_name")
-            or await asyncio.to_thread(deps.git.current_branch)
-        )
-        if current_branch and current_branch != "main":
-            stash_ref = await asyncio.to_thread(
-                deps.git.stash, f"sacv-hitl-{esc_id[:8]}"
+            log.warning(
+                "hitl.escalating",
+                task_id=task_id,
+                esc_id=esc_id,
+                attempts=correction["attempt_count"],
+                branches_exhausted=len(exhausted),
             )
 
-        green_sha = await asyncio.to_thread(deps.git.get_last_green_commit)
-        uncommitted = await asyncio.to_thread(deps.git.uncommitted_files)
+            # ── 1. Build resolution hints ─────────────────────────────────────
+            hints: list[ResolutionHint] = _build_hints(verdict, state, deps.config)
 
-        # Reset to last green state — errors are captured but never block escalation
-        git_reset_error: str | None = None
-        try:
-            await asyncio.to_thread(deps.git.reset_hard, green_sha)
-            await asyncio.to_thread(deps.git.checkout, "main")
-        except Exception as exc:
-            git_reset_error = str(exc)
-            log.error("hitl.git_reset_failed", error=git_reset_error, green_sha=green_sha, exc_info=True)
+            # ── 2. Capture git state ───────────────────────────────────────────
+            stash_ref: str | None = None
+            current_branch = (
+                correction.get("branch_name")
+                or await asyncio.to_thread(deps.git.current_branch)
+            )
+            if current_branch and current_branch != "main":
+                stash_ref = await asyncio.to_thread(
+                    deps.git.stash, f"sacv-hitl-{esc_id[:8]}"
+                )
 
-        git_state = {
-            "active_branch":       current_branch,
-            "stash_ref":           stash_ref,
-            "last_green_commit":   green_sha,
-            "stashed_branches":    exhausted,
-            "uncommitted_files":   uncommitted,
-            "git_reset_failed":    git_reset_error,  # None if git succeeded
-            "stash_pop_command":   f"git stash pop {stash_ref}" if stash_ref else None,
-            "stash_note":          (
-                "Run stash_pop_command to restore pre-speculation work. "
-                "If stash_pop fails due to conflicts, use 'git stash list' "
-                "and 'git stash drop' to clean up."
-            ),
-        }
+            green_sha = await asyncio.to_thread(deps.git.get_last_green_commit)
+            uncommitted = await asyncio.to_thread(deps.git.uncommitted_files)
 
-        # ── 3. Build full escalation payload ──────────────────────────────
-        payload = EscalationPayload(
-            escalation_id=esc_id,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            workflow_version=_WORKFLOW_VERSION,
-            task_id=task_id,
-            task_description=state.get("task_description", ""),
-            failure_summary={
-                "total_attempts":       correction["attempt_count"],
-                "branches_exhausted":   exhausted,
-                "stagnation_pattern":   correction.get("stagnation_pattern", "none"),
-                "last_verifier_output": verdict,
-                "critic_findings":      state.get("critic_findings", []),
-            },
-            git_state=git_state,
-            resolution_hints=hints,
-            resume_instructions={
-                "command": f"workflow resume --escalation-id {esc_id}",
-                "state_file": f".workflow/escalations/{esc_id}.json",
-                "note": (
-                    "Review the failure summary, apply manual corrections if needed, "
-                    "then run the resume command."
+            # Reset to last green state — errors are captured but never block escalation
+            git_reset_error: str | None = None
+            try:
+                await asyncio.to_thread(deps.git.reset_hard, green_sha)
+                await asyncio.to_thread(deps.git.checkout, "main")
+            except Exception as exc:
+                git_reset_error = str(exc)
+                log.error("hitl.git_reset_failed", error=git_reset_error, green_sha=green_sha, exc_info=True)
+
+            git_state = {
+                "active_branch":       current_branch,
+                "stash_ref":           stash_ref,
+                "last_green_commit":   green_sha,
+                "stashed_branches":    exhausted,
+                "uncommitted_files":   uncommitted,
+                "git_reset_failed":    git_reset_error,  # None if git succeeded
+                "stash_pop_command":   f"git stash pop {stash_ref}" if stash_ref else None,
+                "stash_note":          (
+                    "Run stash_pop_command to restore pre-speculation work. "
+                    "If stash_pop fails due to conflicts, use 'git stash list' "
+                    "and 'git stash drop' to clean up."
                 ),
-            },
-        )
+            }
 
-        # ── 4. Persist payload and esc_id marker (before interrupt) ────────
-        esc_dir = deps.repo_root / ".workflow" / "escalations"
-        esc_dir.mkdir(parents=True, exist_ok=True)
-        payload_path = esc_dir / f"{esc_id}.json"
-        payload_path.write_text(json.dumps(payload, indent=2))
-        # Marker file: enables resume detection across process restarts
-        esc_id_marker = esc_dir / f"task-{task_id}.esc_id"
-        esc_id_marker.write_text(esc_id)
+            # ── 3. Build full escalation payload ──────────────────────────────
+            payload = EscalationPayload(
+                escalation_id=esc_id,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                workflow_version=_WORKFLOW_VERSION,
+                task_id=task_id,
+                task_description=state.get("task_description", ""),
+                failure_summary={
+                    "total_attempts":       correction["attempt_count"],
+                    "branches_exhausted":   exhausted,
+                    "stagnation_pattern":   correction.get("stagnation_pattern", "none"),
+                    "last_verifier_output": verdict,
+                    "critic_findings":      state.get("critic_findings", []),
+                },
+                git_state=git_state,
+                resolution_hints=hints,
+                resume_instructions={
+                    "command": f"workflow resume --escalation-id {esc_id}",
+                    "state_file": f".workflow/escalations/{esc_id}.json",
+                    "note": (
+                        "Review the failure summary, apply manual corrections if needed, "
+                        "then run the resume command."
+                    ),
+                },
+            )
 
-        log.warning("hitl.payload_written", path=str(payload_path))
+            # ── 4. Persist payload and esc_id marker (before interrupt) ────────
+            esc_dir = deps.repo_root / ".workflow" / "escalations"
+            esc_dir.mkdir(parents=True, exist_ok=True)
+            payload_path = esc_dir / f"{esc_id}.json"
+            payload_path.write_text(json.dumps(payload, indent=2))
+            # Marker file: enables resume detection across process restarts
+            esc_id_marker = esc_dir / f"task-{task_id}.esc_id"
+            esc_id_marker.write_text(esc_id)
 
-        # ── 5. Record escalation in AgentMemory ───────────────────────────
-        await deps.memory.store_episodic(EpisodicEvent(
-            session_id=state["session_id"],
-            event_type="hitl_escalation",
-            payload={"escalation_id": esc_id, "task_id": task_id},
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        ))
+            log.warning("hitl.payload_written", path=str(payload_path))
 
-        from langgraph.types import interrupt
-        interrupt(payload)
+            # ── 5. Record escalation in AgentMemory ───────────────────────────
+            await deps.memory.store_episodic(EpisodicEvent(
+                session_id=state["session_id"],
+                event_type="hitl_escalation",
+                payload={"escalation_id": esc_id, "task_id": task_id},
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            ))
 
-        # Unreachable during first execution; runs on resume.
-        return {
-            "current_phase":    WorkflowPhase.HITL_ESCALATION.value,
-            "escalation_payload": payload,
-        }
+            from langgraph.types import interrupt
+            interrupt(payload)
+
+            # Unreachable during first execution; runs on resume.
+            return {
+                "current_phase":    WorkflowPhase.HITL_ESCALATION.value,
+                "escalation_payload": payload,
+            }
 
     return hitl_escalation_node
 

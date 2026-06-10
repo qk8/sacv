@@ -14,6 +14,8 @@ new files must follow it).
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 from sacv.nodes.critics.base import _run_critic
+from sacv.nodes._node_context import bind_node_context
+from sacv.nodes._node_timer import node_timer
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState
@@ -40,18 +42,21 @@ Greenfield mode — internal consistency within this diff:
 
 def make_consistency_critic_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
     async def consistency_critic_node(state: "WorkflowState") -> dict[str, object]:
-        mode  = state.get("project_mode", "greenfield")
-        rules = (
-            _CONSISTENCY_RULES_BROWNFIELD
-            if mode == "brownfield"
-            else _CONSISTENCY_RULES_GREENFIELD
-        )
-        findings, new_cost = await _run_critic(
-            role="senior developer enforcing codebase consistency",
-            critic_name="consistency",
-            extra_rules=rules,
-            state=state,
-            deps=deps,
-        )
-        return {"critic_findings": findings, "cumulative_cost_dollars": new_cost}
+        bind_node_context(state, "consistency")
+        async with node_timer("consistency") as timing:
+            mode  = state.get("project_mode", "greenfield")
+            rules = (
+                _CONSISTENCY_RULES_BROWNFIELD
+                if mode == "brownfield"
+                else _CONSISTENCY_RULES_GREENFIELD
+            )
+            findings, new_cost = await _run_critic(
+                role="senior developer enforcing codebase consistency",
+                critic_name="consistency",
+                extra_rules=rules,
+                state=state,
+                deps=deps,
+            )
+            timing["findings"] = len(findings)
+            return {"critic_findings": findings, "cumulative_cost_dollars": new_cost}
     return consistency_critic_node

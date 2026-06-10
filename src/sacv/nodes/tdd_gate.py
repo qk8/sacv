@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING, Any, Callable, Coroutine
 import structlog
 
 from sacv.orchestration.state import WorkflowPhase
+from sacv.nodes._node_context import bind_node_context
+from sacv.nodes._node_timer import node_timer
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.nodes._structured_output import extract_structured, TestFile, StructuredOutputError
 
@@ -66,167 +68,170 @@ No explanation. No markdown. Only the JSON array.
 def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
     async def tdd_gate_node(state: "WorkflowState") -> dict[str, object]:
-        task_id   = state["task_id"]
-        strategy  = state.get("selected_strategy")
-        desc      = state.get("task_description", "")
-        module    = state["module_type"]
-        is_front  = "frontend" in module
+        bind_node_context(state, "tdd_gate")
+        async with node_timer("tdd_gate") as timing:
+            task_id   = state["task_id"]
+            strategy  = state.get("selected_strategy")
+            desc      = state.get("task_description", "")
+            module    = state["module_type"]
+            is_front  = "frontend" in module
 
-        log.info("tdd_gate.start", task_id=task_id, module=module)
+            log.info("tdd_gate.start", task_id=task_id, module=module)
 
-        # ── Skip for test scenarios ────────────────────────────────────────
-        if state.get("skip_tdd_gate"):
-            log.info("tdd_gate.skipped", task_id=task_id)
-            return {
-                "current_phase":          WorkflowPhase.ACTOR.value,
-                "red_phase_evidence_path": ".workflow/tdd-evidence/skipped.json",
-                "test_inventory_paths":    [],
-                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
-            }
+            # ── Skip for test scenarios ────────────────────────────────────────
+            if state.get("skip_tdd_gate"):
+                log.info("tdd_gate.skipped", task_id=task_id)
+                return {
+                    "current_phase":          WorkflowPhase.ACTOR.value,
+                    "red_phase_evidence_path": ".workflow/tdd-evidence/skipped.json",
+                    "test_inventory_paths":    [],
+                    "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                }
 
-        if strategy is None:
-            log.error("tdd_gate.no_strategy")
-            return {
-                "current_phase":          WorkflowPhase.ACTOR.value,
-                "red_phase_evidence_path": None,
-                "test_inventory_paths":    [],
-                "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
-                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
-            }
-
-        # ── 1. Generate tests via Test Oracle ─────────────────────────────
-        # ── 1b. LLM call with structured output + retry ───────────────────
-        system_prompt = _ORACLE_FRONTEND_SYSTEM if is_front else _ORACLE_BACKEND_SYSTEM
-        try:
-            structured = await extract_structured(
-                agent=deps.agent,
-                prompt=(
-                    f"Task: {desc}\n\n"
-                    f"Strategy to implement:\n{json.dumps(strategy, indent=2)}\n\n"
-                    f"Feature ID: {_feature_id(task_id)}\n"
-                    "Write failing tests for this strategy."
-                ),
-                response_model=list[TestFile],
-                system_prompt=system_prompt,
-                context={"strategy": strategy},
-                max_retries=3,
-                allowed_tools=[],
-                current_cost=state.get("cumulative_cost_dollars", 0.0),
-                workflow_config=deps.config,
-            )
-            test_files: list[dict[str, Any]] = [tf.model_dump() for tf in structured.data]
-            updated_cost = structured.updated_cost
-        except StructuredOutputError as exc:
-            log.error(
-                "tdd_gate.parse_error",
-                error=str(exc),
-                raw_content_preview=exc.last_raw_content[:500],
-                raw_content_len=len(exc.last_raw_content),
-            )
-            return {
-                "current_phase":          WorkflowPhase.ACTOR.value,
-                "red_phase_evidence_path": None,
-                "test_inventory_paths":    [],
-                "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
-                "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
-            }
-
-        # ── 2. Write test files to PERMANENT locations in sandbox ──────────
-        handle = await deps.sandbox.warm_container()
-
-        try:
-            permanent_paths: list[str] = []
-
-            for tf in test_files:
-                file_path = tf.get("file_path", "")
-                content   = tf.get("content", "")
-                if not file_path or not content:
-                    continue
-                # Enforce permanent directory convention (approach 8)
-                file_path = _canonicalise_test_path(
-                    file_path, module, task_id,
-                    user_package=deps.config.debug.user_java_package,
-                )
-                # Sanitize file path to prevent shell injection; encode content
-                # as base64 to avoid heredoc injection via test content.
-                safe_path = shlex.quote(file_path)
-                safe_dir = shlex.quote(str(Path(file_path).parent))
-                encoded_content = base64.b64encode(content.encode()).decode("ascii")
-
-                await deps.sandbox.exec_in_container(
-                    handle,
-                    f"mkdir -p {safe_dir}",
-                    timeout=10,
-                )
-                await deps.sandbox.exec_in_container(
-                    handle,
-                    f"echo {shlex.quote(encoded_content)} | base64 -d > {safe_path}",
-                    timeout=30,
-                )
-                permanent_paths.append(file_path)
-
-            # ── 3. Run tests — MUST fail (red phase) ───────────────────────
-            run_cmd = _test_command_for(module)
-            run_result = await deps.sandbox.exec_in_container(
-                handle, run_cmd, timeout=120,
-            )
-
-            if run_result.exit_code == 0:
-                log.warning("tdd_gate.tests_passed_unexpectedly")
+            if strategy is None:
+                log.error("tdd_gate.no_strategy")
                 return {
                     "current_phase":          WorkflowPhase.ACTOR.value,
                     "red_phase_evidence_path": None,
                     "test_inventory_paths":    [],
                     "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
-                    "cumulative_cost_dollars": updated_cost,
+                    "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
                 }
 
-            # ── 4. Commit test inventory to git (MEDIUM-003) ─────────────
-            if permanent_paths:
-                staged: list[str] = []
-                for p in permanent_paths:
-                    try:
-                        await asyncio.to_thread(deps.git.stage_file, p)
-                        staged.append(p)
-                    except RuntimeError as exc:
-                        log.error("tdd_gate.git_stage_failed", path=p, error=str(exc))
+            # ── 1. Generate tests via Test Oracle ─────────────────────────────
+            # ── 1b. LLM call with structured output + retry ───────────────────
+            system_prompt = _ORACLE_FRONTEND_SYSTEM if is_front else _ORACLE_BACKEND_SYSTEM
+            try:
+                structured = await extract_structured(
+                    agent=deps.agent,
+                    prompt=(
+                        f"Task: {desc}\n\n"
+                        f"Strategy to implement:\n{json.dumps(strategy, indent=2)}\n\n"
+                        f"Feature ID: {_feature_id(task_id)}\n"
+                        "Write failing tests for this strategy."
+                    ),
+                    response_model=list[TestFile],
+                    system_prompt=system_prompt,
+                    context={"strategy": strategy},
+                    max_retries=3,
+                    allowed_tools=[],
+                    current_cost=state.get("cumulative_cost_dollars", 0.0),
+                    workflow_config=deps.config,
+                )
+                test_files: list[dict[str, Any]] = [tf.model_dump() for tf in structured.data]
+                updated_cost = structured.updated_cost
+            except StructuredOutputError as exc:
+                log.error(
+                    "tdd_gate.parse_error",
+                    error=str(exc),
+                    raw_content_preview=exc.last_raw_content[:500],
+                    raw_content_len=len(exc.last_raw_content),
+                )
+                return {
+                    "current_phase":          WorkflowPhase.ACTOR.value,
+                    "red_phase_evidence_path": None,
+                    "test_inventory_paths":    [],
+                    "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
+                    "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                }
 
-                if staged:
-                    try:
-                        await asyncio.to_thread(
-                            deps.git.commit,
-                            f"sacv: add test inventory for {task_id} [tests]",
-                            add_all=False,
-                        )
-                        log.info("tdd_gate.tests_committed", count=len(staged))
-                    except RuntimeError as exc:
-                        log.error("tdd_gate.test_commit_failed", error=str(exc))
+            # ── 2. Write test files to PERMANENT locations in sandbox ──────────
+            handle = await deps.sandbox.warm_container()
 
-            # ── 5. Serialise evidence ────────────────────────────────────
-            evidence_dir = deps.repo_root / ".workflow" / "tdd-evidence"
-            evidence_dir.mkdir(parents=True, exist_ok=True)
-            evidence_path = evidence_dir / f"{task_id}.json"
-            evidence = {
-                "task_id":          task_id,
-                "permanent_paths":  permanent_paths,
-                "failure_output":   (run_result.stdout + run_result.stderr)[:2000],
-            }
-            evidence_path.write_text(json.dumps(evidence, indent=2))
+            try:
+                permanent_paths: list[str] = []
 
-            log.info(
-                "tdd_gate.red_phase_confirmed",
-                files_written=len(permanent_paths),
-                evidence=str(evidence_path),
-            )
+                for tf in test_files:
+                    file_path = tf.get("file_path", "")
+                    content   = tf.get("content", "")
+                    if not file_path or not content:
+                        continue
+                    # Enforce permanent directory convention (approach 8)
+                    file_path = _canonicalise_test_path(
+                        file_path, module, task_id,
+                        user_package=deps.config.debug.user_java_package,
+                    )
+                    # Sanitize file path to prevent shell injection; encode content
+                    # as base64 to avoid heredoc injection via test content.
+                    safe_path = shlex.quote(file_path)
+                    safe_dir = shlex.quote(str(Path(file_path).parent))
+                    encoded_content = base64.b64encode(content.encode()).decode("ascii")
 
-            return {
-                "current_phase":          WorkflowPhase.ACTOR.value,
-                "red_phase_evidence_path": str(evidence_path),
-                "test_inventory_paths":   permanent_paths,
-                "cumulative_cost_dollars": updated_cost,
-            }
-        finally:
-            await deps.sandbox.destroy_container(handle)
+                    await deps.sandbox.exec_in_container(
+                        handle,
+                        f"mkdir -p {safe_dir}",
+                        timeout=10,
+                    )
+                    await deps.sandbox.exec_in_container(
+                        handle,
+                        f"echo {shlex.quote(encoded_content)} | base64 -d > {safe_path}",
+                        timeout=30,
+                    )
+                    permanent_paths.append(file_path)
+
+                # ── 3. Run tests — MUST fail (red phase) ───────────────────────
+                run_cmd = _test_command_for(module)
+                run_result = await deps.sandbox.exec_in_container(
+                    handle, run_cmd, timeout=120,
+                )
+
+                if run_result.exit_code == 0:
+                    log.warning("tdd_gate.tests_passed_unexpectedly")
+                    return {
+                        "current_phase":          WorkflowPhase.ACTOR.value,
+                        "red_phase_evidence_path": None,
+                        "test_inventory_paths":    [],
+                        "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
+                        "cumulative_cost_dollars": updated_cost,
+                    }
+
+                # ── 4. Commit test inventory to git (MEDIUM-003) ─────────────
+                if permanent_paths:
+                    staged: list[str] = []
+                    for p in permanent_paths:
+                        try:
+                            await asyncio.to_thread(deps.git.stage_file, p)
+                            staged.append(p)
+                        except RuntimeError as exc:
+                            log.error("tdd_gate.git_stage_failed", path=p, error=str(exc))
+
+                    if staged:
+                        try:
+                            await asyncio.to_thread(
+                                deps.git.commit,
+                                f"sacv: add test inventory for {task_id} [tests]",
+                                add_all=False,
+                            )
+                            log.info("tdd_gate.tests_committed", count=len(staged))
+                        except RuntimeError as exc:
+                            log.error("tdd_gate.test_commit_failed", error=str(exc))
+
+                # ── 5. Serialise evidence ────────────────────────────────────
+                evidence_dir = deps.repo_root / ".workflow" / "tdd-evidence"
+                evidence_dir.mkdir(parents=True, exist_ok=True)
+                evidence_path = evidence_dir / f"{task_id}.json"
+                evidence = {
+                    "task_id":          task_id,
+                    "permanent_paths":  permanent_paths,
+                    "failure_output":   (run_result.stdout + run_result.stderr)[:2000],
+                }
+                evidence_path.write_text(json.dumps(evidence, indent=2))
+
+                timing["files_written"] = len(permanent_paths)
+                log.info(
+                    "tdd_gate.red_phase_confirmed",
+                    files_written=len(permanent_paths),
+                    evidence=str(evidence_path),
+                )
+
+                return {
+                    "current_phase":          WorkflowPhase.ACTOR.value,
+                    "red_phase_evidence_path": str(evidence_path),
+                    "test_inventory_paths":   permanent_paths,
+                    "cumulative_cost_dollars": updated_cost,
+                }
+            finally:
+                await deps.sandbox.destroy_container(handle)
 
     return tdd_gate_node
 

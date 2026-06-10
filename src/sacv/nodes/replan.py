@@ -24,6 +24,8 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase, CRITIC_RESET
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.nodes._structured_output import extract_structured, StrategyCandidateRaw, StructuredOutputError
+from sacv.nodes._node_context import bind_node_context
+from sacv.nodes._node_timer import node_timer
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -50,120 +52,124 @@ No explanation. No markdown. Only the JSON array.
 def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
     async def replan_node(state: "WorkflowState") -> dict[str, object]:
-        task_id    = state["task_id"]
-        replan_cnt = state.get("replan_count", 0)
-        cfg        = deps.config
+        bind_node_context(state, "replan")
+        async with node_timer("replan") as timing:
+            task_id    = state["task_id"]
+            replan_cnt = state.get("replan_count", 0)
+            cfg        = deps.config
 
-        log.warning(
-            "replan.start",
-            task_id=task_id,
-            replan_count=replan_cnt,
-            exhausted_branches=len(state.get("exhausted_branches", [])),
-        )
-
-        # Build failure summary for the Plan Agent
-        failure_summary = _build_failure_summary(state)
-        context_skeleton = state.get("context_skeleton") or {}
-        constraints      = state.get("procedural_constraints", [])
-
-        prompt = (
-            f"Task: {state.get('task_description', '')}\n\n"
-            f"FAILURE HISTORY:\n{json.dumps(failure_summary, indent=2)}\n\n"
-            f"Context skeleton:\n{json.dumps(context_skeleton, indent=2)}\n\n"
-            f"Procedural constraints:\n" +
-            "\n".join(f"- {c}" for c in constraints) +
-            "\n\nGenerate alternative strategies that avoid the above failures."
-        )
-
-        # ── 1b. LLM call with structured output + retry ───────────────────
-        try:
-            structured = await extract_structured(
-                agent=deps.agent,
-                prompt=prompt,
-                response_model=list[StrategyCandidateRaw],
-                system_prompt=_REPLAN_SYSTEM.format(n=cfg.max_strategies),
-                context={"failure_summary": failure_summary},
-                max_retries=3,
-                allowed_tools=[],
-                current_cost=state.get("cumulative_cost_dollars", 0.0),
-                workflow_config=cfg,
+            log.warning(
+                "replan.start",
+                task_id=task_id,
+                replan_count=replan_cnt,
+                exhausted_branches=len(state.get("exhausted_branches", [])),
             )
-            raw: list[dict[str, Any]] = [s.model_dump() for s in structured.data]
-            updated_cost = structured.updated_cost
-        except StructuredOutputError as exc:
-            log.error(
-                "replan.parse_error",
-                error=str(exc),
-                raw_content_preview=exc.last_raw_content[:500],
-                raw_content_len=len(exc.last_raw_content),
+
+            # Build failure summary for the Plan Agent
+            failure_summary = _build_failure_summary(state)
+            context_skeleton = state.get("context_skeleton") or {}
+            constraints      = state.get("procedural_constraints", [])
+
+            prompt = (
+                f"Task: {state.get('task_description', '')}\n\n"
+                f"FAILURE HISTORY:\n{json.dumps(failure_summary, indent=2)}\n\n"
+                f"Context skeleton:\n{json.dumps(context_skeleton, indent=2)}\n\n"
+                f"Procedural constraints:\n" +
+                "\n".join(f"- {c}" for c in constraints) +
+                "\n\nGenerate alternative strategies that avoid the above failures."
             )
-            raw = []
-            updated_cost = state.get("cumulative_cost_dollars", 0.0)
 
-        # Remap to StrategyCandidate format with real scoring
-        from sacv.orchestration.state import StrategyCandidate
-        from sacv.nodes._scoring import score_strategy
+            # ── 1b. LLM call with structured output + retry ───────────────────
+            try:
+                structured = await extract_structured(
+                    agent=deps.agent,
+                    prompt=prompt,
+                    response_model=list[StrategyCandidateRaw],
+                    system_prompt=_REPLAN_SYSTEM.format(n=cfg.max_strategies),
+                    context={"failure_summary": failure_summary},
+                    max_retries=3,
+                    allowed_tools=[],
+                    current_cost=state.get("cumulative_cost_dollars", 0.0),
+                    workflow_config=cfg,
+                )
+                raw: list[dict[str, Any]] = [s.model_dump() for s in structured.data]
+                updated_cost = structured.updated_cost
+            except StructuredOutputError as exc:
+                log.error(
+                    "replan.parse_error",
+                    error=str(exc),
+                    raw_content_preview=exc.last_raw_content[:500],
+                    raw_content_len=len(exc.last_raw_content),
+                )
+                raw = []
+                updated_cost = state.get("cumulative_cost_dollars", 0.0)
 
-        blast = state.get("blast_radius_map") or {}
-        blast_risk = float(blast.get("risk_score", 0.0))
-        all_file_sets = [set(r.get("affected_files", [])) for r in raw]
+            # Remap to StrategyCandidate format with real scoring
+            from sacv.orchestration.state import StrategyCandidate
+            from sacv.nodes._scoring import score_strategy
 
-        new_candidates = []
-        for i, r in enumerate(raw):
-            files = r.get("affected_files", [])
-            # Compute collision_ratio: fraction of files shared with other candidates
-            my_files = set(files)
-            other_files = set().union(*[fs for j, fs in enumerate(all_file_sets) if j != i])
-            collision = len(my_files & other_files) / max(len(my_files), 1)
-            composite = score_strategy(
-                affected_files=files,
-                collision_ratio=collision,
-                blast_radius_impact=blast_risk,
-                config=cfg,
-            )
-            new_candidates.append(StrategyCandidate(
-                strategy_id=r.get("strategy_id", f"r{i+1}"),
-                description=r.get("description", "") + f" [avoids: {r.get('avoids','')}]",
-                affected_files=files,
-                token_depth_score=max(0.0, 1.0 - len(files) / max(cfg.max_blast_files, 1)),
-                collision_score=max(0.0, 1.0 - collision),
-                blast_radius_score=max(0.0, 1.0 - blast_risk),
-                composite_score=composite,
-            ))
+            blast = state.get("blast_radius_map") or {}
+            blast_risk = float(blast.get("risk_score", 0.0))
+            all_file_sets = [set(r.get("affected_files", [])) for r in raw]
 
-        log.info("replan.complete", new_candidates=len(new_candidates))
+            new_candidates = []
+            for i, r in enumerate(raw):
+                files = r.get("affected_files", [])
+                # Compute collision_ratio: fraction of files shared with other candidates
+                my_files = set(files)
+                other_files = set().union(*[fs for j, fs in enumerate(all_file_sets) if j != i])
+                collision = len(my_files & other_files) / max(len(my_files), 1)
+                composite = score_strategy(
+                    affected_files=files,
+                    collision_ratio=collision,
+                    blast_radius_impact=blast_risk,
+                    config=cfg,
+                )
+                new_candidates.append(StrategyCandidate(
+                    strategy_id=r.get("strategy_id", f"r{i+1}"),
+                    description=r.get("description", "") + f" [avoids: {r.get('avoids','')}]",
+                    affected_files=files,
+                    token_depth_score=max(0.0, 1.0 - len(files) / max(cfg.max_blast_files, 1)),
+                    collision_score=max(0.0, 1.0 - collision),
+                    blast_radius_score=max(0.0, 1.0 - blast_risk),
+                    composite_score=composite,
+                ))
 
-        # Prune and pre-select the best candidate so tdd_gate can proceed
-        # without going through value_node (BUG-005 fix).
-        from sacv.nodes._scoring import prune_strategies
-        passing = prune_strategies(new_candidates, config=cfg)
-        selected = passing[0] if passing else None
+            log.info("replan.complete", new_candidates=len(new_candidates))
 
-        return {
-            "current_phase":             WorkflowPhase.TDD_GATE.value,
-            "strategy_candidates":       passing,
-            "selected_strategy":         selected,   # pre-selected by replan
-            "replan_count":              replan_cnt + 1,
-            "exhausted_branches":        [],      # reset for new replan cycle
-            "active_branches":           [],
-            "correction_state": {
-                **state["correction_state"],
-                "attempt_count":      0,       # reset attempt counter
-                "branch_name":        None,
-                "error_history":      [],      # clear stagnation history for fresh start
-                "last_error_hash":    None,    # clear hash to avoid false stagnation signal
-                "stagnation_pattern": "none",  # reset pattern
-            },
-            "critic_findings":           CRITIC_RESET,
-            "verifier_verdict":          None,
-            "preflight_result":          None,
-            "diff_proposal":             None,
-            "red_phase_evidence_path":   None,   # force tdd_gate to generate new tests
-            "test_inventory_paths":      [],     # clear old test inventory for new strategies
-            "tdd_gate_attempts":         0,      # reset — prevents immediate HITL escalation after replan
-            "empty_diff_retries":        0,      # BUG-003: reset for fresh replan cycle
-            "cumulative_cost_dollars":   updated_cost,
-        }
+            # Prune and pre-select the best candidate so tdd_gate can proceed
+            # without going through value_node (BUG-005 fix).
+            from sacv.nodes._scoring import prune_strategies
+            passing = prune_strategies(new_candidates, config=cfg)
+            selected = passing[0] if passing else None
+
+            timing["new_candidates"] = len(passing)
+
+            return {
+                "current_phase":             WorkflowPhase.TDD_GATE.value,
+                "strategy_candidates":       passing,
+                "selected_strategy":         selected,   # pre-selected by replan
+                "replan_count":              replan_cnt + 1,
+                "exhausted_branches":        [],      # reset for new replan cycle
+                "active_branches":           [],
+                "correction_state": {
+                    **state["correction_state"],
+                    "attempt_count":      0,       # reset attempt counter
+                    "branch_name":        None,
+                    "error_history":      [],      # clear stagnation history for fresh start
+                    "last_error_hash":    None,    # clear hash to avoid false stagnation signal
+                    "stagnation_pattern": "none",  # reset pattern
+                },
+                "critic_findings":           CRITIC_RESET,
+                "verifier_verdict":          None,
+                "preflight_result":          None,
+                "diff_proposal":             None,
+                "red_phase_evidence_path":   None,   # force tdd_gate to generate new tests
+                "test_inventory_paths":      [],     # clear old test inventory for new strategies
+                "tdd_gate_attempts":         0,      # reset — prevents immediate HITL escalation after replan
+                "empty_diff_retries":        0,      # BUG-003: reset for fresh replan cycle
+                "cumulative_cost_dollars":   updated_cost,
+            }
 
     return replan_node
 

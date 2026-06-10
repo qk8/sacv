@@ -7,6 +7,8 @@ Covers both Java (Spring Security) and TypeScript (Next.js / Express) rules.
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 from sacv.nodes.critics.base import _run_critic
+from sacv.nodes._node_context import bind_node_context
+from sacv.nodes._node_timer import node_timer
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
     from sacv.orchestration.state import WorkflowState
@@ -36,12 +38,15 @@ Common:
 
 def make_security_critic_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
     async def security_critic_node(state: "WorkflowState") -> dict[str, object]:
-        findings, new_cost = await _run_critic(
-            role="security engineer specialising in OWASP Top 10",
-            critic_name="security",
-            extra_rules=_SECURITY_RULES,
-            state=state,
-            deps=deps,
-        )
-        return {"critic_findings": findings, "cumulative_cost_dollars": new_cost}
+        bind_node_context(state, "security")
+        async with node_timer("security") as timing:
+            findings, new_cost = await _run_critic(
+                role="security engineer specialising in OWASP Top 10",
+                critic_name="security",
+                extra_rules=_SECURITY_RULES,
+                state=state,
+                deps=deps,
+            )
+            timing["findings"] = len(findings)
+            return {"critic_findings": findings, "cumulative_cost_dollars": new_cost}
     return security_critic_node

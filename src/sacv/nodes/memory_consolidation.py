@@ -37,6 +37,8 @@ from sacv.interfaces.memory_provider import EpisodicEvent
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.orchestration.verifier_utils import add_agent_cost
 from sacv.nodes._structured_output import extract_structured, AgentsMdUpdate, StructuredOutputError
+from sacv.nodes._node_context import bind_node_context
+from sacv.nodes._node_timer import node_timer
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -65,108 +67,113 @@ Output ONLY the new rule. No explanation. No markdown.
 def make_memory_consolidation_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
     async def memory_consolidation_node(state: "WorkflowState") -> dict[str, object]:
-        session_id = state["session_id"]
-        task_id    = state["task_id"]
-        correction = state["correction_state"]
-        verdict    = state.get("verifier_verdict")
-        escalation = state.get("escalation_payload")
-        findings   = state.get("critic_findings", [])
-        inv_paths  = state.get("test_inventory_paths", [])
-        module     = state["module_type"]
+        bind_node_context(state, "memory_consolidation")
+        async with node_timer("memory_consolidation") as timing:
+            session_id = state["session_id"]
+            task_id    = state["task_id"]
+            correction = state["correction_state"]
+            verdict    = state.get("verifier_verdict")
+            escalation = state.get("escalation_payload")
+            findings   = state.get("critic_findings", [])
+            inv_paths  = state.get("test_inventory_paths", [])
+            module     = state["module_type"]
 
-        log.info("memory_consolidation.start", task_id=task_id)
+            log.info("memory_consolidation.start", task_id=task_id)
 
-        # ── 1. COMMIT TEST INVENTORY (approach 8) ─────────────────────────
-        committed_tests: list[str] = []
-        if inv_paths:
-            committed_tests = await _commit_test_inventory(inv_paths, task_id, deps)
+            # ── 1. COMMIT TEST INVENTORY (approach 8) ─────────────────────────
+            committed_tests: list[str] = []
+            if inv_paths:
+                committed_tests = await _commit_test_inventory(inv_paths, task_id, deps)
 
-        # ── 2. COMMIT PRODUCTION CODE (do NOT record green SHA yet) ──────
-        await _commit_production_code_no_record(task_id, deps)
+            # ── 2. COMMIT PRODUCTION CODE (do NOT record green SHA yet) ──────
+            await _commit_production_code_no_record(task_id, deps)
 
-        # ── 3. BUILD LESSON LEARNED ───────────────────────────────────────
-        correction_type = "none"
-        if escalation:
-            correction_type = "hitl"
-        elif correction["attempt_count"] > 1:
-            correction_type = "self_correction"
-        elif findings:
-            correction_type = "critic_guided"
+            # ── 3. BUILD LESSON LEARNED ───────────────────────────────────────
+            correction_type = "none"
+            if escalation:
+                correction_type = "hitl"
+            elif correction["attempt_count"] > 1:
+                correction_type = "self_correction"
+            elif findings:
+                correction_type = "critic_guided"
 
-        lesson = LessonLearned(
-            task_id=task_id,
-            pattern_discovered=_derive_pattern(state),
-            negative_constraints=_extract_constraints(findings, escalation),
-            blast_radius_learned=state.get("blast_radius_map") or {},
-            correction_type=correction_type,
-            session_duration_ms=int(time.time() * 1000 - (state.get("session_start_ms") or 0)),
-        )
-
-        # ── 4. PERSIST TO AGENTMEMORY ─────────────────────────────────────
-        await deps.memory.store_episodic(EpisodicEvent(
-            session_id=session_id,
-            event_type="lesson_learned",
-            payload=dict(lesson),
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        ))
-        await deps.memory.purge_noise(session_id)
-
-        # ── 5. UPDATE AGENTS.MD (approach 3) ──────────────────────────────
-        agents_md_updated, cost_after_agents = await _update_agents_md(lesson, state, deps)
-
-        # ── 6. UPDATE ARCH RULES (approach 11) ────────────────────────────
-        arch_rules_updated = False
-        cost_after_arch = cost_after_agents
-        preflight = state.get("preflight_result") or {}
-        arch_violations = preflight.get("arch_violations", [])
-        if arch_violations:
-            arch_rules_updated, cost_after_arch = await _update_arch_rules(
-                arch_violations, module, deps, cost_after_agents,
+            lesson = LessonLearned(
+                task_id=task_id,
+                pattern_discovered=_derive_pattern(state),
+                negative_constraints=_extract_constraints(findings, escalation),
+                blast_radius_learned=state.get("blast_radius_map") or {},
+                correction_type=correction_type,
+                session_duration_ms=int(time.time() * 1000 - (state.get("session_start_ms") or 0)),
             )
-        else:
+
+            # ── 4. PERSIST TO AGENTMEMORY ─────────────────────────────────────
+            await deps.memory.store_episodic(EpisodicEvent(
+                session_id=session_id,
+                event_type="lesson_learned",
+                payload=dict(lesson),
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            ))
+            await deps.memory.purge_noise(session_id)
+
+            # ── 5. UPDATE AGENTS.MD (approach 3) ──────────────────────────────
+            agents_md_updated, cost_after_agents = await _update_agents_md(lesson, state, deps)
+
+            # ── 6. UPDATE ARCH RULES (approach 11) ────────────────────────────
             arch_rules_updated = False
+            cost_after_arch = cost_after_agents
+            preflight = state.get("preflight_result") or {}
+            arch_violations = preflight.get("arch_violations", [])
+            if arch_violations:
+                arch_rules_updated, cost_after_arch = await _update_arch_rules(
+                    arch_violations, module, deps, cost_after_agents,
+                )
+            else:
+                arch_rules_updated = False
 
-        # ── 7. RECORD GREEN SHA LAST — after all commits are done ─────────
-        # (BUG-011 fix: was recorded at step 2, losing AGENTS.md and arch
-        # rule commits on HITL hard-reset)
-        try:
-            final_sha = await asyncio.to_thread(deps.git.head_sha)
-        except RuntimeError as exc:
-            log.warning("memory_consolidation.get_head_sha_failed", error=str(exc))
-            final_sha = ""
-        if final_sha:
-            await asyncio.to_thread(deps.git.record_green_commit, final_sha)
-        else:
-            log.warning("memory_consolidation.skipping_green_sha_record")
-
-        # ── 8. Clean up speculative branch stash refs ─────────────────────
-        stash_ref = state.get("speculative_stash_ref")
-        if stash_ref:
+            # ── 7. RECORD GREEN SHA LAST — after all commits are done ─────────
+            # (BUG-011 fix: was recorded at step 2, losing AGENTS.md and arch
+            # rule commits on HITL hard-reset)
             try:
-                # DROP the stash — do not reapply. The spec branch work is
-                # superseded by the committed production code. Reapplying
-                # would reintroduce rejected changes on top of the green
-                # baseline.
-                await asyncio.to_thread(deps.git.stash_drop, stash_ref)
-                log.info("memory_consolidation.stash_dropped", ref=stash_ref)
-            except Exception:
-                # Non-fatal: log and continue (stash may already be gone)
-                log.warning("memory_consolidation.stash_drop_failed", exc_info=True)
+                final_sha = await asyncio.to_thread(deps.git.head_sha)
+            except RuntimeError as exc:
+                log.warning("memory_consolidation.get_head_sha_failed", error=str(exc))
+                final_sha = ""
+            if final_sha:
+                await asyncio.to_thread(deps.git.record_green_commit, final_sha)
+            else:
+                log.warning("memory_consolidation.skipping_green_sha_record")
 
-        log.info(
-            "memory_consolidation.complete",
-            correction_type=correction_type,
-            tests_committed=len(committed_tests),
-            agents_md_updated=agents_md_updated,
-            arch_rules_updated=arch_rules_updated,
-        )
+            # ── 8. Clean up speculative branch stash refs ─────────────────────
+            stash_ref = state.get("speculative_stash_ref")
+            if stash_ref:
+                try:
+                    # DROP the stash — do not reapply. The spec branch work is
+                    # superseded by the committed production code. Reapplying
+                    # would reintroduce rejected changes on top of the green
+                    # baseline.
+                    await asyncio.to_thread(deps.git.stash_drop, stash_ref)
+                    log.info("memory_consolidation.stash_dropped", ref=stash_ref)
+                except Exception:
+                    # Non-fatal: log and continue (stash may already be gone)
+                    log.warning("memory_consolidation.stash_drop_failed", exc_info=True)
 
-        return {
-            "current_phase":     WorkflowPhase.COMPLETE.value,
-            "lesson_learned":    lesson,
-            "arch_rules_updated": arch_rules_updated,
-            "cumulative_cost_dollars": cost_after_arch,
-        }
+            log.info(
+                "memory_consolidation.complete",
+                correction_type=correction_type,
+                tests_committed=len(committed_tests),
+                agents_md_updated=agents_md_updated,
+                arch_rules_updated=arch_rules_updated,
+            )
+
+            timing["correction_type"] = correction_type
+            timing["tests_committed"] = len(committed_tests)
+
+            return {
+                "current_phase":     WorkflowPhase.COMPLETE.value,
+                "lesson_learned":    lesson,
+                "arch_rules_updated": arch_rules_updated,
+                "cumulative_cost_dollars": cost_after_arch,
+            }
 
     return memory_consolidation_node
 

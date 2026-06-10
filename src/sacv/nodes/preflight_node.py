@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING, Any, Callable, Coroutine
 import structlog
 
 from sacv.orchestration.state import WorkflowPhase, PreflightResult, CRITIC_RESET
+from sacv.nodes._node_context import bind_node_context
+from sacv.nodes._node_timer import node_timer
 from sacv.checks.routing.check_profiles import get_checks, CheckSpec
 
 if TYPE_CHECKING:
@@ -43,117 +45,120 @@ _DEPCRUISER_ERR = re.compile(r'"violations":\s*\[')
 def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
     async def preflight_node(state: "WorkflowState") -> dict[str, object]:
-        t0        = time.monotonic()
-        module    = state["module_type"]
-        profile   = state.get("check_profile", "standard")
-        proposal  = state.get("diff_proposal")
-        cfg       = deps.config
+        bind_node_context(state, "preflight")
+        async with node_timer("preflight") as timing:
+            t0        = time.monotonic()
+            module    = state["module_type"]
+            profile   = state.get("check_profile", "standard")
+            proposal  = state.get("diff_proposal")
+            cfg       = deps.config
 
-        if not proposal:
-            return {
-                "current_phase":  WorkflowPhase.PREFLIGHT.value,
-                "preflight_result": PreflightResult(
-                    passed=True, lsp_errors=[], arch_violations=[],
-                    cross_stack_errors=[], blast_errors=[],
-                    duration_ms=0
-                ),
-                "critic_findings": CRITIC_RESET,
-            }
+            if not proposal:
+                return {
+                    "current_phase":  WorkflowPhase.PREFLIGHT.value,
+                    "preflight_result": PreflightResult(
+                        passed=True, lsp_errors=[], arch_violations=[],
+                        cross_stack_errors=[], blast_errors=[],
+                        duration_ms=0
+                    ),
+                    "critic_findings": CRITIC_RESET,
+                }
 
-        active_checks: list[CheckSpec] = get_checks(module, profile)
-        check_names = {c.name for c in active_checks}
-        check_timeout = {c.name: c.timeout for c in active_checks}
+            active_checks: list[CheckSpec] = get_checks(module, profile)
+            check_names = {c.name for c in active_checks}
+            check_timeout = {c.name: c.timeout for c in active_checks}
 
-        log.info("preflight.start", task_id=state["task_id"], module=module,
-                 profile=profile, checks=sorted(check_names))
-        handle = await deps.sandbox.warm_container()
+            log.info("preflight.start", task_id=state["task_id"], module=module,
+                     profile=profile, checks=sorted(check_names))
+            handle = await deps.sandbox.warm_container()
 
-        try:
-            # ── Check 1: LSP / Compile ─────────────────────────────────────
-            lsp_errors: list[dict[str, Any]] = []
-            if "lsp" in check_names:
-                lsp_cmd = "npx tsc --noEmit 2>&1" if "frontend" in module else "mvn compile -q 2>&1"
-                lsp_out = await deps.sandbox.exec_in_container(
-                    handle, lsp_cmd, timeout=check_timeout.get("lsp", 60)
-                )
-                lsp_errors = _parse_lsp(lsp_out.stdout + lsp_out.stderr, module)
-
-            # ── Check 2: Architecture / Structure ──────────────────────────
-            arch_errs: list[dict[str, Any]] = []
-            if "arch" in check_names:
-                arch_cmd = _arch_cmd(module)
-                if arch_cmd:
-                    arch_out = await deps.sandbox.exec_in_container(
-                        handle, arch_cmd, timeout=check_timeout.get("arch", 30),
+            try:
+                # ── Check 1: LSP / Compile ─────────────────────────────────────
+                lsp_errors: list[dict[str, Any]] = []
+                if "lsp" in check_names:
+                    lsp_cmd = "npx tsc --noEmit 2>&1" if "frontend" in module else "mvn compile -q 2>&1"
+                    lsp_out = await deps.sandbox.exec_in_container(
+                        handle, lsp_cmd, timeout=check_timeout.get("lsp", 60)
                     )
-                    arch_errs = _parse_arch(arch_out.stdout + arch_out.stderr, module)
+                    lsp_errors = _parse_lsp(lsp_out.stdout + lsp_out.stderr, module)
 
-            # ── Check 3: Cross-Stack Type Safety ───────────────────────────
-            cross_stack_errors: list[dict[str, Any]] = []
-            if "cross_stack" in check_names and "frontend" not in module:
-                cross_stack_errors = await _check_cross_stack_types(
-                    handle, cfg, deps,
+                # ── Check 2: Architecture / Structure ──────────────────────────
+                arch_errs: list[dict[str, Any]] = []
+                if "arch" in check_names:
+                    arch_cmd = _arch_cmd(module)
+                    if arch_cmd:
+                        arch_out = await deps.sandbox.exec_in_container(
+                            handle, arch_cmd, timeout=check_timeout.get("arch", 30),
+                        )
+                        arch_errs = _parse_arch(arch_out.stdout + arch_out.stderr, module)
+
+                # ── Check 3: Cross-Stack Type Safety ───────────────────────────
+                cross_stack_errors: list[dict[str, Any]] = []
+                if "cross_stack" in check_names and "frontend" not in module:
+                    cross_stack_errors = await _check_cross_stack_types(
+                        handle, cfg, deps,
+                    )
+
+                # ── Check 4: Blast-radius file count guard ─────────────────────
+                blast_errors: list[dict[str, Any]] = []
+                if "blast_radius" in check_names:
+                    blast_map = state.get("blast_radius_map") or {}
+                    affected_count = len(blast_map.get("affected_files", []))
+                    max_files = cfg.max_blast_files
+                    if affected_count > max_files:
+                        blast_errors.append({
+                            "rule": "blast_radius_limit",
+                            "message": (
+                                f"Change affects {affected_count} files "
+                                f"(limit: {max_files}). Consider splitting the task."
+                            ),
+                        })
+
+                duration_ms = int((time.monotonic() - t0) * 1000)
+                # For "required=False" checks, don't fail the gate — just report.
+                lsp_spec  = next((c for c in active_checks if c.name == "lsp"),  CheckSpec("lsp"))
+                arch_spec = next((c for c in active_checks if c.name == "arch"), CheckSpec("arch"))
+                # Only checks marked required=True block forward progress.
+                # cross_stack is always required when it runs.
+                required_failed = (
+                    (lsp_errors   and lsp_spec.required)
+                    or (arch_errs and arch_spec.required)
+                    or bool(cross_stack_errors)
+                )
+                # passed iff no required check failed.
+                # Non-required check findings are still recorded in PreflightResult for reporting.
+                passed = not required_failed
+
+                result = PreflightResult(
+                    passed=passed,
+                    lsp_errors=lsp_errors,
+                    arch_violations=arch_errs,
+                    cross_stack_errors=cross_stack_errors,
+                    blast_errors=blast_errors,
+                    duration_ms=duration_ms,
+                )
+                timing["passed"] = passed
+                log.info(
+                    "preflight.complete",
+                    passed=passed,
+                    lsp=len(lsp_errors),
+                    arch=len(arch_errs),
+                    cross_stack=len(cross_stack_errors),
+                    duration_ms=duration_ms,
+                    profile=profile,
                 )
 
-            # ── Check 4: Blast-radius file count guard ─────────────────────
-            blast_errors: list[dict[str, Any]] = []
-            if "blast_radius" in check_names:
-                blast_map = state.get("blast_radius_map") or {}
-                affected_count = len(blast_map.get("affected_files", []))
-                max_files = cfg.max_blast_files
-                if affected_count > max_files:
-                    blast_errors.append({
-                        "rule": "blast_radius_limit",
-                        "message": (
-                            f"Change affects {affected_count} files "
-                            f"(limit: {max_files}). Consider splitting the task."
-                        ),
-                    })
-
-            duration_ms = int((time.monotonic() - t0) * 1000)
-            # For "required=False" checks, don't fail the gate — just report.
-            lsp_spec  = next((c for c in active_checks if c.name == "lsp"),  CheckSpec("lsp"))
-            arch_spec = next((c for c in active_checks if c.name == "arch"), CheckSpec("arch"))
-            # Only checks marked required=True block forward progress.
-            # cross_stack is always required when it runs.
-            required_failed = (
-                (lsp_errors   and lsp_spec.required)
-                or (arch_errs and arch_spec.required)
-                or bool(cross_stack_errors)
-            )
-            # passed iff no required check failed.
-            # Non-required check findings are still recorded in PreflightResult for reporting.
-            passed = not required_failed
-
-            result = PreflightResult(
-                passed=passed,
-                lsp_errors=lsp_errors,
-                arch_violations=arch_errs,
-                cross_stack_errors=cross_stack_errors,
-                blast_errors=blast_errors,
-                duration_ms=duration_ms,
-            )
-            log.info(
-                "preflight.complete",
-                passed=passed,
-                lsp=len(lsp_errors),
-                arch=len(arch_errs),
-                cross_stack=len(cross_stack_errors),
-                duration_ms=duration_ms,
-                profile=profile,
-            )
-
-            return {
-                "current_phase":    WorkflowPhase.PREFLIGHT.value,
-                "preflight_result": result,
-                # CRITIC_RESET clears stale findings from the previous Actor attempt.
-                # NOTE: returning [] would NOT clear findings — it is a no-op in
-                # _merge_lists. Only CRITIC_RESET produces a reset. Do not change
-                # this to [].
-                "critic_findings":  CRITIC_RESET,
-            }
-        finally:
-            await deps.sandbox.destroy_container(handle)
+                return {
+                    "current_phase":    WorkflowPhase.PREFLIGHT.value,
+                    "preflight_result": result,
+                    # CRITIC_RESET clears stale findings from the previous Actor attempt.
+                    # NOTE: returning [] would NOT clear findings — it is a no-op in
+                    # _merge_lists. Only CRITIC_RESET produces a reset. Do not change
+                    # this to [].
+                    "critic_findings":  CRITIC_RESET,
+                }
+            finally:
+                await deps.sandbox.destroy_container(handle)
 
     return preflight_node
 

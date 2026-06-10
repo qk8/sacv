@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any, Callable, Coroutine
 import structlog
 
 from sacv.orchestration.state import ProjectMode, WorkflowPhase
+from sacv.nodes._node_context import bind_node_context
+from sacv.nodes._node_timer import node_timer
 from sacv.modes.greenfield import GreenfieldConfig
 from sacv.modes.brownfield import BrownfieldConfig
 
@@ -79,21 +81,24 @@ async def _detect_mode(cwd: Path) -> ProjectMode:
 def make_mode_router_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
     async def mode_router_node(state: "WorkflowState") -> dict[str, object]:
-        # Honour explicitly provided mode; auto-detect only if absent
-        provided = state.get("project_mode")
-        if provided in (ProjectMode.GREENFIELD.value, ProjectMode.BROWNFIELD.value):
-            mode_str = provided
-        else:
-            # Use git root from BranchManager, not process CWD
-            project_root = deps.git.repo_root
-            mode     = await _detect_mode(project_root)
-            mode_str = mode.value
+        bind_node_context(state, "mode_router")
+        async with node_timer("mode_router") as timing:
+            # Honour explicitly provided mode; auto-detect only if absent
+            provided = state.get("project_mode")
+            if provided in (ProjectMode.GREENFIELD.value, ProjectMode.BROWNFIELD.value):
+                mode_str = provided
+            else:
+                # Use git root from BranchManager, not process CWD
+                project_root = deps.git.repo_root
+                mode     = await _detect_mode(project_root)
+                mode_str = mode.value
 
-        log.info("mode_router.resolved", mode=mode_str, task_id=state["task_id"])
+            log.info("mode_router.resolved", mode=mode_str, task_id=state["task_id"])
 
-        return {
-            "project_mode":  mode_str,
-            "current_phase": WorkflowPhase.SCOUT.value,
-        }
+            timing["mode"] = mode_str
+            return {
+                "project_mode":  mode_str,
+                "current_phase": WorkflowPhase.SCOUT.value,
+            }
 
     return mode_router_node

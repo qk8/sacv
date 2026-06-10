@@ -37,6 +37,8 @@ from sacv.nodes._debug_strategies import (
     needs_jdwp, needs_cdp, needs_actuator, needs_delta_debug,
 )
 from sacv.interfaces.agent_provider import AgentConfig
+from sacv.nodes._node_context import bind_node_context
+from sacv.nodes._node_timer import node_timer
 from sacv.orchestration.verifier_utils import add_agent_cost
 
 if TYPE_CHECKING:
@@ -61,86 +63,91 @@ Output ONLY the hypothesis paragraph. No lists. No markdown. One paragraph.
 def make_intelligent_debugger_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[Any, Any, dict[str, object]]]":
 
     async def intelligent_debugger_node(state: "WorkflowState") -> dict[str, object]:
-        task_id   = state["task_id"]
-        module    = state["module_type"]
-        verdict   = state["verifier_verdict"] or {}
-        cfg       = deps.config.debug
+        bind_node_context(state, "intelligent_debugger")
+        async with node_timer("intelligent_debugger") as timing:
+            task_id   = state["task_id"]
+            module    = state["module_type"]
+            verdict   = state["verifier_verdict"] or {}
+            cfg       = deps.config.debug
 
-        log.info("debugger.start", task_id=task_id, module=module)
+            log.info("debugger.start", task_id=task_id, module=module)
 
-        # ── 1. Collect raw failure text ───────────────────────────────────
-        raw_failure = "\n".join(
-            f.get("message", "") for f in verdict.get("test_failures", [])
-        )
-
-        # ── 2. Prune stack trace ──────────────────────────────────────────
-        pruned = prune_stack(
-            raw_failure,
-            module_type=module,
-            user_package=cfg.user_java_package,
-            src_root=cfg.user_ts_src_root,
-        )
-        pruned_dicts = frames_to_dict(pruned)
-        log.info("debugger.pruned_stack", frames=len(pruned))
-
-        # ── 3. Classify error + select strategy ───────────────────────────
-        error_type = classify_error(raw_failure, module)
-        strategy   = get_strategy(error_type, module)
-        log.info("debugger.strategy", error_type=error_type.value,
-                 tool=strategy.primary_tool.value)
-
-        # ── 4. Execute strategy ───────────────────────────────────────────
-        handle = await deps.sandbox.warm_container()
-        try:
-            observations = DebugObservations(
-                error_type=error_type.value,
-                root_cause="",
-                breakpoint_hits=[],
-                actuator_beans=None,
-                actuator_env=None,
-                minimal_payload=None,
-                playwright_trace_path=None,
-                otel_trace=None,
-                pruned_stack=pruned_dicts,
+            # ── 1. Collect raw failure text ───────────────────────────────────
+            raw_failure = "\n".join(
+                f.get("message", "") for f in verdict.get("test_failures", [])
             )
 
-            if needs_actuator(strategy):
-                observations = await _run_actuator_query(observations, handle, cfg, deps)
+            # ── 2. Prune stack trace ──────────────────────────────────────────
+            pruned = prune_stack(
+                raw_failure,
+                module_type=module,
+                user_package=cfg.user_java_package,
+                src_root=cfg.user_ts_src_root,
+            )
+            pruned_dicts = frames_to_dict(pruned)
+            log.info("debugger.pruned_stack", frames=len(pruned))
 
-            elif needs_delta_debug(strategy):
-                payload = _extract_request_payload(state)
-                if payload:
-                    observations = await _run_delta_debug(
-                        observations, payload, state, handle, module, deps
+            # ── 3. Classify error + select strategy ───────────────────────────
+            error_type = classify_error(raw_failure, module)
+            strategy   = get_strategy(error_type, module)
+            log.info("debugger.strategy", error_type=error_type.value,
+                     tool=strategy.primary_tool.value)
+
+            # ── 4. Execute strategy ───────────────────────────────────────────
+            handle = await deps.sandbox.warm_container()
+            try:
+                observations = DebugObservations(
+                    error_type=error_type.value,
+                    root_cause="",
+                    breakpoint_hits=[],
+                    actuator_beans=None,
+                    actuator_env=None,
+                    minimal_payload=None,
+                    playwright_trace_path=None,
+                    otel_trace=None,
+                    pruned_stack=pruned_dicts,
+                )
+
+                if needs_actuator(strategy):
+                    observations = await _run_actuator_query(observations, handle, cfg, deps)
+
+                elif needs_delta_debug(strategy):
+                    payload = _extract_request_payload(state)
+                    if payload:
+                        observations = await _run_delta_debug(
+                            observations, payload, state, handle, module, deps
+                        )
+
+                elif needs_jdwp(strategy) and pruned:
+                    observations = await _run_jdwp_session(
+                        observations, pruned, strategy, handle, cfg, deps
                     )
 
-            elif needs_jdwp(strategy) and pruned:
-                observations = await _run_jdwp_session(
-                    observations, pruned, strategy, handle, cfg, deps
+                elif needs_cdp(strategy) and pruned:
+                    observations = await _run_cdp_session(
+                        observations, pruned, strategy, handle, cfg, deps
+                    )
+
+                # ── 5. Synthesise root-cause hypothesis (one LLM call) ────────
+                hypothesis, debug_cost = await _synthesise_hypothesis(
+                    observations, state, deps, state.get("cumulative_cost_dollars", 0.0),
                 )
+                observations["root_cause"] = hypothesis
 
-            elif needs_cdp(strategy) and pruned:
-                observations = await _run_cdp_session(
-                    observations, pruned, strategy, handle, cfg, deps
-                )
+                log.info("debugger.complete",
+                         error_type=error_type.value,
+                         hypothesis=hypothesis[:80])
 
-            # ── 5. Synthesise root-cause hypothesis (one LLM call) ────────
-            hypothesis, debug_cost = await _synthesise_hypothesis(
-                observations, state, deps, state.get("cumulative_cost_dollars", 0.0),
-            )
-            observations["root_cause"] = hypothesis
+                timing["error_type"] = error_type.value
+                timing["hypothesis_len"] = len(hypothesis)
 
-            log.info("debugger.complete",
-                     error_type=error_type.value,
-                     hypothesis=hypothesis[:80])
-
-            return {
-                "current_phase":      WorkflowPhase.INTELLIGENT_DEBUGGER.value,
-                "debug_observations": observations,
-                "cumulative_cost_dollars": debug_cost,
-            }
-        finally:
-            await deps.sandbox.destroy_container(handle)
+                return {
+                    "current_phase":      WorkflowPhase.INTELLIGENT_DEBUGGER.value,
+                    "debug_observations": observations,
+                    "cumulative_cost_dollars": debug_cost,
+                }
+            finally:
+                await deps.sandbox.destroy_container(handle)
 
     return intelligent_debugger_node
 
