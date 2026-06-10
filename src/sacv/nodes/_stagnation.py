@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import base64
 import struct
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
@@ -24,6 +24,30 @@ if TYPE_CHECKING:
     from sacv.orchestration.state import CorrectionCycleState
 
 log = structlog.get_logger(__name__)
+
+
+class Embedder(Protocol):
+    """Interface for error embedding functions."""
+    def embed(self, text: str) -> list[float]: ...
+
+
+class CharFrequencyEmbedder:
+    """Default embedder: character-frequency vector (256 dimensions).
+
+    Fast, deterministic, no external API calls. Detects textually similar
+    errors (repeated compilation failures, identical test failure messages).
+    """
+    def embed(self, text: str) -> list[float]:
+        vec = [0.0] * 256
+        for ch in text[:2000]:
+            vec[ord(ch) % 256] += 1.0
+        magnitude = sum(v * v for v in vec) ** 0.5
+        if magnitude > 0:
+            vec = [v / magnitude for v in vec]
+        return vec
+
+
+_DEFAULT_EMBEDDER: Embedder = CharFrequencyEmbedder()
 
 
 def check_stagnation(
@@ -64,21 +88,9 @@ def check_stagnation(
 def embed_error_to_b64(error_text: str) -> str:
     """
     Produces a deterministic, lightweight embedding of an error message
-    for stagnation detection.  Uses a simple character-frequency vector
-    (256 dimensions) so no external API call is needed at detection time.
-
-    This is NOT a semantic embedding in the ML sense — it is sufficient
-    for detecting textually similar errors (repeated compilation failures,
-    identical test failure messages).  Replace with a real embedding model
-    if higher semantic resolution is required.
+    for stagnation detection.  Delegates to ``_DEFAULT_EMBEDDER``.
     """
-    vec = [0.0] * 256
-    for ch in error_text[:2000]:
-        vec[ord(ch) % 256] += 1.0
-    # L2-normalise
-    magnitude = sum(v * v for v in vec) ** 0.5
-    if magnitude > 0:
-        vec = [v / magnitude for v in vec]
+    vec = _DEFAULT_EMBEDDER.embed(error_text)
     packed = struct.pack(f"{len(vec)}f", *vec)
     return base64.b64encode(packed).decode("ascii")
 
