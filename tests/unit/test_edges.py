@@ -360,6 +360,34 @@ class TestRouteAfterVerifier:
                                                phase2_passed=True))
         assert route_after_verifier(s, cfg) == "memory_consolidation"
 
+    def test_pass_verdict_emits_log_event(self, capsys):
+        """The PASS path must emit a structured log so success is observable."""
+        from sacv.logging_config import configure_logging
+        import os
+
+        os.environ["LOG_FORMAT"] = "console"
+        configure_logging()
+
+        cfg = WorkflowConfig()
+        s = _s(
+            verifier_verdict=self._verdict(test_result="PASS", phase1_passed=True,
+                                           phase2_passed=True),
+            cumulative_cost_dollars=12.5,
+            correction_state={"attempt_count": 1, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+        )
+        route_after_verifier(s, cfg)
+
+        captured = capsys.readouterr()
+        # Strip ANSI codes for cleaner assertions
+        import re
+        clean = re.sub(r"\x1b\[[0-9;]*m", "", captured.err)
+        assert "route.verifier_decision" in clean
+        assert "destination=memory_consolidation" in clean
+        assert "test_result=PASS" in clean
+        os.environ.pop("LOG_FORMAT", None)
+
     def test_missing_verdict_routes_to_hitl(self):
         """No verdict → HITL escalation (safety)."""
         cfg = WorkflowConfig()

@@ -182,11 +182,20 @@ def route_after_verifier(
         )
         return "hitl_escalation"
 
+    # Token budget circuit-breaker (BUG-008) — hoisted before PASS for logging
+    cost = state.get("cumulative_cost_dollars", 0.0)
+
     if verdict["test_result"] == "PASS":
+        log.info(
+            "route.verifier_decision",
+            destination="memory_consolidation",
+            test_result="PASS",
+            attempt=state["correction_state"]["attempt_count"],
+            cost=round(cost, 4),
+            task_id=state.get("task_id"),
+        )
         return "memory_consolidation"
 
-    # Token budget circuit-breaker (BUG-008)
-    cost = state.get("cumulative_cost_dollars", 0.0)
     if cost >= cfg.token_budget.critical_dollar:
         log.error("route_after_verifier.budget_exceeded",
                   cost=cost, threshold=cfg.token_budget.critical_dollar)
