@@ -197,6 +197,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
         if not diffs:
             log.warning("actor.empty_diff", task_id=task_id, attempt=attempt)
             return {
+                "current_phase": WorkflowPhase.ACTOR.value,
                 "correction_state": {
                     **correction,
                     # Do NOT increment attempt_count — this is not a correction cycle
@@ -213,6 +214,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
         if errors:
             log.error("actor.overwrite_rejected", errors=[e.reason for e in errors])
             return {
+                "current_phase": WorkflowPhase.ACTOR.value,
                 "correction_state": {
                     **correction,
                     # Do NOT increment attempt_count — this is not a correction cycle
@@ -227,6 +229,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
         if not apply_result.success:
             log.error("actor.apply_failed", conflicts=apply_result.conflicts)
             return {
+                "current_phase": WorkflowPhase.ACTOR.value,
                 "correction_state": {
                     **correction,
                     "attempt_count": correction["attempt_count"] + 1,

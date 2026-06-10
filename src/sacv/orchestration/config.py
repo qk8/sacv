@@ -123,6 +123,7 @@ class WorkflowConfig:
             confidence_escalation_threshold=raw.get("confidence_escalation_threshold", 0.25),
             max_replan_attempts=raw.get("max_replan_attempts", 1),
             max_tdd_gate_attempts=raw.get("max_tdd_gate_attempts", 3),
+            max_empty_diff_retries=raw.get("max_empty_diff_retries", 3),
             max_parallel_branches=raw.get("max_parallel_branches", 2),
             max_parallel_critics=raw.get("max_parallel_critics", 2),
             min_strategy_score=raw.get("min_strategy_score", 0.3),

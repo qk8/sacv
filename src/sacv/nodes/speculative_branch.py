@@ -81,6 +81,7 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
         if not strategies_to_try:
             log.warning("speculative_branch.no_strategies_left")
             return {
+                "current_phase":          WorkflowPhase.SPECULATIVE_BRANCH.value,
                 "active_branches":        [],
                 "exhausted_branches":     exhausted,
                 "speculative_stash_ref":  stash_ref,  # for HITL restoration
@@ -150,10 +151,11 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
             log.info("speculative_branch.winner", branch=winning_branch)
             await asyncio.to_thread(deps.git.checkout, winning_branch)
             return {
-                "active_branches":    [winning_branch],
-                "exhausted_branches": new_exhausted,
-                "speculative_stash_ref": stash_ref,  # preserve for HITL
-                "verifier_verdict":   winning_verdict,
+                "current_phase":          WorkflowPhase.SPECULATIVE_BRANCH.value,
+                "active_branches":        [winning_branch],
+                "exhausted_branches":     new_exhausted,
+                "speculative_stash_ref":  stash_ref,  # preserve for HITL
+                "verifier_verdict":       winning_verdict,
             }
 
         # Queue remaining strategies for next speculative cycle (if any)
@@ -169,6 +171,7 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
         )
 
         return {
+            "current_phase":          WorkflowPhase.SPECULATIVE_BRANCH.value,
             "active_branches":        queued_names,
             "exhausted_branches":     new_exhausted,
             "speculative_stash_ref":  stash_ref,  # for HITL restoration

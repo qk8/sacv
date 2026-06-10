@@ -78,6 +78,7 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
         if state.get("skip_tdd_gate"):
             log.info("tdd_gate.skipped", task_id=task_id)
             return {
+                "current_phase":          WorkflowPhase.ACTOR.value,
                 "red_phase_evidence_path": ".workflow/tdd-evidence/skipped.json",
                 "test_inventory_paths":    [],
                 "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
@@ -86,6 +87,7 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
         if strategy is None:
             log.error("tdd_gate.no_strategy")
             return {
+                "current_phase":          WorkflowPhase.ACTOR.value,
                 "red_phase_evidence_path": None,
                 "test_inventory_paths":    [],
                 "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
@@ -122,6 +124,7 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                 raw_content_len=len(exc.last_raw_content),
             )
             return {
+                "current_phase":          WorkflowPhase.ACTOR.value,
                 "red_phase_evidence_path": None,
                 "test_inventory_paths":    [],
                 "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
@@ -171,6 +174,7 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
             if run_result.exit_code == 0:
                 log.warning("tdd_gate.tests_passed_unexpectedly")
                 return {
+                    "current_phase":          WorkflowPhase.ACTOR.value,
                     "red_phase_evidence_path": None,
                     "test_inventory_paths":    [],
                     "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,

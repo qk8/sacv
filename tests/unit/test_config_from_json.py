@@ -199,6 +199,22 @@ def test_from_json_missing_file_raises(tmp_path: pathlib.Path) -> None:
         WorkflowConfig.from_json(cfg_file)
 
 
+def test_max_empty_diff_retries_is_read_from_json(tmp_path: pathlib.Path) -> None:
+    """Regression: max_empty_diff_retries was in KNOWN_TOP_LEVEL_KEYS but not in from_json()."""
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(json.dumps({"max_empty_diff_retries": 7}))
+    cfg = WorkflowConfig.from_json(cfg_file)
+    assert cfg.max_empty_diff_retries == 7
+
+
+def test_max_empty_diff_retries_default_when_absent(tmp_path: pathlib.Path) -> None:
+    """When not provided, max_empty_diff_retries falls back to the dataclass default of 3."""
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text("{}")
+    cfg = WorkflowConfig.from_json(cfg_file)
+    assert cfg.max_empty_diff_retries == 3
+
+
 def test_from_json_invalid_json_raises(tmp_path: pathlib.Path) -> None:
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text("{not valid json")

@@ -119,6 +119,47 @@ class TestTddGateNode:
         # Agent should NOT have been called
         assert len(deps.agent.calls) == 0
 
+    async def test_no_strategy_sets_current_phase(self):
+        """CRIT-06: strategy=None early-exit must set current_phase."""
+        deps = _make_deps()
+        state = _make_state(strategy=None)
+        node = make_tdd_gate_node(deps)
+
+        out = await node(state)
+
+        assert out["current_phase"] == WorkflowPhase.ACTOR.value
+
+    async def test_skip_tdd_gate_sets_current_phase(self):
+        """CRIT-06: skip_tdd_gate early-exit must set current_phase."""
+        deps = _make_deps()
+        state = _make_state(skip=True)
+        node = make_tdd_gate_node(deps)
+
+        out = await node(state)
+
+        assert out["current_phase"] == WorkflowPhase.ACTOR.value
+
+    async def test_tests_pass_unexpectedly_sets_current_phase(self):
+        """CRIT-06: tests-pass-unexpectedly early-exit must set current_phase."""
+        agent = StubAgentProvider([
+            make_json_agent_result([{
+                "file_path": "src/test/java/com/example/FindByIdTest.java",
+                "content": "public class FindByIdTest {}",
+            }])
+        ])
+        sandbox = StubSandboxProvider(
+            default_exit_code=0,
+            default_stdout="Tests run: 1, Failures: 0",
+        )
+        deps = _make_deps(agent=agent, sandbox=sandbox)
+        strategy = {"strategy_id": "s1", "description": "test"}
+        state = _make_state(strategy=strategy)
+        node = make_tdd_gate_node(deps)
+
+        out = await node(state)
+
+        assert out["current_phase"] == WorkflowPhase.ACTOR.value
+
     async def test_json_parse_failure_returns_attempts_increment(self):
         """Invalid JSON from agent → retries exhausted → increment attempts."""
         agent = StubAgentProvider([

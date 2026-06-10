@@ -317,6 +317,40 @@ class TestActorNode:
         # BUG-001 fix: cost = (1000/1M * 5.0) + (2000/1M * 30.0) = 0.065
         assert out["cumulative_cost_dollars"] == pytest.approx(0.065, abs=0.001)
 
+    async def test_empty_diff_path_sets_current_phase(self):
+        """CRIT-06: empty-diff early-exit must set current_phase."""
+        agent = StubAgentProvider([make_json_agent_result([{
+            "file_path": "src/main/java/UserService.java",
+            "diff_content": "@@ -10 +10 @@\n+public User findById(Long id) { ... }",
+            "operation": "modify", "language": "java",
+        }])])
+        validation_errors = [DiffValidationError(
+            file_path="src/main/java/UserService.java",
+            reason="Diff removes 95% of file lines",
+        )]
+        diff = StubDiffProvider(validation_errors=validation_errors)
+        deps = _deps(agent=agent, diff=diff)
+        node = make_actor_node(deps)
+
+        out = await node(_state())
+
+        assert out["current_phase"] == WorkflowPhase.ACTOR.value
+
+    async def test_apply_failure_path_sets_current_phase(self):
+        """CRIT-06: apply-failure early-exit must set current_phase."""
+        agent = StubAgentProvider([make_json_agent_result([{
+            "file_path": "src/main/java/UserService.java",
+            "diff_content": "@@ -10 +10 @@\n+method",
+            "operation": "modify", "language": "java",
+        }])])
+        apply_fail = StubDiffProvider(apply_success=False)
+        deps = _deps(agent=agent, diff=apply_fail)
+        node = make_actor_node(deps)
+
+        out = await node(_state())
+
+        assert out["current_phase"] == WorkflowPhase.ACTOR.value
+
     async def test_empty_diff_list_from_valid_json(self):
         """LLM returns valid JSON but empty array → self-loop retry."""
         agent = StubAgentProvider([AgentResult(
