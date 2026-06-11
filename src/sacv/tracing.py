@@ -17,6 +17,7 @@ Usage::
 """
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from typing import Any, Generator
@@ -40,8 +41,14 @@ if _ENABLED:
         trace.set_tracer_provider(_provider)
         _tracer = trace.get_tracer("sacv.workflow", "0.1.0")
         _HAS_OTEL = True
-    except ImportError:
+    except ImportError as _otel_import_err:
         _HAS_OTEL = False
+        logging.getLogger(__name__).warning(
+            "OTel enabled via environment variable but opentelemetry packages "
+            "are not installed. Tracing is DISABLED. "
+            "Install: pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc. "
+            "Error: %s", _otel_import_err,
+        )
 else:
     _tracer = None  # type: ignore[assignment]
     _HAS_OTEL = False
