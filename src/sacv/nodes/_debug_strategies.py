@@ -16,6 +16,7 @@ Error type → debug strategy matrix:
   ASYNC_PROMISE_UNHANDLED   → break at rejection handler
   REACT_STATE_MISMATCH      → CDP evaluate React component state
   LOGIC_ERROR               → break at first user-code frame
+  TIMEOUT                   → break one line before, inspect thread pool & connection state
   UNKNOWN                   → break at first user-code frame, full variable dump
 """
 from __future__ import annotations
@@ -81,6 +82,8 @@ _JAVA_CLASSIFICATION: list[tuple[list[str], ErrorType]] = [
     (["ClassCastException"],                             ErrorType.CLASS_CAST),
     (["StackOverflowError"],                             ErrorType.STACK_OVERFLOW),
     (["OutOfMemoryError"],                               ErrorType.OUT_OF_MEMORY),
+    (["SocketTimeoutException", "Read timed out", "Write timed out",
+      "RequestTimeoutException", "Connection timed out"], ErrorType.TIMEOUT),
 ]
 
 _TS_CLASSIFICATION: list[tuple[list[str], ErrorType]] = [
@@ -95,6 +98,8 @@ _TS_CLASSIFICATION: list[tuple[list[str], ErrorType]] = [
                                                          ErrorType.REACT_STATE_MISMATCH),
     (["422", "Validation failed", "must not be blank", "must not be null"],
                                                          ErrorType.VALIDATION_ERROR),
+    (["timed out", "ETIMEDOUT", "deadline exceeded", "socket hang up"],
+                                                         ErrorType.TIMEOUT),
 ]
 
 # ── Strategy catalogue ────────────────────────────────────────────────────────
@@ -189,6 +194,16 @@ _STRATEGIES: dict[ErrorType, DebugStrategy] = {
         max_steps=0,
         focus_hint="Binary-search the request payload to find the offending field.",
     ),
+    ErrorType.TIMEOUT: DebugStrategy(
+        error_type=ErrorType.TIMEOUT,
+        primary_tool=DebugTool.JDWP,
+        breakpoint_offset=-1,
+        inspect_all_vars=True,
+        step_type="step_into",
+        max_steps=5,
+        evaluate_expressions=["java.lang.Thread.getAllStackTraces().keySet()"],
+        focus_hint="Inspect thread state at timeout: check thread pool saturation, DB connection pool, and network calls.",
+    ),
     ErrorType.CLASS_CAST: DebugStrategy(
         error_type=ErrorType.CLASS_CAST,
         primary_tool=DebugTool.JDWP,
@@ -230,6 +245,13 @@ def classify_error(raw_output: str, module_type: str) -> ErrorType:
         return ErrorType.HTTP_400
     if re.search(r"\b500\b", raw_output) or "Internal Server Error" in raw_output:
         return ErrorType.LOGIC_ERROR
+
+    # Language-agnostic timeout detection
+    if re.search(r"timeout", raw_output, re.IGNORECASE) or \
+       re.search(r"timed?\s*out", raw_output, re.IGNORECASE) or \
+       re.search(r"deadline exceeded", raw_output, re.IGNORECASE) or \
+       re.search(r"ETIMEDOUT", raw_output):
+        return ErrorType.TIMEOUT
 
     rules = _TS_CLASSIFICATION if "frontend" in module_type else _JAVA_CLASSIFICATION
 
