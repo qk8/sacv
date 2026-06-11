@@ -333,6 +333,73 @@ async def cmd_graph(args: argparse.Namespace) -> None:
         print(json.dumps(graph.get_graph().to_json(), indent=2))
 
 
+async def cmd_status(args: argparse.Namespace) -> None:
+    """Print a human-readable summary of the current workflow state for a task."""
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from sacv.orchestration.graph import build_graph
+
+    db_path = Path(".workflow/sacv.db")
+    if not db_path.exists():
+        print(f"ERROR: No workflow database found at {db_path}", file=sys.stderr)
+        sys.exit(1)
+
+    deps = _build_deps()
+    await _start_deps(deps)
+    try:
+        async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
+            graph = build_graph(deps, checkpointer=checkpointer)
+            config = {"configurable": {"thread_id": args.task_id}}
+            snapshot = await graph.aget_state(config)
+            if not snapshot or not snapshot.values:
+                print(f"No state found for task_id={args.task_id!r}", file=sys.stderr)
+                sys.exit(1)
+
+            sv = snapshot.values
+            correction = sv.get("correction_state", {})
+            verdict = sv.get("verifier_verdict") or {}
+            print(f"""Task:          {sv.get('task_id')}
+Session:       {sv.get('session_id')}
+Phase:         {sv.get('current_phase')}
+Attempt:       {correction.get('attempt_count', 0)}
+Replan:        {sv.get('replan_count', 0)}
+Cost:          ${sv.get('cumulative_cost_dollars', 0):.4f}
+Confidence:    {sv.get('confidence_score', 1.0):.3f}
+Stagnation:    {correction.get('stagnation_pattern', 'none')}
+Last verdict:  {verdict.get('test_result', 'N/A')} ({verdict.get('diagnostic', 'N/A')})
+Critics:       {len(sv.get('critic_findings', []))} findings
+Branches:      active={sv.get('active_branches', [])} exhausted={sv.get('exhausted_branches', [])}
+""".strip())
+
+            if args.json:
+                print()
+                print(json.dumps(dict(sv), indent=2, default=str))
+    finally:
+        await _stop_deps(deps)
+
+
+async def cmd_dump_state(args: argparse.Namespace) -> None:
+    """Dump the full checkpoint state for a task as JSON (for offline analysis)."""
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from sacv.orchestration.graph import build_graph
+
+    db_path = Path(".workflow/sacv.db")
+    deps = _build_deps()
+    await _start_deps(deps)
+    try:
+        async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
+            graph = build_graph(deps, checkpointer=checkpointer)
+            config = {"configurable": {"thread_id": args.task_id}}
+            snapshot = await graph.aget_state(config)
+            if not snapshot or not snapshot.values:
+                print(f"No state found for task_id={args.task_id!r}", file=sys.stderr)
+                sys.exit(1)
+            output_path = Path(args.output) if args.output else Path(f".workflow/{args.task_id}-state.json")
+            output_path.write_text(json.dumps(dict(snapshot.values), indent=2, default=str))
+            print(f"State written to {output_path}", file=sys.stderr)
+    finally:
+        await _stop_deps(deps)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="sacv")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -410,6 +477,32 @@ def main() -> None:
         help="Override LOG_FORMAT env var",
     )
 
+    status_p = sub.add_parser("status", help="Print workflow status for a task")
+    status_p.add_argument("--task-id", required=True, help="Task identifier")
+    status_p.add_argument(
+        "--json", action="store_true", help="Also print full state as JSON",
+    )
+    status_p.add_argument(
+        "--verbose", "-v", action="store_true", help="Set log level to DEBUG",
+    )
+    status_p.add_argument(
+        "--log-format", choices=["json", "console"], default=None,
+        help="Override LOG_FORMAT env var",
+    )
+
+    dump_p = sub.add_parser("dump-state", help="Dump full workflow state as JSON")
+    dump_p.add_argument("--task-id", required=True, help="Task identifier")
+    dump_p.add_argument(
+        "--output", "-o", default=None, help="Output file path (default: .workflow/<task_id>-state.json)",
+    )
+    dump_p.add_argument(
+        "--verbose", "-v", action="store_true", help="Set log level to DEBUG",
+    )
+    dump_p.add_argument(
+        "--log-format", choices=["json", "console"], default=None,
+        help="Override LOG_FORMAT env var",
+    )
+
     args = parser.parse_args()
     if args.verbose:
         os.environ["LOG_LEVEL"] = "DEBUG"
@@ -424,6 +517,10 @@ def main() -> None:
         asyncio.run(cmd_resume(args))
     elif args.command == "graph":
         asyncio.run(cmd_graph(args))
+    elif args.command == "status":
+        asyncio.run(cmd_status(args))
+    elif args.command == "dump-state":
+        asyncio.run(cmd_dump_state(args))
 
 
 if __name__ == "__main__":
