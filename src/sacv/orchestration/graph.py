@@ -110,7 +110,14 @@ def _make_all_critics_node(deps: "NodeDeps") -> Any:
                 + con_out.get("cumulative_cost_dollars", baseline)
                 - 3.0 * baseline
             )
+            sec_n = len(sec_out.get("critic_findings", []))
+            sty_n = len(sty_out.get("critic_findings", []))
+            con_n = len(con_out.get("critic_findings", []))
+
             timing["findings"] = len(all_findings)
+            timing["sec_n"] = sec_n
+            timing["sty_n"] = sty_n
+            timing["con_n"] = con_n
             timing["critic_errors"] = critic_errors
 
             audit_entries: list[dict[str, object]] | None = None
