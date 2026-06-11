@@ -10,7 +10,6 @@ Refactoring additions (debugging session):
 """
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
@@ -22,6 +21,7 @@ from sacv.nodes._node_timer import node_timer
 log = structlog.get_logger(__name__)
 
 from langgraph.graph import StateGraph, START, END
+from langgraph.types import Send
 
 from sacv.orchestration.config import WorkflowConfig
 from sacv.orchestration.state import WorkflowState
@@ -47,97 +47,73 @@ from sacv.orchestration.verifier_utils import (
 )
 
 
-def _make_all_critics_node(deps: "NodeDeps") -> Any:
-    """
-    Single node that runs all 3 critics concurrently and returns merged findings.
+def _make_safe_critic_node(critic_fn, critic_name: str):
+    """Wrap a critic node to handle exceptions gracefully.
 
-    Replaces the broken Send()-based fan-out pattern where each critic had
-    add_edge -> aggregate_critics -> verifier, causing verifier to run 3x.
-    Now all critics run inside one node via asyncio.gather, fan-in here,
-    and a single edge -> verifier ensures it runs exactly once.
+    If the critic raises, returns empty findings and records the error name
+    so the merge node can log it in the audit trail.
     """
-    from sacv.nodes.critics.security    import make_security_critic_node
-    from sacv.nodes.critics.style       import make_style_critic_node
-    from sacv.nodes.critics.consistency import make_consistency_critic_node
+    async def safe_critic_node(state: "WorkflowState") -> dict[str, object]:
+        try:
+            return await critic_fn(state)
+        except Exception as exc:
+            log.error(
+                "critic_node_exception",
+                critic=critic_name,
+                error=str(exc),
+                exc_info=True,
+            )
+            return {
+                "critic_findings": [],
+                "cumulative_cost_dollars": 0.0,
+                "critic_errors": [critic_name],
+            }
+    return safe_critic_node
+
+
+def _all_critics_router_node(deps: "NodeDeps"):
+    """Router node that fans out to 3 critic nodes via Send()."""
+    from langgraph.types import Send
+
+    async def all_critics_router(state: "WorkflowState"):
+        return [
+            Send("critic_security", state),
+            Send("critic_style", state),
+            Send("critic_consistency", state),
+        ]
+
+    return all_critics_router
+
+
+def _all_critics_merge_node():
+    """Merges results from 3 critic nodes.
+
+    Reads aggregated state (findings, costs, errors) and writes audit trail.
+    Returns 0.0 for cost to avoid double-counting with the additive reducer.
+    """
     from sacv.orchestration.state import WorkflowPhase
 
-    async def all_critics_node(state: "WorkflowState") -> dict[str, object]:
-        bind_node_context(state, "all_critics")
-        async with node_timer("all_critics", state=state) as timing:
-            sec_node = make_security_critic_node(deps)
-            sty_node = make_style_critic_node(deps)
-            con_node = make_consistency_critic_node(deps)
+    async def all_critics_merge(state: "WorkflowState") -> dict[str, object]:
+        all_findings = state.get("critic_findings") or []
+        total_cost = state.get("cumulative_cost_dollars", 0.0)
+        critic_errors = state.get("critic_errors") or []
 
-            results = await asyncio.gather(
-                sec_node(state),
-                sty_node(state),
-                con_node(state),
-                return_exceptions=True,
-            )
+        audit_entries: list[dict[str, object]] | None = None
+        if critic_errors:
+            audit_entries = [{
+                "timestamp_ms": time.time() * 1000,
+                "node": "all_critics",
+                "decision": f"critic_exceptions: {', '.join(critic_errors)}",
+                "key_values": {"failed_critics": critic_errors, "findings_count": len(all_findings)},
+            }]
 
-            critic_errors: list[str] = []
+        return {
+            "current_phase": WorkflowPhase.CRITICS.value,
+            "cumulative_cost_dollars": 0.0,
+            "workflow_audit_trail": audit_entries,
+        }
 
-            def _safe_out(result, name):
-                if isinstance(result, Exception):
-                    log.error(
-                        "critic_node_exception",
-                        critic=name,
-                        error=str(result),
-                        exc_info=True,
-                    )
-                    critic_errors.append(name)
-                    return {"critic_findings": [], "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0)}
-                return result
-
-            sec_out = _safe_out(results[0], "security")
-            sty_out = _safe_out(results[1], "style")
-            con_out = _safe_out(results[2], "consistency")
-
-            all_findings = (
-                sec_out.get("critic_findings", [])
-                + sty_out.get("critic_findings", [])
-                + con_out.get("critic_findings", [])
-            )
-            # Each critic receives the same state snapshot; each returns
-            # baseline + its own cost. Sum all three outputs and subtract 3x
-            # the baseline to isolate the incremental cost. Add baseline back
-            # so the cumulative total (including prior nodes' costs) is preserved.
-            baseline = state.get("cumulative_cost_dollars", 0.0)
-            final_cost = (
-                baseline
-                + sec_out.get("cumulative_cost_dollars", baseline)
-                + sty_out.get("cumulative_cost_dollars", baseline)
-                + con_out.get("cumulative_cost_dollars", baseline)
-                - 3.0 * baseline
-            )
-            sec_n = len(sec_out.get("critic_findings", []))
-            sty_n = len(sty_out.get("critic_findings", []))
-            con_n = len(con_out.get("critic_findings", []))
-
-            timing["findings"] = len(all_findings)
-            timing["sec_n"] = sec_n
-            timing["sty_n"] = sty_n
-            timing["con_n"] = con_n
-            timing["critic_errors"] = critic_errors
-
-            audit_entries: list[dict[str, object]] | None = None
-            if critic_errors:
-                audit_entries = [{
-                    "timestamp_ms": time.time() * 1000,
-                    "node": "all_critics",
-                    "decision": f"critic_exceptions: {', '.join(critic_errors)}",
-                    "key_values": {"failed_critics": critic_errors, "findings_count": len(all_findings)},
-                }]
-
-            return {
-                "current_phase":           WorkflowPhase.CRITICS.value,
-                "critic_findings":         all_findings,
-                "critic_errors":           critic_errors,
-                "cumulative_cost_dollars": final_cost,
-                "workflow_audit_trail":    audit_entries,
-            }
-
-    return all_critics_node
+    return all_critics_merge
 
 
 def _inject_confidence(deps: "NodeDeps") -> Any:
@@ -175,15 +151,35 @@ def build_branch_subgraph(deps: "NodeDeps") -> Any:
 
     builder = StateGraph(WorkflowState)
 
-    builder.add_node("actor",            make_actor_node(deps))
-    builder.add_node("preflight_node",   make_preflight_node(deps))
-    builder.add_node("all_critics",      _make_all_critics_node(deps))
-    builder.add_node("verifier",         _inject_confidence(deps))
+    # Create critic nodes with exception-safe wrappers
+    sec_node = make_security_critic_node(deps)
+    sty_node = make_style_critic_node(deps)
+    con_node = make_consistency_critic_node(deps)
 
-    # Direct edges: actor -> preflight -> critics -> verifier
+    builder.add_node("actor",                make_actor_node(deps))
+    builder.add_node("preflight_node",       make_preflight_node(deps))
+    builder.add_node("all_critics_router",   _all_critics_router_node(deps))
+    builder.add_node("critic_security",      _make_safe_critic_node(sec_node, "security"))
+    builder.add_node("critic_style",         _make_safe_critic_node(sty_node, "style"))
+    builder.add_node("critic_consistency",   _make_safe_critic_node(con_node, "consistency"))
+    builder.add_node("all_critics_merge",    _all_critics_merge_node())
+    builder.add_node("verifier",             _inject_confidence(deps))
+
+    # Edges: actor -> preflight -> router -> [critics] -> merge -> verifier
     builder.add_edge("actor", "preflight_node")
-    builder.add_edge("preflight_node", "all_critics")
-    builder.add_edge("all_critics", "verifier")
+    builder.add_edge("preflight_node", "all_critics_router")
+    builder.add_conditional_edges(
+        "all_critics_router",
+        lambda s: [
+            Send("critic_security", s),
+            Send("critic_style", s),
+            Send("critic_consistency", s),
+        ],
+    )
+    builder.add_edge("critic_security", "all_critics_merge")
+    builder.add_edge("critic_style", "all_critics_merge")
+    builder.add_edge("critic_consistency", "all_critics_merge")
+    builder.add_edge("all_critics_merge", "verifier")
 
     return builder
 
@@ -199,7 +195,10 @@ def build_graph(
     from sacv.nodes.tdd_gate             import make_tdd_gate_node
     from sacv.nodes.actor                import make_actor_node
     from sacv.nodes.preflight_node       import make_preflight_node
-    from sacv.nodes.intelligent_debugger import make_intelligent_debugger_node  # NEW
+    from sacv.nodes.critics.security     import make_security_critic_node
+    from sacv.nodes.critics.style        import make_style_critic_node
+    from sacv.nodes.critics.consistency  import make_consistency_critic_node
+    from sacv.nodes.intelligent_debugger import make_intelligent_debugger_node
     from sacv.nodes.replan               import make_replan_node
     from sacv.nodes.speculative_branch   import make_speculative_branch_node
     from sacv.nodes.hitl_escalation      import make_hitl_escalation_node
@@ -209,20 +208,28 @@ def build_graph(
     builder = StateGraph(WorkflowState)
 
     # -- Register nodes --
-    builder.add_node("bootstrap",            make_bootstrap_node(deps))
-    builder.add_node("mode_router",          make_mode_router_node(deps))
-    builder.add_node("scout",                make_scout_node(deps))
-    builder.add_node("value_node",           make_value_node(deps))
-    builder.add_node("tdd_gate",             make_tdd_gate_node(deps))
-    builder.add_node("actor",                make_actor_node(deps))
-    builder.add_node("preflight_node",       make_preflight_node(deps))
-    builder.add_node("all_critics",          _make_all_critics_node(deps))
-    builder.add_node("verifier",             _inject_confidence(deps))
-    builder.add_node("intelligent_debugger", make_intelligent_debugger_node(deps))  # NEW
-    builder.add_node("replan",               make_replan_node(deps))
-    builder.add_node("speculative_branch",   make_speculative_branch_node(deps))
-    builder.add_node("hitl_escalation",      make_hitl_escalation_node(deps))
-    builder.add_node("memory_consolidation", make_memory_consolidation_node(deps))
+    builder.add_node("bootstrap",              make_bootstrap_node(deps))
+    builder.add_node("mode_router",            make_mode_router_node(deps))
+    builder.add_node("scout",                  make_scout_node(deps))
+    builder.add_node("value_node",             make_value_node(deps))
+    builder.add_node("tdd_gate",               make_tdd_gate_node(deps))
+    builder.add_node("actor",                  make_actor_node(deps))
+    builder.add_node("preflight_node",         make_preflight_node(deps))
+    # Critic fan-out via Send() — each critic is independently checkpointed
+    builder.add_node("all_critics_router",     _all_critics_router_node(deps))
+    sec_node = make_security_critic_node(deps)
+    sty_node = make_style_critic_node(deps)
+    con_node = make_consistency_critic_node(deps)
+    builder.add_node("critic_security",        _make_safe_critic_node(sec_node, "security"))
+    builder.add_node("critic_style",           _make_safe_critic_node(sty_node, "style"))
+    builder.add_node("critic_consistency",     _make_safe_critic_node(con_node, "consistency"))
+    builder.add_node("all_critics_merge",      _all_critics_merge_node())
+    builder.add_node("verifier",               _inject_confidence(deps))
+    builder.add_node("intelligent_debugger",   make_intelligent_debugger_node(deps))
+    builder.add_node("replan",                 make_replan_node(deps))
+    builder.add_node("speculative_branch",     make_speculative_branch_node(deps))
+    builder.add_node("hitl_escalation",        make_hitl_escalation_node(deps))
+    builder.add_node("memory_consolidation",   make_memory_consolidation_node(deps))
 
     # -- Direct edges --
     builder.add_edge(START,                  "bootstrap")
@@ -242,7 +249,7 @@ def build_graph(
     builder.add_edge("intelligent_debugger", "actor")              # NEW
     builder.add_edge("memory_consolidation", END)
     builder.add_edge("hitl_escalation",      "memory_consolidation")  # HIGH-002: persist failure lessons after HITL resume
-    builder.add_edge("all_critics",          "verifier")
+    builder.add_edge("all_critics_merge",    "verifier")
 
     # -- Conditional edges --
     builder.add_conditional_edges(
@@ -259,9 +266,18 @@ def build_graph(
         "preflight_node",
         route_after_preflight,
         {
-            "actor":           "actor",
-            "all_critics":     "all_critics",
+            "actor":                "actor",
+            "all_critics_router":   "all_critics_router",
         },
+    )
+    # Fan-out to 3 critic nodes in parallel via Send()
+    builder.add_conditional_edges(
+        "all_critics_router",
+        lambda s: [
+            Send("critic_security", s),
+            Send("critic_style", s),
+            Send("critic_consistency", s),
+        ],
     )
 
     builder.add_conditional_edges(

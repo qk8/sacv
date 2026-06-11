@@ -163,6 +163,24 @@ def _merge_lists(existing: list[CriticFinding] | None, new: list[CriticFinding] 
     return existing or []
 
 
+def _add_costs(existing: float | None, new: float | None) -> float:
+    """Reducer for cumulative_cost_dollars — accumulates incremental costs."""
+    if new is None:
+        return existing or 0.0
+    return (existing or 0.0) + new
+
+
+def _merge_strings(existing: list[str] | None, new: list[str] | None) -> list[str]:
+    """Reducer for list[str] fields — appends new strings to existing."""
+    if new is None:
+        return existing or []
+    if isinstance(new, list):
+        if len(new) == 0:
+            return existing or []
+        return (existing or []) + new
+    return existing or []
+
+
 # ── Audit trail ───────────────────────────────────────────────────────────────
 
 class AuditEntry(TypedDict):
@@ -448,7 +466,7 @@ class WorkflowState(TypedDict):
 
     # ── Critic outputs ────────────────────────────────────────────────────
     critic_findings: Annotated[list[CriticFinding], _merge_lists]
-    critic_errors:   list[str]   # names of critics that raised exceptions
+    critic_errors: Annotated[list[str], _merge_strings]   # names of critics that raised exceptions
 
     # ── Verifier output ───────────────────────────────────────────────────
     verifier_verdict: VerifierVerdict | None
@@ -477,7 +495,7 @@ class WorkflowState(TypedDict):
     debug_observations:     DebugObservations | None
 
     # ── Token budget tracking (BUG-008) ──────────────────────────────────
-    cumulative_cost_dollars: float
+    cumulative_cost_dollars: Annotated[float, _add_costs]
 
     # ── Structured audit trail (HIGH-04) ─────────────────────────────────
     workflow_audit_trail: Annotated[list[AuditEntry], _append_audit]
