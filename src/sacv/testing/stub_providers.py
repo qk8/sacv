@@ -101,14 +101,18 @@ class StubCodeGraphProvider(CodeGraphProvider):
         self._blast   = blast    or BlastRadiusMap([], [], 0, [], [], 0.0)
         self._graph   = graph    or CallGraph(".", [], [])
         self._subgraph = subgraph or {}
+        self.calls: list[tuple[str, ...]] = []
 
     async def get_blast_radius(self, file_paths: list[str]) -> BlastRadiusMap:
+        self.calls.append(("get_blast_radius", tuple(file_paths)))
         return self._blast
 
     async def get_call_graph(self, entry_points: list[str]) -> CallGraph:
+        self.calls.append(("get_call_graph", tuple(entry_points)))
         return self._graph
 
     async def get_dependency_subgraph(self, scope: list[str]) -> dict[str, Any]:
+        self.calls.append(("get_dependency_subgraph", tuple(scope)))
         return self._subgraph
 
 
