@@ -41,7 +41,7 @@ from sacv.orchestration.state import (
 )
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
-from sacv.nodes._stagnation import embed_error_to_b64
+from sacv.nodes._stagnation import embed_error_to_b64, compute_outcome_signature
 from sacv.nodes._log_parser import prune_stack, frames_to_dict
 
 if TYPE_CHECKING:
@@ -78,7 +78,10 @@ def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                     failures=[{"source": "deletion_guard", "message": deletion_error}],
                     findings=findings, docker_exit_code=-1,
                 )
-                return _build_return(verdict, correction, deletion_error)
+                return _build_return(
+                    verdict, correction, deletion_error,
+                    preflight_result=None, critic_findings=findings,
+                )
 
             # ── Critical critic findings → skip Docker ────────────────────────
             critical = [f for f in findings if f["severity"] == "critical"]
@@ -92,7 +95,10 @@ def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                     findings=findings, docker_exit_code=-1,
                     blocked_by_critic=True,
                 )
-                return _build_return(verdict, correction, "critic_block")
+                return _build_return(
+                    verdict, correction, "critic_block",
+                    preflight_result=None, critic_findings=findings,
+                )
 
             # NOW warm the container (after all zero-cost checks pass)
             handle = await deps.sandbox.warm_container()
@@ -122,9 +128,13 @@ def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                         failures=p1_failures, findings=findings,
                         actuator_snapshot=actuator_snap,
                     )
-                    return _build_return(verdict, correction, " ".join(
+                    return _build_return(
+                    verdict, correction, " ".join(
                         f.get("message", "") for f in p1_failures
-                    ))
+                    ),
+                    preflight_result=preflight_result,
+                    critic_findings=findings,
+                )
 
                 # ── Phase 2: New Feature Tests ───────────────────────────────
                 p2_passed = True
@@ -199,9 +209,12 @@ def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                 timing["test_result"] = verdict["test_result"]
                 timing["diagnostic"] = diagnostic
                 log.info("verifier.complete", result=verdict["test_result"], diag=diagnostic)
+                preflight_result = state.get("preflight_result") or {}
                 return _build_return(
                     verdict, correction,
-                    " ".join(f.get("message", "") for f in all_failures)
+                    " ".join(f.get("message", "") for f in all_failures),
+                    preflight_result=preflight_result,
+                    critic_findings=findings,
                 )
             finally:
                 await deps.sandbox.destroy_container(handle)
@@ -616,13 +629,25 @@ def _make_verdict(
     )
 
 
-def _build_return(verdict: VerifierVerdict, correction: dict[str, Any], failure_text: str) -> dict[str, object]:
+def _build_return(
+    verdict: VerifierVerdict,
+    correction: dict[str, Any],
+    failure_text: str,
+    preflight_result: dict[str, Any] | None = None,
+    critic_findings: list[dict[str, Any]] | None = None,
+) -> dict[str, object]:
     new_correction = dict(correction)
     if verdict["test_result"] == "FAIL" and failure_text:
         history = list(correction.get("error_history", []))
         history.append(embed_error_to_b64(failure_text))
         new_correction["error_history"]   = history[-5:]
         new_correction["last_error_hash"] = history[-1][:16]
+
+    # Store outcome signature for stagnation detection
+    if preflight_result is not None and critic_findings is not None:
+        sig = compute_outcome_signature(preflight_result, critic_findings)
+        new_correction["last_outcome_signature"] = sig
+
     return {
         "current_phase":    WorkflowPhase.VERIFIER.value,
         "verifier_verdict": verdict,

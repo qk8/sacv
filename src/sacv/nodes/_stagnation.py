@@ -107,6 +107,56 @@ def check_stagnation(
     return None
 
 
+def compute_outcome_signature(
+    preflight_result: dict[str, Any] | None,
+    critic_findings:  list[dict[str, Any]],
+) -> str:
+    """
+    Compute a deterministic signature from preflight violations and
+    critical critic findings. Used for outcome-based stagnation detection.
+
+    The signature captures the KEY PROBLEMS that persist across attempts —
+    if the same signature appears in consecutive attempts, the actor is
+    changing code but not fixing the underlying problem.
+    """
+    import hashlib
+
+    parts: list[str] = []
+
+    if preflight_result:
+        for key in ("lsp_errors", "arch_violations", "cross_stack_errors", "blast_errors"):
+            violations = preflight_result.get(key, [])
+            for v in violations:
+                # Use only the rule/message, not file paths (which change)
+                rule = v.get("rule", "") or v.get("code", "") or v.get("message", "")[:80]
+                if rule:
+                    parts.append(f"preflight:{key}:{rule}")
+
+    for f in critic_findings:
+        if f.get("severity") == "critical":
+            rule = f.get("rule_id", "") or f.get("message", "")[:80]
+            if rule:
+                parts.append(f"critic:{f.get('critic', '?')}:{rule}")
+
+    return hashlib.sha256("|".join(sorted(parts)).encode()).hexdigest()[:16]
+
+
+def check_outcome_stagnation(
+    correction: "CorrectionCycleState",
+    current_sig: str,
+) -> bool:
+    """
+    Detect outcome-based stagnation: the same preflight/critic problem
+    persists across consecutive attempts.
+
+    Returns True if stagnation is detected.
+    """
+    prev_sig = correction.get("last_outcome_signature")
+    if prev_sig and current_sig == prev_sig and current_sig != "":
+        return True
+    return False
+
+
 def embed_error_to_b64(error_text: str) -> str:
     """
     Produces a deterministic, lightweight embedding of an error message

@@ -26,7 +26,7 @@ from sacv.orchestration.state import (
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.interfaces.diff_provider import UnifiedDiff
 from sacv.git.branch_manager import sanitize_branch_name
-from sacv.nodes._stagnation import check_stagnation
+from sacv.nodes._stagnation import check_stagnation, check_outcome_stagnation, compute_outcome_signature
 from sacv.nodes._structured_output import extract_structured, DiffPayload, StructuredOutputError
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
@@ -97,8 +97,14 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
             # ── 0. Stagnation guard ───────────────────────────────────────────
             updated_cost = state.get("cumulative_cost_dollars", 0.0)
             stagnation = check_stagnation(correction, deps.config)
-            if stagnation:
+            # Outcome-based stagnation: same preflight/critic problem persists
+            # across consecutive attempts (the diff changed but the problem didn't).
+            critic_findings = state.get("critic_findings", [])
+            outcome_sig = compute_outcome_signature(preflight, critic_findings)
+            if not stagnation and check_outcome_stagnation(correction, outcome_sig):
+                stagnation = "outcome"
                 log.warning("actor.stagnation", pattern=stagnation)
+            if stagnation:
                 # Return a synthetic failing verdict so route_after_verifier
                 # sends the graph directly to hitl_escalation (attempt_count
                 # == max_self_correction_cycles triggers the max-cycles path).
