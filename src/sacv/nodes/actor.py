@@ -30,6 +30,7 @@ from sacv.nodes._stagnation import check_stagnation, check_outcome_stagnation, c
 from sacv.nodes._structured_output import extract_structured, DiffPayload, StructuredOutputError
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.tracing import span_event
 from sacv.orchestration.verifier_utils import add_agent_cost
 
 if TYPE_CHECKING:
@@ -196,6 +197,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                     attempt=attempt,
                     task_id=task_id,
                 )
+                span_event("actor.parse_error", {"attempt": attempt, "task_id": task_id})
                 # Return immediately — do not fall through to the empty-diff path.
                 # Clearing debug_observations ensures a fresh debug session can be
                 # triggered on the next verifier AMBIGUOUS verdict rather than
@@ -232,6 +234,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
             # ── 3b. Reject empty diffs — prevents phantom DiffProposal bypass ─
             if not diffs:
                 log.warning("actor.empty_diff", task_id=task_id, attempt=attempt)
+                span_event("actor.empty_diff", {"attempt": attempt, "task_id": task_id})
                 return {
                     "current_phase": WorkflowPhase.ACTOR.value,
                     "correction_state": {
@@ -283,6 +286,7 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 commit_message=f"sacv: implement {task_id} (attempt {attempt + 1})",
             )
             log.info("actor.complete", branch=branch_name, files=len(diffs))
+            span_event("actor.diff_applied", {"files": len(diffs), "branch": branch_name})
 
             timing["files"] = len(diffs)
             timing["attempts"] = attempt

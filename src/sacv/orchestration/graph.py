@@ -18,6 +18,7 @@ import structlog
 
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.tracing import span_event
 
 log = structlog.get_logger(__name__)
 
@@ -116,6 +117,9 @@ def _make_all_critics_node(deps: "NodeDeps") -> Any:
             timing["sty_n"] = sty_n
             timing["con_n"] = con_n
             timing["critic_errors"] = critic_errors
+            span_event("critics.complete", {
+                "findings": len(all_findings), "sec_n": sec_n, "sty_n": sty_n, "con_n": con_n,
+            })
 
             audit_entries: list[dict[str, object]] | None = None
             if critic_errors:

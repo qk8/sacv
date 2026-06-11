@@ -40,6 +40,7 @@ from sacv.orchestration.state import (
     WorkflowPhase, VerifierVerdict, DiagnosticVerdict, AuditEntry,
 )
 from sacv.nodes._node_context import bind_node_context
+from sacv.tracing import span_event
 from sacv.nodes._node_timer import node_timer
 from sacv.nodes._stagnation import embed_error_to_b64, compute_outcome_signature
 from sacv.nodes._log_parser import prune_stack, frames_to_dict
@@ -209,6 +210,10 @@ def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                 timing["test_result"] = verdict["test_result"]
                 timing["diagnostic"] = diagnostic
                 log.info("verifier.complete", result=verdict["test_result"], diag=diagnostic)
+                span_event("verifier.complete", {
+                    "result": verdict["test_result"], "diagnostic": diagnostic,
+                    "phase1_passed": p1_passed, "phase2_passed": p2_passed,
+                })
                 preflight_result = state.get("preflight_result") or {}
                 return _build_return(
                     verdict, correction,
@@ -221,6 +226,14 @@ def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
 
     return verifier_node
 
+
+# ── LLM classifier system prompt ─────────────────────────────────────────────
+
+_CLASSIFIER_SYSTEM_VERSION = "2026-06-11-v1"
+
+_CLASSIFIER_SYSTEM_PROMPT = "# prompt_version: " + _CLASSIFIER_SYSTEM_VERSION + "\n" + """\
+You are a test-result classifier. Return exactly one word: PASS, FIX_IMPL, FIX_TEST, or AMBIGUOUS.
+"""
 
 # ── Diagnostic helpers ────────────────────────────────────────────────────────
 
@@ -415,7 +428,7 @@ async def _classify_with_llm(
             context={},
             config=AgentConfig(
                 role="classifier",
-                system_prompt="You are a test-result classifier. Return exactly one word: PASS, FIX_IMPL, FIX_TEST, or AMBIGUOUS.",
+                system_prompt=_CLASSIFIER_SYSTEM_PROMPT,
                 max_turns=1,
                 allowed_tools=[],
             ),

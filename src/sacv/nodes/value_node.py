@@ -17,6 +17,7 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase, StrategyCandidate
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.tracing import span_event
 from sacv.nodes._audit import make_audit_entry
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.nodes._scoring import score_strategy, prune_strategies, detect_collision_pairs
@@ -28,7 +29,9 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_STRATEGY_SYSTEM_PROMPT = """\
+_STRATEGY_SYSTEM_VERSION = "2026-06-11-v1"
+
+_STRATEGY_SYSTEM_PROMPT = "# prompt_version: " + _STRATEGY_SYSTEM_VERSION + "\n" + """\
 You are a senior software architect. Given a task description, a context skeleton \
 (AST sub-graph, dependency map, schema alignment), and a list of procedural \
 constraints, generate {n} distinct implementation strategies as a JSON array.
@@ -163,6 +166,9 @@ def make_value_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 passing=len(passing),
                 pruned=len(pruned),
             )
+            span_event("value_node.strategies_generated", {
+                "generated": len(candidates), "passing": len(passing), "pruned": len(pruned),
+            })
 
             # ── 5. Select highest-scoring strategy as primary ─────────────────
             selected = passing[0] if passing else None
