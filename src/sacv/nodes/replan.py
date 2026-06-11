@@ -176,10 +176,40 @@ def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[A
     return replan_node
 
 
+def _truncate(text: str, max_chars: int = 5000) -> str:
+    """Truncate text to max_chars for inclusion in prompts."""
+    if not text:
+        return ""
+    return text if len(text) <= max_chars else text[:max_chars] + f"... ({len(text)} chars)"
+
+
 def _build_failure_summary(state: "WorkflowState") -> dict[str, Any]:
     verdict  = state.get("verifier_verdict") or {}
     findings = state.get("critic_findings", [])
     preflight = state.get("preflight_result") or {}
+    correction = state.get("correction_state", {})
+    diff_proposal = state.get("diff_proposal")
+
+    # Build a list of past diffs to show what the actor tried
+    past_diffs: list[dict[str, Any]] = []
+    if diff_proposal:
+        past_diffs.append({
+            "strategy_id": diff_proposal.get("strategy_id"),
+            "branch_name": diff_proposal.get("branch_name"),
+            "diffs": diff_proposal.get("diffs", [])[:3],  # last 3 diffs max
+        })
+
+    # Include debug observations if present
+    debug_obs = state.get("debug_observations")
+    debug_summary = None
+    if debug_obs:
+        debug_summary = {
+            "error_type": debug_obs.get("error_type"),
+            "root_cause": debug_obs.get("root_cause"),
+            "has_breakpoint_hits": len(debug_obs.get("breakpoint_hits", [])),
+            "has_actuator_snapshot": debug_obs.get("actuator_beans") is not None,
+            "has_otel_trace": debug_obs.get("otel_trace") is not None,
+        }
 
     return {
         "exhausted_strategies": [
@@ -192,6 +222,15 @@ def _build_failure_summary(state: "WorkflowState") -> dict[str, Any]:
             f for f in findings if f.get("severity") == "critical"
         ][:5],
         "arch_violations_found":  preflight.get("arch_violations", [])[:5],
-        "stagnation_pattern":     state["correction_state"].get("stagnation_pattern", "none"),
+        "stagnation_pattern":     correction.get("stagnation_pattern", "none"),
         "replan_count":           state.get("replan_count", 0),
+        "last_diff_proposal":     past_diffs[-2:],  # last 2 diff proposals
+        "last_preflight": {
+            "passed": preflight.get("passed"),
+            "lsp_errors": preflight.get("lsp_errors", [])[:5],
+            "cross_stack_errors": preflight.get("cross_stack_errors", [])[:5],
+            "blast_errors": preflight.get("blast_errors", [])[:5],
+        } if preflight else None,
+        "debug_observations":     debug_summary,
+        "error_history":          correction.get("error_history", [])[-5:],  # last 5 error hashes
     }

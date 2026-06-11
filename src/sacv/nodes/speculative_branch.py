@@ -247,10 +247,15 @@ async def _evaluate_branch(
                 "branch_name":        branch_name,
                 "attempt_count":      0,          # each branch gets a clean start
                 "stagnation_pattern": "none",     # clear inherited stagnation signal
-                "error_history":      [],         # prevent semantic stagnation bleed
-                "last_error_hash":    None,
+                "error_history":      state.get("correction_state", {}).get("error_history", [])[-3:],  # preserve last 3 error hashes for context
+                "last_error_hash":    state.get("correction_state", {}).get("last_error_hash"),
             },
             "critic_findings": CRITIC_RESET,
+            # Pass failure context from parent so the branch actor knows why
+            # previous attempts failed — prevents branches from converging on
+            # the same wrong approach (CRITICAL-3).
+            "verifier_verdict": state.get("verifier_verdict"),
+            "preflight_result": state.get("preflight_result"),
         }
 
         # Build, compile, and run the shared mini-workflow for this branch.
