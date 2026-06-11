@@ -92,6 +92,9 @@ class ConfidenceWeights:
     blast_penalty_scale:       float = 0.30
     critic_penalty_per_crit:   float = 0.10
     max_critic_penalty:        float = 0.30
+    # Verifier test-passing signal (CONCERN-4)
+    verifier_partial_penalty:  float = 0.15   # phase1 pass, phase2 fail
+    verifier_fail_penalty:     float = 0.30   # neither phase passes
 
 
 @dataclass(frozen=True)
@@ -274,6 +277,12 @@ class WorkflowConfig:
                 ),
                 max_critic_penalty=raw.get("confidence_weights", {}).get(
                     "max_critic_penalty", 0.30
+                ),
+                verifier_partial_penalty=raw.get("confidence_weights", {}).get(
+                    "verifier_partial_penalty", 0.15
+                ),
+                verifier_fail_penalty=raw.get("confidence_weights", {}).get(
+                    "verifier_fail_penalty", 0.30
                 ),
             ),
         )

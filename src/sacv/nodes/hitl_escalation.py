@@ -12,8 +12,10 @@ When MAX_SELF_CORRECTION_CYCLES is reached or all speculative branches fail:
 The developer reviews the payload and resumes via:
     ``workflow resume --escalation-id <id> [--branch <branch>]``
 
-All correction choices made by the developer during HITL are later written
-back to AgentMemory as procedural constraints (see memory_consolidation.py).
+No automatic memory consolidation runs after HITL — partial or failed work
+is NOT committed. The human reviews the escalation payload and decides
+whether to retry manually or abort. The full workflow state is persisted
+in ``.workflow/escalations/<id>.json`` for complete inspection.
 """
 from __future__ import annotations
 

@@ -48,6 +48,9 @@ def compute_confidence_score(
     Confidence decreases as cumulative cost approaches warning_dollar.
     The penalty scales linearly between warning_dollar and critical_dollar,
     reaching 1.0 (full penalty) at critical_dollar.
+
+    Also incorporates the verifier's test-passing signal: partial test
+    passes reduce confidence less than total failures.
     """
     cfg        = config
     weights    = cfg.confidence_weights
@@ -74,7 +77,20 @@ def compute_confidence_score(
     else:
         cost_penalty = 0.0
 
-    result = max(0.0, 1.0 - attempt_penalty - stagnation_penalty - blast_penalty - critic_penalty - cost_penalty)
+    # Verifier test-passing signal: partial passes reduce confidence less
+    # than total failures (CONCERN-4).
+    verdict = state.get("verifier_verdict")
+    verifier_penalty = 0.0
+    if verdict:
+        p1 = verdict.get("phase1_passed", False)
+        p2 = verdict.get("phase2_passed", False)
+        if not p1 and not p2:
+            verifier_penalty = weights.verifier_fail_penalty
+        elif p1 and not p2:
+            verifier_penalty = weights.verifier_partial_penalty
+
+    result = max(0.0, 1.0 - attempt_penalty - stagnation_penalty - blast_penalty
+                 - critic_penalty - cost_penalty - verifier_penalty)
     return float(result)
 
 
