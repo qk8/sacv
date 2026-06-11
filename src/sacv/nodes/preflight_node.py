@@ -59,7 +59,7 @@ def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
                     "preflight_result": PreflightResult(
                         passed=True, lsp_errors=[], arch_violations=[],
                         cross_stack_errors=[], blast_errors=[],
-                        duration_ms=0
+                        repair_suggestions=[], duration_ms=0
                     ),
                     "critic_findings": CRITIC_RESET,
                 }
@@ -101,8 +101,8 @@ def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
 
                 # ── Check 4: Blast-radius file count guard ─────────────────────
                 blast_errors: list[dict[str, Any]] = []
+                blast_map = state.get("blast_radius_map") or {}
                 if "blast_radius" in check_names:
-                    blast_map = state.get("blast_radius_map") or {}
                     affected_count = len(blast_map.get("affected_files", []))
                     max_files = cfg.max_blast_files
                     if affected_count > max_files:
@@ -129,12 +129,19 @@ def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
                 # Non-required check findings are still recorded in PreflightResult for reporting.
                 passed = not required_failed
 
+                # CONCERN-2: Compute structured repair suggestions
+                repair_suggestions = _compute_repair_suggestions(
+                    lsp_errors, arch_errs, cross_stack_errors, blast_errors,
+                    module, blast_map,
+                )
+
                 result = PreflightResult(
                     passed=passed,
                     lsp_errors=lsp_errors,
                     arch_violations=arch_errs,
                     cross_stack_errors=cross_stack_errors,
                     blast_errors=blast_errors,
+                    repair_suggestions=repair_suggestions,
                     duration_ms=duration_ms,
                 )
                 timing["passed"] = passed
@@ -290,3 +297,85 @@ def _parse_java_archunit(output: str) -> list[dict[str, Any]]:
                     current_rule = None
 
     return violations[:20]
+
+
+def _compute_repair_suggestions(
+    lsp_errors: list[dict[str, Any]],
+    arch_violations: list[dict[str, Any]],
+    cross_stack_errors: list[dict[str, Any]],
+    blast_errors: list[dict[str, Any]],
+    module: str,
+    blast_map: dict[str, Any],
+) -> list[dict[str, str]]:
+    """
+    Compute structured repair suggestions for the Actor (CONCERN-2).
+
+    Each suggestion is a dict with 'category' and 'text' keys.
+    The actor's system prompt includes these so it knows *how* to fix
+    violations rather than just *what* they are.
+    """
+    suggestions: list[dict[str, str]] = []
+
+    if lsp_errors:
+        by_file: dict[str, list[dict[str, Any]]] = {}
+        for err in lsp_errors[:10]:
+            by_file.setdefault(err.get("file", "?"), []).append(err)
+
+        for fpath, errors in list(by_file.items())[:5]:
+            symbols = []
+            for e in errors:
+                msg = e.get("message", "")
+                for pattern in [
+                    r"cannot find symbol\s+(?:method|variable|class)\s+(\w+)",
+                    r"cannot find name\s+['\"](\w+)['\"]",
+                    r"cannot find module\s+['\"]([^'\"]+)['\"]",
+                    r"'(\w+)' does not exist",
+                ]:
+                    import re as _re
+                    m = _re.search(pattern, msg)
+                    if m:
+                        symbols.append(m.group(1))
+                        break
+                if not symbols and errors.index(e) == 0:
+                    parts = msg.split()
+                    for p in reversed(parts):
+                        if p.isalnum() and len(p) > 2:
+                            symbols.append(p.rstrip("';,"))
+                            break
+            unique_symbols = list(dict.fromkeys(symbols))[:5]
+            if unique_symbols:
+                suggestions.append({
+                    "category": "compile",
+                    "text": f"Fix imports in {fpath}: missing symbol(s) {', '.join(unique_symbols)}. "
+                            f"{'Add import or verify method name.' if len(unique_symbols) < 3 else 'Check method signatures and import paths.'}",
+                })
+
+    if arch_violations:
+        for v in arch_violations[:5]:
+            rule = v.get("rule", "")
+            source = v.get("source_file", "?")
+            target = v.get("target_file", "?")
+            suggestions.append({
+                "category": "architecture",
+                "text": f"{rule}: {source} → {target}. "
+                        f"Remove the forbidden import; route through the correct layer interface.",
+            })
+
+    if cross_stack_errors:
+        for err in cross_stack_errors[:5]:
+            suggestions.append({
+                "category": "cross_stack",
+                "text": f"{err.get('message', 'Type mismatch')} in {err.get('file', '?')}. "
+                        f"Regenerate types from the OpenAPI spec or update the Java DTO to match.",
+            })
+
+    if blast_errors:
+        affected = blast_map.get("affected_files", [])
+        suggestions.append({
+            "category": "blast_radius",
+            "text": f"Change affects {len(affected)} files (exceeds limit). "
+                    f"Affected: {', '.join(affected[:10])}{'...' if len(affected) > 10 else ''}. "
+                    f"Consider splitting into smaller, focused changes.",
+        })
+
+    return suggestions

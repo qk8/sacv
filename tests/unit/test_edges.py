@@ -198,7 +198,7 @@ class TestRouteAfterPreflight:
             cross_stack_errors=[], blast_errors=[], duration_ms=100,
         )
         s = _s(preflight_result=result)
-        assert route_after_preflight(s) == "all_critics_router"
+        assert route_after_preflight(s) == "all_critics"
 
     def test_lsp_errors_routes_to_actor(self):
         """LSP compile errors → actor (fix code first)."""
@@ -238,7 +238,7 @@ class TestRouteAfterPreflight:
     def test_none_preflight_routes_to_critics(self):
         """Missing preflight_result → treated as passed."""
         s = _s(preflight_result=None)
-        assert route_after_preflight(s) == "all_critics_router"
+        assert route_after_preflight(s) == "all_critics"
 
 
 # ── route_after_speculative_branch ────────────────────────────────────────────

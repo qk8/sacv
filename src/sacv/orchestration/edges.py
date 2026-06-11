@@ -27,7 +27,7 @@ def route_after_preflight(state: WorkflowState) -> str:
         or result.get("cross_stack_errors")
         or result.get("blast_errors")
     )
-    destination = "actor" if has_violations else "all_critics_router"
+    destination = "actor" if has_violations else "all_critics"
     log.info(
         "route.preflight_decision",
         destination=destination,

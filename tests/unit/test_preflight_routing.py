@@ -4,7 +4,7 @@ tests/unit/test_preflight_routing.py
 Unit tests for route_after_preflight — pure function, no I/O.
 
 After Issue 3 fix, route_after_preflight returns a single string:
-  - "all_critics_router" when preflight is clean (no LSP errors, no arch violations)
+  - "all_critics" when preflight is clean (no LSP errors, no arch violations)
   - "actor" when preflight reports violations (needs re-implementation)
 """
 from __future__ import annotations
@@ -34,10 +34,10 @@ def _s(**kw):
 class TestRouteAfterPreflight:
 
     def test_clean_preflight_routes_to_all_critics(self):
-        """Clean preflight → route to all_critics_router node."""
+        """Clean preflight → route to all_critics node."""
         state = _s(preflight_result={"passed":True,"lsp_errors":[],"arch_violations":[],"cross_stack_errors":[],"duration_ms":120})
         result = route_after_preflight(state)
-        assert result == "all_critics_router"
+        assert result == "all_critics"
 
     def test_lsp_error_routes_back_to_actor(self):
         state = _s(preflight_result={
@@ -81,20 +81,20 @@ class TestRouteAfterPreflight:
         assert route_after_preflight(state) == "actor"
 
     def test_none_preflight_result_routes_to_all_critics(self):
-        """No preflight yet (e.g. first pass) → treat as clean → all_critics_router."""
+        """No preflight yet (e.g. first pass) → treat as clean → all_critics."""
         state = _s(preflight_result=None)
         result = route_after_preflight(state)
-        assert result == "all_critics_router"
+        assert result == "all_critics"
 
     def test_empty_preflight_result_routes_to_all_critics(self):
         """Empty dict (missing 'passed' key) defaults to clean."""
         state = _s(preflight_result={})
         result = route_after_preflight(state)
-        assert result == "all_critics_router"
+        assert result == "all_critics"
 
     def test_returns_string_not_list(self):
         """After Issue 3 fix, route_after_preflight returns a string, not list[Send]."""
         state = _s(preflight_result={"passed":True,"lsp_errors":[],"arch_violations":[],"cross_stack_errors":[],"duration_ms":10})
         result = route_after_preflight(state)
         assert isinstance(result, str)
-        assert result in ("all_critics_router", "actor")
+        assert result in ("all_critics", "actor")

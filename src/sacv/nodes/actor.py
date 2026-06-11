@@ -344,6 +344,8 @@ def _format_preflight(preflight: dict[str, Any]) -> str:
         parts.append(f"[LSP] {e.get('file','?')}:{e.get('line','?')} {e.get('code','')} — {e.get('message','')}")
     for v in preflight.get("arch_violations", [])[:5]:
         parts.append(f"[ARCH] {v.get('rule','?')}: {v.get('message','')}")
+    for s in preflight.get("repair_suggestions", []):
+        parts.append(f"[FIX] {s.get('category','?')}: {s.get('text','')}")
     return "\n".join(parts) if parts else ""
 
 

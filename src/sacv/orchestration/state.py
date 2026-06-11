@@ -268,6 +268,7 @@ class PreflightResult(TypedDict):
     arch_violations:    layer boundary violations (approaches 9-10)
     cross_stack_errors: Java DTO changed but TypeScript types stale (approach 3A)
     blast_errors:       blast-radius file count exceeded (approach 3B)
+    repair_suggestions: structured repair guidance for the Actor (CONCERN-2)
     passed:             True only when all checks produce zero findings
     duration_ms:        total elapsed time (should be <5 000ms)
     """
@@ -276,6 +277,7 @@ class PreflightResult(TypedDict):
     arch_violations:    list[ArchViolation]
     cross_stack_errors: list[CrossStackError]
     blast_errors:       list[BlastError]
+    repair_suggestions: list[dict[str, str]]
     duration_ms:        int
 
 class TestFailure(TypedDict):
