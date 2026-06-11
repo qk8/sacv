@@ -37,7 +37,10 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_ORACLE_BACKEND_SYSTEM = """\
+_ORACLE_BACKEND_SYSTEM_VERSION = "2026-06-11-v1"
+_ORACLE_FRONTEND_SYSTEM_VERSION = "2026-06-11-v1"
+
+_ORACLE_BACKEND_SYSTEM = "# prompt_version: " + _ORACLE_BACKEND_SYSTEM_VERSION + "\n" + """\
 You are a Test Oracle for backend services (Java/Spring Boot or TypeScript/Node).
 Write FAILING tests that will pass once the implementation is complete.
 
@@ -51,7 +54,7 @@ Rules:
 No explanation. No markdown. Only the JSON array.
 """
 
-_ORACLE_FRONTEND_SYSTEM = """\
+_ORACLE_FRONTEND_SYSTEM = "# prompt_version: " + _ORACLE_FRONTEND_SYSTEM_VERSION + "\n" + """\
 You are a Test Oracle for frontend components (TypeScript/React).
 Write FAILING Playwright tests using ACCESSIBILITY TREE selectors only.
 

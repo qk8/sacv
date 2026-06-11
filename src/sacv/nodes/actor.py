@@ -38,7 +38,9 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_ACTOR_SYSTEM = """\
+_ACTOR_SYSTEM_VERSION = "2026-06-11-v1"
+
+_ACTOR_SYSTEM = "# prompt_version: " + _ACTOR_SYSTEM_VERSION + "\n" + """\
 You are a senior {language} Build Agent performing a diff-only code change.
 
 HARD RULES:

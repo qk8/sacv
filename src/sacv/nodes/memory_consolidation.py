@@ -46,14 +46,17 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_AGENTS_MD_UPDATER_SYSTEM = """\
+_AGENTS_MD_UPDATER_SYSTEM_VERSION = "2026-06-11-v1"
+_ARCH_RULE_UPDATER_SYSTEM_VERSION = "2026-06-11-v1"
+
+_AGENTS_MD_UPDATER_SYSTEM = "# prompt_version: " + _AGENTS_MD_UPDATER_SYSTEM_VERSION + "\n" + """\
 You are a technical writer. Based on the new lesson learned, output ONLY the
 updated content for two sections as a JSON object with keys
 "common_mistakes" and "architecture_decisions".
 No other keys. No explanation. Only the JSON object.
 """
 
-_ARCH_RULE_UPDATER_SYSTEM = """\
+_ARCH_RULE_UPDATER_SYSTEM = "# prompt_version: " + _ARCH_RULE_UPDATER_SYSTEM_VERSION + "\n" + """\
 You are an architect updating structural linting rules.
 Given a list of architecture violations that occurred in this session,
 add ONE new rule to prevent them from recurring.

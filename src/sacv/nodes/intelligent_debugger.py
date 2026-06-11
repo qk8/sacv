@@ -47,7 +47,9 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_ROOT_CAUSE_SYSTEM = """\
+_ROOT_CAUSE_SYSTEM_VERSION = "2026-06-11-v1"
+
+_ROOT_CAUSE_SYSTEM = "# prompt_version: " + _ROOT_CAUSE_SYSTEM_VERSION + "\n" + """\
 You are a debugging analyst. Given structured debug observations from a live
 debug session, write a ONE-PARAGRAPH root cause hypothesis.
 

@@ -33,7 +33,9 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_REPLAN_SYSTEM = """\
+_REPLAN_SYSTEM_VERSION = "2026-06-11-v1"
+
+_REPLAN_SYSTEM = "# prompt_version: " + _REPLAN_SYSTEM_VERSION + "\n" + """\
 You are a Principal Architect performing a root-cause analysis and replanning session.
 
 Previous implementation attempts have all FAILED. Your task:
