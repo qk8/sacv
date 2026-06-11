@@ -14,6 +14,7 @@ Verifier node and stored in ``correction_state.error_history``.
 from __future__ import annotations
 
 import base64
+import re
 import struct
 from typing import TYPE_CHECKING, Protocol
 
@@ -48,6 +49,27 @@ class CharFrequencyEmbedder:
 
 
 _DEFAULT_EMBEDDER: Embedder = CharFrequencyEmbedder()
+
+_NOISE_PATTERNS = [
+    re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?"),  # ISO timestamps
+    re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"),  # UUIDs
+    re.compile(r"\bcontainer=[a-z0-9\-]+\b"),     # Docker container IDs
+    re.compile(r"\bcorrelation=[a-z0-9\-]+\b"),   # correlation IDs
+    re.compile(r"\breq-[a-z0-9]+\b"),             # request IDs
+]
+
+
+def _normalize_error_text(text: str) -> str:
+    """
+    Strip variable noise from error text before embedding.
+
+    Timestamps, UUIDs, and correlation IDs change on every run but carry
+    no semantic information for stagnation detection. Removing them ensures
+    that two identical errors on different runs produce similar embeddings.
+    """
+    for pattern in _NOISE_PATTERNS:
+        text = pattern.sub("", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def check_stagnation(
@@ -88,9 +110,12 @@ def check_stagnation(
 def embed_error_to_b64(error_text: str) -> str:
     """
     Produces a deterministic, lightweight embedding of an error message
-    for stagnation detection.  Delegates to ``_DEFAULT_EMBEDDER``.
+    for stagnation detection.  Strips variable noise (timestamps, UUIDs)
+    before embedding so that identical errors on different runs produce
+    similar embeddings.
     """
-    vec = _DEFAULT_EMBEDDER.embed(error_text)
+    normalized = _normalize_error_text(error_text)
+    vec = _DEFAULT_EMBEDDER.embed(normalized)
     packed = struct.pack(f"{len(vec)}f", *vec)
     return base64.b64encode(packed).decode("ascii")
 
