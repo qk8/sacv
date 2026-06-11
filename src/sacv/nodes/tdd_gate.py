@@ -28,6 +28,7 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.nodes._audit import make_audit_entry
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.nodes._structured_output import extract_structured, TestFile, StructuredOutputError
 
@@ -89,6 +90,9 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                     "red_phase_evidence_path": ".workflow/tdd-evidence/skipped.json",
                     "test_inventory_paths":    [],
                     "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                    "workflow_audit_trail": [make_audit_entry(
+                        "tdd_gate", "skipped", {"task_id": task_id},
+                    )],
                 }
 
             if strategy is None:
@@ -99,6 +103,9 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                     "test_inventory_paths":    [],
                     "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
                     "cumulative_cost_dollars": state.get("cumulative_cost_dollars", 0.0),
+                    "workflow_audit_trail": [make_audit_entry(
+                        "tdd_gate", "no_strategy", {"task_id": task_id},
+                    )],
                 }
 
             # ── 1. Generate tests via Test Oracle ─────────────────────────────
@@ -136,6 +143,9 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                     "test_inventory_paths":    [],
                     "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
                     "cumulative_cost_dollars": exc.updated_cost,
+                    "workflow_audit_trail": [make_audit_entry(
+                        "tdd_gate", "parse_error", {"task_id": task_id, "error": str(exc)[:200]},
+                    )],
                 }
 
             # ── 2. Write test files to PERMANENT locations in sandbox ──────────
@@ -186,6 +196,9 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                         "test_inventory_paths":    [],
                         "tdd_gate_attempts":       state.get("tdd_gate_attempts", 0) + 1,
                         "cumulative_cost_dollars": updated_cost,
+                        "workflow_audit_trail": [make_audit_entry(
+                            "tdd_gate", "red_phase_failed", {"task_id": task_id},
+                        )],
                     }
 
                 # ── 4. Commit test inventory to git (MEDIUM-003) ─────────────
@@ -232,6 +245,13 @@ def make_tdd_gate_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                     "red_phase_evidence_path": str(evidence_path),
                     "test_inventory_paths":   permanent_paths,
                     "cumulative_cost_dollars": updated_cost,
+                    "workflow_audit_trail": [make_audit_entry(
+                        "tdd_gate", "red_tests_written", {
+                            "task_id": task_id,
+                            "files_written": len(permanent_paths),
+                            "evidence": str(evidence_path),
+                        },
+                    )],
                 }
             finally:
                 await deps.sandbox.destroy_container(handle)

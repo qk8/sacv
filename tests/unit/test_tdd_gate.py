@@ -421,3 +421,58 @@ class TestTddGateNode:
         # No files written → no git operations for test inventory
         git_calls = [c for c in deps.git.calls if c[0] in ("stage_file", "commit")]
         assert len(git_calls) == 0
+
+    async def test_skip_tdd_gate_emits_audit_entry(self):
+        """skip_tdd_gate → audit trail records the skipped event."""
+        deps = _make_deps()
+        state = _make_state(skip=True)
+        node = make_tdd_gate_node(deps)
+
+        out = await node(state)
+
+        trail = out.get("workflow_audit_trail", [])
+        assert len(trail) == 1
+        assert trail[0]["node"] == "tdd_gate"
+        assert trail[0]["decision"] == "skipped"
+        assert trail[0]["key_values"]["task_id"] == "task-tg-001"
+
+    async def test_no_strategy_emits_audit_entry(self):
+        """strategy=None → audit trail records the no_strategy event."""
+        deps = _make_deps()
+        state = _make_state(strategy=None)
+        node = make_tdd_gate_node(deps)
+
+        out = await node(state)
+
+        trail = out.get("workflow_audit_trail", [])
+        assert len(trail) == 1
+        assert trail[0]["node"] == "tdd_gate"
+        assert trail[0]["decision"] == "no_strategy"
+
+    async def test_red_phase_confirmed_emits_audit_entry(self, tmp_path, monkeypatch):
+        """Red phase confirmed → audit trail records tests_written."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+
+        agent = StubAgentProvider([
+            make_json_agent_result([{
+                "file_path": "src/test/java/com/example/FindByIdTest.java",
+                "content": "public class FindByIdTest {}",
+            }])
+        ])
+        sandbox = StubSandboxProvider(
+            default_exit_code=1,
+            default_stdout="FAILURE",
+        )
+        deps = _make_deps(agent=agent, sandbox=sandbox)
+        strategy = {"strategy_id": "s1", "description": "test"}
+        state = _make_state(strategy=strategy)
+        node = make_tdd_gate_node(deps)
+
+        out = await node(state)
+
+        trail = out.get("workflow_audit_trail", [])
+        assert len(trail) == 1
+        assert trail[0]["node"] == "tdd_gate"
+        assert trail[0]["decision"] == "red_tests_written"
+        assert trail[0]["key_values"]["files_written"] == 1
