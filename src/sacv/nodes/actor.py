@@ -100,9 +100,16 @@ def make_actor_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
             stagnation = check_stagnation(correction, deps.config)
             # Outcome-based stagnation: same preflight/critic problem persists
             # across consecutive attempts (the diff changed but the problem didn't).
+            # Only meaningful when there ARE actual problems to stagnate on.
+            # If preflight is clean and no critical findings, any verifier
+            # failure is orthogonal — skip this check.
             critic_findings = state.get("critic_findings", [])
+            has_problems = (
+                not preflight.get("passed", True)
+                or any(f.get("severity") == "critical" for f in critic_findings)
+            )
             outcome_sig = compute_outcome_signature(preflight, critic_findings)
-            if not stagnation and check_outcome_stagnation(correction, outcome_sig):
+            if has_problems and not stagnation and check_outcome_stagnation(correction, outcome_sig):
                 stagnation = "outcome"
                 log.warning("actor.stagnation", pattern=stagnation)
             if stagnation:

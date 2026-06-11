@@ -164,10 +164,12 @@ def _merge_lists(existing: list[CriticFinding] | None, new: list[CriticFinding] 
 
 
 def _add_costs(existing: float | None, new: float | None) -> float:
-    """Reducer for cumulative_cost_dollars — accumulates incremental costs."""
+    """Reducer for cumulative_cost_dollars — overwrites with the node's
+    cumulative total.  Nodes (via add_agent_cost) already return the
+    full running total, so the reducer must not add it again."""
     if new is None:
         return existing or 0.0
-    return (existing or 0.0) + new
+    return float(new)
 
 
 def _merge_strings(existing: list[str] | None, new: list[str] | None) -> list[str]:

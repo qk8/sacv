@@ -149,10 +149,14 @@ def check_outcome_stagnation(
     Detect outcome-based stagnation: the same preflight/critic problem
     persists across consecutive attempts.
 
-    Returns True if stagnation is detected.
+    Returns True only when the signature is non-empty — an empty signature
+    means no preflight or critic problems exist, so there is nothing to
+    stagnate on (any verifier failure is orthogonal).
     """
     prev_sig = correction.get("last_outcome_signature")
-    if prev_sig and current_sig == prev_sig and current_sig != "":
+    if not current_sig:
+        return False
+    if prev_sig and current_sig == prev_sig:
         return True
     return False
 

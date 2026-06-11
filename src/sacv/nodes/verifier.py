@@ -117,6 +117,7 @@ def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
 
                 log.info("verifier.phase1", passed=p1_passed, user_frames=len(p1_frames))
 
+                preflight_result = state.get("preflight_result") or {}
                 if not p1_passed:
                     # Try Spring Actuator on DI errors before returning (approach 3)
                     actuator_snap = None
@@ -214,7 +215,6 @@ def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                     "result": verdict["test_result"], "diagnostic": diagnostic,
                     "phase1_passed": p1_passed, "phase2_passed": p2_passed,
                 })
-                preflight_result = state.get("preflight_result") or {}
                 return _build_return(
                     verdict, correction,
                     " ".join(f.get("message", "") for f in all_failures),

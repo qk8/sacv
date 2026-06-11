@@ -116,13 +116,14 @@ def _passing_sandbox() -> StubSandboxProvider:
 
 
 def _actor_chain(diff_response, *extra_responses) -> list[AgentResult]:
-    """Chain: value_node + actor + critics + memory (after skipping tdd_gate).
+    """Chain: value_node + actor + critics + verifier_classifier + memory.
 
     skip_tdd_gate=True → tdd_gate returns immediately (no agent call)
     value_node → generate strategy (1 agent call)
     actor → produces diff (1 agent call)
     critics → empty (3 agent calls)
-    memory_consolidation → 2 agent calls (AGENTS.md + arch rules)
+    verifier_classifier → unconditional LLM call (1 agent call, falls back to keyword)
+    memory_consolidation → 1 agent call (AGENTS.md; arch_rules skipped when no violations)
     """
     return [
         # value_node: generate strategy
@@ -134,8 +135,11 @@ def _actor_chain(diff_response, *extra_responses) -> list[AgentResult]:
         diff_response,
         # critics: empty
         *_empty_critics(),
-        # memory_consolidation
+        # verifier_classifier (unconditional, returns JSON → falls back to keyword PASS)
+        make_json_agent_result("PASS"),
+        # memory_consolidation: AGENTS.md
         _agents_md_response(),
+        # arch_rules (agent NOT called when no violations — kept for extra_responses compatibility)
         _arch_rule_response(),
         *extra_responses,
     ]
@@ -197,9 +201,10 @@ class TestActorFlow:
 
         assert final["current_phase"] == WorkflowPhase.COMPLETE.value
         assert final["verifier_verdict"]["test_result"] == "PASS"
-        # Agent should have been called: 1 value_node + 1 actor
-        # + 3 critics + 1 memory_consolidation (AGENTS.md only, no arch violations) = 6
-        assert len(agent.calls) == 6
+        # Agent calls: 1 value_node + 1 actor + 3 critics
+        # + 1 verifier_classifier (unconditional, falls back to keyword)
+        # + 1 memory_consolidation (AGENTS.md; arch_rules skipped) = 7 total calls
+        assert len(agent.calls) == 7
 
     async def test_preflight_errors_trigger_actor_retry(self, tmp_path, monkeypatch):
         """
@@ -443,8 +448,9 @@ class TestActorFlow:
             big_tokens([]),
             big_tokens([]),
             big_tokens([]),
-            # memory_consolidation: 2 calls (agents_md + arch_rules)
+            # memory_consolidation: 1 call (agents_md; arch_rules skipped when no violations)
             big_tokens({"common_mistakes": "", "architecture_decisions": ""}),
+            # extra (unused)
             big_tokens({"name": "rule1", "from": {}, "to": {}}),
         ]
         agent = StubAgentProvider(chain)
@@ -473,6 +479,8 @@ class TestActorFlow:
         # Actual calls made: value_node(1) + actor(1) + critics(3)
         #   + memory_consolidation.agents_md(1) = 6 calls
         # arch_rules does NOT call LLM because arch_violations is empty.
+        # The verifier classifier is NOT called on happy path (PASS is
+        #   determined by keyword matching when both phases pass).
         # 6 calls * $35/call = $210.0
         # Allow a small tolerance for floating-point.
         expected = 6 * COST_PER_CALL
@@ -480,5 +488,5 @@ class TestActorFlow:
         assert actual == pytest.approx(expected, abs=0.01), (
             f"Expected cost ~${expected:.1f} (6 calls * $35), got ${actual:.4f}. "
             "This indicates LLM costs from value_node, actor, or critics "
-            "are not being accumulated — BUG-001."
+            "are not being accumulated."
         )

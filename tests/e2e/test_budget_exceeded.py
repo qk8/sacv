@@ -355,6 +355,7 @@ class TestBudgetExceeded:
                 "operation": "modify", "language": "java",
             }]),
             *[make_json_agent_result([]) for _ in range(3)],
+            make_json_agent_result("PASS"),              # verifier classifier
             make_json_agent_result({
                 "common_mistakes": "test", "architecture_decisions": "test",
             }),
@@ -379,7 +380,8 @@ class TestBudgetExceeded:
         final = await graph.ainvoke(_initial_state("task-budget-monotonic"), cfg)
 
         assert final["current_phase"] == WorkflowPhase.COMPLETE.value
-        # 6 agent calls total, ALL now accumulate cost via extract_structured
-        assert len(node_costs) == 6
-        expected_cost = sum(node_costs)  # all 6 calls accumulate
+        # 7 agent calls total (value_node, tdd_gate, actor, 3 critics,
+        #   verifier LLM classifier, memory_consolidation), ALL accumulate cost
+        assert len(node_costs) == 7
+        expected_cost = sum(node_costs)  # all 7 calls accumulate
         assert abs(final["cumulative_cost_dollars"] - expected_cost) < 0.001

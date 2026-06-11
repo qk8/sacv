@@ -94,6 +94,11 @@ def _arch_rule_response() -> AgentResult:
     })
 
 
+def _verifier_classifier_response(diagnostic: str = "PASS") -> AgentResult:
+    """Response for verifier LLM classifier call."""
+    return make_json_agent_result(diagnostic)
+
+
 def _initial_state(task_id: str = "task-e2e-001") -> dict:
     return {
         "session_id":             "",
@@ -147,12 +152,13 @@ class TestFullWorkflowHappyPath:
         Critics find nothing, Verifier passes → memory consolidation.
         """
         agent = StubAgentProvider([
-            _strategies_response(),        # value_node
-            _tests_response(),             # tdd_gate
-            _diff_response(),              # actor
-            *_empty_critics(),             # 3 critics
-            _agents_md_response(),         # memory_consolidation (AGENTS.md)
-            _arch_rule_response(),         # memory_consolidation (arch rules)
+            _strategies_response(),                  # value_node
+            _tests_response(),                       # tdd_gate
+            _diff_response(),                        # actor
+            *_empty_critics(),                       # 3 critics
+            _verifier_classifier_response("PASS"),   # verifier classifier
+            _agents_md_response(),                   # memory_consolidation (AGENTS.md)
+            _arch_rule_response(),                   # memory_consolidation (arch rules)
         ])
         deps = NodeDeps(
             agent=agent,
@@ -185,12 +191,14 @@ class TestFullWorkflowHappyPath:
         agent = StubAgentProvider([
             _strategies_response(),
             _tests_response(),
-            _diff_response(),        # actor attempt 1
-            *_empty_critics(),       # critics attempt 1
-            _diff_response(),        # actor attempt 2 (retry)
-            *_empty_critics(),       # critics attempt 2
-            _agents_md_response(),   # memory_consolidation (AGENTS.md)
-            _arch_rule_response(),   # memory_consolidation (arch rules)
+            _diff_response(),                 # actor attempt 1
+            *_empty_critics(),                # critics attempt 1
+            _verifier_classifier_response("FIX_IMPL"),  # verifier classifier attempt 1
+            _diff_response(),                 # actor attempt 2 (retry)
+            *_empty_critics(),                # critics attempt 2
+            _verifier_classifier_response("PASS"),    # verifier classifier attempt 2
+            _agents_md_response(),            # memory_consolidation (AGENTS.md)
+            _arch_rule_response(),            # memory_consolidation (arch rules)
         ])
         sandbox = _build_retry_sandbox(fail_first=True)
         deps = NodeDeps(
