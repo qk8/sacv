@@ -117,10 +117,29 @@ def format_result(
     final_state: Dict[str, Any],
     task_id: str,
 ) -> str:
-    """Format the final workflow result as a JSON string for stdout."""
+    """Format the final workflow result as a JSON string for stdout and CI consumption."""
+    verdict = final_state.get("verifier_verdict") or {}
+    correction = final_state.get("correction_state") or {}
+    escalation = final_state.get("escalation_payload")
+    findings = final_state.get("critic_findings", [])
+
+    if verdict.get("test_result") == "PASS":
+        result = "PASS"
+    elif escalation:
+        result = "HITL"
+    else:
+        result = "FAIL"
+
     return json.dumps({
-        "phase": final_state.get("current_phase"),
-        "task": task_id,
-        "cost": final_state.get("cumulative_cost_dollars"),
-        "lesson": (final_state.get("lesson_learned") or {}).get("pattern_discovered"),
-    })
+        "task":              task_id,
+        "phase":             final_state.get("current_phase"),
+        "result":            result,
+        "cost":              final_state.get("cumulative_cost_dollars"),
+        "attempts":          correction.get("attempt_count", 0),
+        "replan_count":      final_state.get("replan_count", 0),
+        "escalation_id":     escalation.get("escalation_id") if escalation else None,
+        "critic_findings":   len(findings),
+        "critical_findings": sum(1 for f in findings if f.get("severity") == "critical"),
+        "lesson":            (final_state.get("lesson_learned") or {}).get("pattern_discovered"),
+        "stagnation":        correction.get("stagnation_pattern", "none"),
+    }, indent=2)
