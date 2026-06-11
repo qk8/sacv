@@ -181,9 +181,9 @@ def make_verifier_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine
                 )
 
                 all_failures = p1_failures + p2_failures
-                diagnostic   = _classify(
+                diagnostic   = await _classify_with_llm(
                     p1_passed, p2_passed, all_failures, findings, state,
-                    overall_pass=overall_pass,
+                    overall_pass=overall_pass, deps=deps,
                 )
 
                 verdict = _make_verdict(
@@ -313,9 +313,6 @@ def _classify(
     failure_text = " ".join(f.get("message", "") for f in failures).lower()
     if p1_passed and p2_passed:
         if not overall_pass:
-            # Tests pass but perf/visual broke — Actor needs to optimise.
-            # If there are no parseable failure messages, fall through to
-            # AMBIGUOUS (Actor has nothing concrete to optimise).
             if not failure_text.strip():
                 return str(DiagnosticVerdict.AMBIGUOUS.value)
             return str(DiagnosticVerdict.FIX_IMPL.value)
@@ -324,9 +321,6 @@ def _classify(
         return str(DiagnosticVerdict.FIX_IMPL.value)
 
     # ── FIX_TEST detection (p1 passed, p2 failed) ─────────────────────
-    # p2 tests are the NEW tests written by TDD gate. If they fail with
-    # assertion mismatches (not compilation), the oracle may have written
-    # tests that don't match the actual spec.
     if not p2_passed:
         assertion_keywords = (
             "assertionerror", "expected", "received", "but was",
@@ -345,11 +339,85 @@ def _classify(
         return str(DiagnosticVerdict.FIX_IMPL.value)
     if any(f["severity"] == "critical" for f in findings):
         return str(DiagnosticVerdict.FIX_IMPL.value)
-    # Prefer FIX_IMPL over AMBIGUOUS when failure messages exist but don't
-    # match any known keyword — there IS a failure, just not a clear signal
     if failure_text.strip():
         return str(DiagnosticVerdict.FIX_IMPL.value)
     return str(DiagnosticVerdict.AMBIGUOUS.value)
+
+
+async def _classify_with_llm(
+    p1_passed:    bool, p2_passed: bool,
+    failures:     list[dict[str, Any]], findings: list[dict[str, Any]],
+    state:        "WorkflowState",
+    overall_pass: bool,
+    deps:         "NodeDeps",
+) -> str:
+    """Classify test results via a lightweight LLM call.
+
+    Falls back to keyword-based _classify() if the LLM call fails.
+    """
+    failure_text = " ".join(f.get("message", "") for f in failures)
+    failure_summary = failure_text[:2000] if failure_text else "(none)"
+    finding_summaries = []
+    for f in findings:
+        sev = f.get("severity", "info")
+        msg = f.get("message", "")[:200]
+        if sev == "critical":
+            finding_summaries.append(f"CRITICAL: {msg}")
+    critic_summary = "\n".join(finding_summaries[:5]) if finding_summaries else "(none)"
+
+    prompt = (
+        "You are a test-result classifier. Diagnose the test outcome and "
+        "return exactly ONE of these four words:\n"
+        "  PASS\n"
+        "  FIX_IMPL\n"
+        "  FIX_TEST\n"
+        "  AMBIGUOUS\n"
+        "\n"
+        "Definitions:\n"
+        "  PASS — all tests pass (no action needed).\n"
+        "  FIX_IMPL — implementation code is broken: "
+        "compilation errors, syntax errors, missing symbols, "
+        "phase 1 (legacy) tests failing, or critical critic findings. "
+        "The actor must fix the code.\n"
+        "  FIX_TEST — phase 1 (legacy) tests pass but phase 2 (new) tests "
+        "fail with assertion mismatches. The TDD oracle may have written "
+        "incorrect tests. The actor should review the test expectations.\n"
+        "  AMBIGUOUS — unclear what failed. No parseable failure text, "
+        "performance/visual regression with no actionable message, "
+        "or mixed signals that cannot be categorized.\n"
+        "\n"
+        f"Phase 1 (legacy):  {'PASS' if p1_passed else 'FAIL'}\n"
+        f"Phase 2 (new):     {'PASS' if p2_passed else 'FAIL'}\n"
+        f"Overall:           {'PASS' if overall_pass else 'FAIL'}\n"
+        f"Failure text:      {failure_summary}\n"
+        f"Critical findings: {critic_summary}\n"
+        "\n"
+        "Return only the classification word, nothing else."
+    )
+
+    try:
+        from sacv.interfaces.agent_provider import AgentConfig
+        result = await deps.agent.run_task(
+            prompt=prompt,
+            context={},
+            config=AgentConfig(
+                role="classifier",
+                system_prompt="You are a test-result classifier. Return exactly one word: PASS, FIX_IMPL, FIX_TEST, or AMBIGUOUS.",
+                max_turns=1,
+                allowed_tools=[],
+            ),
+        )
+        answer = result.content.strip().upper()
+        if answer in ("PASS", "FIX_IMPL", "FIX_TEST", "AMBIGUOUS"):
+            return answer
+        log.warning("verifier.llm_classifier.unexpected_output", raw=result.content.strip())
+    except Exception as exc:
+        log.warning("verifier.llm_classifier.failed", exc_info=exc)
+
+    # Fallback to keyword-based classification
+    return _classify(
+        p1_passed, p2_passed, failures, findings, state, overall_pass,
+    )
 
 
 def _is_bean_error(output: str) -> bool:

@@ -758,3 +758,97 @@ class TestClassify:
         """Empty failure text with p1 pass, p2 fail → AMBIGUOUS."""
         result = _classify(True, False, [], [], self._state())
         assert result == str(DiagnosticVerdict.AMBIGUOUS.value)
+
+
+# ── _classify_with_llm ─────────────────────────────────────────────────────────
+
+
+class TestClassifyWithLlm:
+
+    @pytest.fixture
+    def mock_deps(self):
+        from unittest.mock import AsyncMock
+        deps = AsyncMock()
+        deps.agent.run_task = AsyncMock(return_value=AgentResult(
+            content="FIX_IMPL", tool_calls=[], finish_reason="stop",
+            input_tokens=100, output_tokens=10,
+        ))
+        return deps
+
+    def _deps_with_response(self, response):
+        from unittest.mock import AsyncMock
+        deps = AsyncMock()
+        deps.agent.run_task = AsyncMock(return_value=AgentResult(
+            content=response, tool_calls=[], finish_reason="stop",
+            input_tokens=100, output_tokens=10,
+        ))
+        return deps
+
+    async def test_llm_returns_valid_classification(self, mock_deps):
+        """LLM returns valid classification → used directly."""
+        from sacv.nodes.verifier import _classify_with_llm
+        result = await _classify_with_llm(
+            p1_passed=True, p2_passed=False,
+            failures=[{"message": "compilation error in UserService.java"}],
+            findings=[], state={}, overall_pass=False, deps=mock_deps,
+        )
+        assert result == "FIX_IMPL"
+
+    async def test_llm_pass_when_both_phases_pass(self):
+        """Both phases pass → LLM returns PASS."""
+        from sacv.nodes.verifier import _classify_with_llm
+        deps = self._deps_with_response("PASS")
+        result = await _classify_with_llm(
+            p1_passed=True, p2_passed=True,
+            failures=[], findings=[], state={}, overall_pass=True, deps=deps,
+        )
+        assert result == "PASS"
+
+    async def test_llm_fix_test_for_phase2_assertion_failure(self):
+        """Phase 2 assertion failure → LLM returns FIX_TEST."""
+        from sacv.nodes.verifier import _classify_with_llm
+        deps = self._deps_with_response("FIX_TEST")
+        result = await _classify_with_llm(
+            p1_passed=True, p2_passed=False,
+            failures=[{"message": "AssertionError: expected:<2> but was:<3>"}],
+            findings=[], state={}, overall_pass=False, deps=deps,
+        )
+        assert result == "FIX_TEST"
+
+    async def test_llm_fallback_on_exception(self, mock_deps):
+        """LLM call raises → falls back to keyword _classify."""
+        from sacv.nodes.verifier import _classify_with_llm
+        from unittest.mock import AsyncMock
+        mock_deps.agent.run_task = AsyncMock(side_effect=RuntimeError("network error"))
+        # Phase 1 fails → _classify returns FIX_IMPL regardless of LLM
+        result = await _classify_with_llm(
+            p1_passed=False, p2_passed=True,
+            failures=[], findings=[], state={}, overall_pass=False, deps=mock_deps,
+        )
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    async def test_llm_invalid_output_fallback(self, mock_deps):
+        """LLM returns garbage → falls back to keyword _classify."""
+        from sacv.nodes.verifier import _classify_with_llm
+        from unittest.mock import AsyncMock
+        mock_deps.agent.run_task = AsyncMock(return_value=AgentResult(
+            content="maybe FIX_IMPL?", tool_calls=[], finish_reason="stop",
+            input_tokens=100, output_tokens=10,
+        ))
+        # Phase 1 fails → fallback _classify returns FIX_IMPL
+        result = await _classify_with_llm(
+            p1_passed=False, p2_passed=True,
+            failures=[], findings=[], state={}, overall_pass=False, deps=mock_deps,
+        )
+        assert result == str(DiagnosticVerdict.FIX_IMPL.value)
+
+    async def test_llm_amiguous_for_no_failure_text(self):
+        """Both phases pass, overall_pass=False, empty text → AMBIGUOUS."""
+        from sacv.nodes.verifier import _classify_with_llm
+        deps = self._deps_with_response("AMBIGUOUS")
+        result = await _classify_with_llm(
+            p1_passed=True, p2_passed=True,
+            failures=[{"message": ""}], findings=[], state={},
+            overall_pass=False, deps=deps,
+        )
+        assert result == "AMBIGUOUS"
