@@ -39,6 +39,7 @@ from sacv.orchestration.verifier_utils import add_agent_cost
 from sacv.nodes._structured_output import extract_structured, AgentsMdUpdate, StructuredOutputError
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.nodes._audit import make_audit_entry
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -176,6 +177,16 @@ def make_memory_consolidation_node(deps: "NodeDeps") -> "Callable[[WorkflowState
                 "lesson_learned":    lesson,
                 "arch_rules_updated": arch_rules_updated,
                 "cumulative_cost_dollars": cost_after_arch,
+                "workflow_audit_trail": [make_audit_entry(
+                    "memory_consolidation",
+                    f"session_complete correction_type={correction_type}",
+                    {
+                        "correction_type":     correction_type,
+                        "committed_tests":     len(committed_tests),
+                        "session_duration_ms": int(time.time() * 1000 - (state.get("session_start_ms") or 0)),
+                        "arch_rules_updated":  arch_rules_updated,
+                    },
+                )],
             }
 
     return memory_consolidation_node

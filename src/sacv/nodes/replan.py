@@ -26,6 +26,7 @@ from sacv.interfaces.agent_provider import AgentConfig
 from sacv.nodes._structured_output import extract_structured, StrategyCandidateRaw, StructuredOutputError
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.nodes._audit import make_audit_entry
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -171,6 +172,15 @@ def make_replan_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[A
                 "tdd_gate_attempts":         0,      # reset — prevents immediate HITL escalation after replan
                 "empty_diff_retries":        0,      # BUG-003: reset for fresh replan cycle
                 "cumulative_cost_dollars":   updated_cost,
+                "workflow_audit_trail": [make_audit_entry(
+                    "replan",
+                    f"new_candidates={len(passing)}",
+                    {
+                        "new_candidates": len(passing),
+                        "selected_id": (passing[0]["strategy_id"] if passing else None),
+                        "replan_count": replan_cnt + 1,
+                    },
+                )],
             }
 
     return replan_node

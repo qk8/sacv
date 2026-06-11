@@ -39,6 +39,7 @@ from sacv.nodes._debug_strategies import (
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.nodes._audit import make_audit_entry
 from sacv.orchestration.verifier_utils import add_agent_cost
 
 if TYPE_CHECKING:
@@ -160,6 +161,17 @@ def make_intelligent_debugger_node(deps: "NodeDeps") -> "Callable[[WorkflowState
                     "current_phase":      WorkflowPhase.INTELLIGENT_DEBUGGER.value,
                     "debug_observations": observations,
                     "cumulative_cost_dollars": debug_cost,
+                    "workflow_audit_trail": [make_audit_entry(
+                        "intelligent_debugger",
+                        f"debug_complete error_type={error_type.value}",
+                        {
+                            "error_type":          error_type.value,
+                            "strategy_tool":       strategy.primary_tool.value,
+                            "breakpoint_hits":     len(observations.get("breakpoint_hits", [])),
+                            "hypothesis_len":      len(hypothesis),
+                            "pruned_frames":       len(pruned_dicts),
+                        },
+                    )],
                 }
             finally:
                 await deps.sandbox.destroy_container(handle)

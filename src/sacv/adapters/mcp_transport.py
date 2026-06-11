@@ -184,11 +184,20 @@ class McpStdioTransport:
                 return self._on_failure()
 
             self._req_id += 1
+            params: dict[str, object] = {"name": tool, "arguments": args}
+            # OTEL-002: inject W3C traceparent for distributed tracing
+            try:
+                from sacv.tracing import get_traceparent
+                _tp = get_traceparent()
+                if _tp:
+                    params["_meta"] = {"traceparent": _tp}
+            except ImportError:
+                pass
             request = {
                 "jsonrpc": "2.0",
                 "id":      self._req_id,
                 "method":  "tools/call",
-                "params":  {"name": tool, "arguments": args},
+                "params":  params,
             }
 
             # _ensure_running guarantees _proc and its streams are not None

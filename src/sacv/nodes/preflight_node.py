@@ -26,6 +26,7 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase, PreflightResult, CRITIC_RESET
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.nodes._audit import make_audit_entry
 from sacv.checks.routing.check_profiles import get_checks, CheckSpec
 
 if TYPE_CHECKING:
@@ -163,6 +164,19 @@ def make_preflight_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutin
                     # _merge_lists. Only CRITIC_RESET produces a reset. Do not change
                     # this to [].
                     "critic_findings":  CRITIC_RESET,
+                    "workflow_audit_trail": [make_audit_entry(
+                        "preflight",
+                        f"{'passed' if passed else 'failed'} lsp={len(lsp_errors)} arch={len(arch_errs)}",
+                        {
+                            "passed":             passed,
+                            "lsp_errors":         len(lsp_errors),
+                            "arch_violations":    len(arch_errs),
+                            "cross_stack_errors": len(cross_stack_errors),
+                            "blast_errors":       len(blast_errors),
+                            "duration_ms":        duration_ms,
+                            "profile":            profile,
+                        },
+                    )],
                 }
             finally:
                 await deps.sandbox.destroy_container(handle)

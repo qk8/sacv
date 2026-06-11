@@ -377,6 +377,111 @@ Branches:      active={sv.get('active_branches', [])} exhausted={sv.get('exhaust
         await _stop_deps(deps)
 
 
+async def cmd_doctor(args: argparse.Namespace) -> None:
+    """Run a diagnostic check of the SACV environment and report findings."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    ok = 0
+    fail = 0
+    warn = 0
+
+    def check(name: str, condition: bool, hint: str = "") -> None:
+        nonlocal ok, fail
+        if condition:
+            ok += 1
+            print(f"  [OK]   {name}")
+        else:
+            fail += 1
+            print(f"  [FAIL] {name}" + (f" — {hint}" if hint else ""))
+
+    def warning(name: str, hint: str = "") -> None:
+        nonlocal warn
+        warn += 1
+        print(f"  [WARN] {name}" + (f" — {hint}" if hint else ""))
+
+    print("SACV Environment Diagnostics")
+    print("=" * 40)
+
+    # 1. Python version
+    import sys
+    py_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    check("Python", sys.version_info.major >= 3 and sys.version_info.minor >= 10,
+          "Requires Python 3.10+")
+
+    # 2. Anthropic API key
+    has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    check("ANTHROPIC_API_KEY", has_api_key,
+          "export ANTHROPIC_API_KEY=sk-ant-...")
+
+    # 3. Docker
+    docker_available = shutil.which("docker") is not None
+    check("Docker", docker_available, "Install Docker Desktop or CLI")
+    if docker_available:
+        try:
+            result = subprocess.run(
+                ["docker", "info", "-f", "{{.ServerVersion}}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            docker_ver = result.stdout.strip()
+            check("Docker daemon", bool(result.returncode == 0),
+                  f"Version: {docker_ver}")
+        except (subprocess.TimeoutExpired, Exception):
+            check("Docker daemon", False, "Cannot connect to Docker daemon")
+
+    # 4. Docker image
+    if docker_available:
+        try:
+            result = subprocess.run(
+                ["docker", "image", "inspect", "sacv-sandbox"],
+                capture_output=True, text=True, timeout=10,
+            )
+            check("Docker image sacv-sandbox", result.returncode == 0,
+                  "Build with: docker build -t sacv-sandbox .")
+        except Exception:
+            check("Docker image sacv-sandbox", False, "Cannot query Docker images")
+
+    # 5. MCP server binaries
+    for binary, hint in [
+        ("agentmemory", "npm install -g @anthropic-ai/agentmemory-mcp"),
+        ("codegraph", "npm install -g @sacv/codegraph-mcp"),
+        ("graphify", "npm install -g @sacv/graphify-mcp"),
+    ]:
+        check(f"MCP: {binary}", shutil.which(binary) is not None, hint)
+
+    # 6. Database directory
+    db_path = Path(".workflow")
+    check("Workflow directory", db_path.exists() or True,  # not required at startup
+          "") if db_path.exists() else warning("Workflow directory",
+          ".workflow/ does not exist — will be created on first run")
+
+    # 7. OTel configuration
+    otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    otel_enabled = os.environ.get("SACV_OTEL_ENABLED", "").lower() in ("1", "true", "yes")
+    if otel_enabled or otel_endpoint:
+        check("OTel configured", True,
+              f"endpoint={otel_endpoint or 'default'}")
+        # Check if OTel packages are importable
+        try:
+            import opentelemetry  # noqa: F401
+            check("OTel SDK", True, "Installed")
+        except ImportError:
+            check("OTel SDK", False,
+                  "pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc")
+    else:
+        print(f"  [INFO] OTel not configured — set SACV_OTEL_ENABLED=true to enable")
+
+    # Summary
+    print()
+    total = ok + fail + warn
+    print(f"Summary: {ok}/{total} OK, {warn} warning(s), {fail} failure(s)")
+    if fail > 0:
+        print()
+        print("Fix the [FAIL] items above before running SACV.")
+        sys.exit(1)
+
+
 async def cmd_dump_state(args: argparse.Namespace) -> None:
     """Dump the full checkpoint state for a task as JSON (for offline analysis)."""
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -490,6 +595,15 @@ def main() -> None:
         help="Override LOG_FORMAT env var",
     )
 
+    doctor_p = sub.add_parser("doctor", help="Run environment diagnostics")
+    doctor_p.add_argument(
+        "--verbose", "-v", action="store_true", help="Set log level to DEBUG",
+    )
+    doctor_p.add_argument(
+        "--log-format", choices=["json", "console"], default=None,
+        help="Override LOG_FORMAT env var",
+    )
+
     dump_p = sub.add_parser("dump-state", help="Dump full workflow state as JSON")
     dump_p.add_argument("--task-id", required=True, help="Task identifier")
     dump_p.add_argument(
@@ -521,6 +635,8 @@ def main() -> None:
         asyncio.run(cmd_status(args))
     elif args.command == "dump-state":
         asyncio.run(cmd_dump_state(args))
+    elif args.command == "doctor":
+        asyncio.run(cmd_doctor(args))
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Generator
 
 _ENABLED = bool(
@@ -53,6 +54,9 @@ else:
     _tracer = None  # type: ignore[assignment]
     _HAS_OTEL = False
 
+# Thread-local current span for span_event() helper
+_current_span: ContextVar[Any | None] = ContextVar("current_span", default=None)
+
 
 def get_tracer() -> Any:
     """Return the SACV tracer, or None if OTel is disabled."""
@@ -74,13 +78,66 @@ def start_node_span(
         return
 
     correction_state = state.get("correction_state") or {}
-    with _tracer.start_as_current_span(f"sacv.node.{node_name}") as span:
-        span.set_attribute("sacv.task_id", str(state.get("task_id", "")))
-        span.set_attribute("sacv.session_id", str(state.get("session_id", "")))
-        span.set_attribute("sacv.module", str(state.get("module_type", "")))
-        span.set_attribute("sacv.phase", str(state.get("current_phase", "")))
-        span.set_attribute(
-            "sacv.attempt",
-            int(correction_state.get("attempt_count", 0)),
-        )
-        yield span
+    token = _current_span.set(None)  # reset before entering
+    try:
+        with _tracer.start_as_current_span(f"sacv.node.{node_name}") as span:
+            _current_span.set(span)
+            span.set_attribute("sacv.task_id", str(state.get("task_id", "")))
+            span.set_attribute("sacv.session_id", str(state.get("session_id", "")))
+            span.set_attribute("sacv.module", str(state.get("module_type", "")))
+            span.set_attribute("sacv.phase", str(state.get("current_phase", "")))
+            span.set_attribute(
+                "sacv.attempt",
+                int(correction_state.get("attempt_count", 0)),
+            )
+            yield span
+    finally:
+        _current_span.reset(token)  # restore prior context
+
+
+def span_event(name: str, attributes: dict[str, Any] | None = None) -> None:
+    """
+    Record a structured event on the current OTel span.
+
+    Safe to call from any depth — no-op when OTel is disabled or outside
+    a ``start_node_span`` context.
+
+    Usage::
+
+        span_event("actor.generated", {"files": 3, "lines": 120})
+    """
+    span = _current_span.get()
+    if span is None:
+        return
+    if attributes:
+        for k, v in attributes.items():
+            span.set_attribute(f"sacv.event.{k}", v)
+    span.add_event(f"sacv.{name}")
+
+
+def get_traceparent() -> str | None:
+    """
+    Return a W3C ``traceparent`` header string for the current span.
+
+    Format: ``{version}-{trace_id}-{span_id}-{trace_flags}``
+
+    Returns ``None`` when OTel is disabled or no active span exists.
+    """
+    if not _HAS_OTEL:
+        return None
+
+    span = _current_span.get()
+    if span is None:
+        return None
+
+    try:
+        ctx = trace.get_current()
+        span_context = ctx.get_current_span().get_span_context()
+        if not span_context.is_valid:
+            return None
+        trace_id = format(span_context.trace_id, "032x")
+        span_id = format(span_context.span_id, "016x")
+        flags = f"{span_context.trace_flags:02x}"
+        return f"00-{trace_id}-{span_id}-{flags}"
+    except Exception:
+        return None

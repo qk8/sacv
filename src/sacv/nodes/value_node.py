@@ -17,6 +17,7 @@ import structlog
 from sacv.orchestration.state import WorkflowPhase, StrategyCandidate
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.nodes._audit import make_audit_entry
 from sacv.interfaces.agent_provider import AgentConfig
 from sacv.nodes._scoring import score_strategy, prune_strategies, detect_collision_pairs
 from sacv.nodes._structured_output import extract_structured, StrategyCandidateRaw, StructuredOutputError
@@ -165,6 +166,7 @@ def make_value_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
 
             # ── 5. Select highest-scoring strategy as primary ─────────────────
             selected = passing[0] if passing else None
+            collision_pairs = detect_collision_pairs(passing)
 
             return {
                 "current_phase":      WorkflowPhase.TDD_GATE.value,
@@ -172,6 +174,17 @@ def make_value_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 "selected_strategy":   selected,
                 "pruned_strategies":   pruned,
                 "cumulative_cost_dollars": updated_cost,
+                "workflow_audit_trail": [make_audit_entry(
+                    "value_node",
+                    f"strategies_selected count={len(passing)}",
+                    {
+                        "candidates":       len(passing),
+                        "selected_id":      (passing[0]["strategy_id"] if passing else None),
+                        "selected_score":   (passing[0]["composite_score"] if passing else None),
+                        "pruned":           len(pruned),
+                        "collision_pairs":  len(collision_pairs),
+                    },
+                )],
             }
 
     return value_node_fn

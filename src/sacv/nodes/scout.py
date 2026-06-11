@@ -22,6 +22,7 @@ import structlog
 from sacv.orchestration.state import ProjectMode, WorkflowPhase
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.nodes._audit import make_audit_entry
 
 if TYPE_CHECKING:
     from sacv.orchestration.deps import NodeDeps
@@ -110,6 +111,16 @@ def make_scout_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Coroutine[An
                 "context_skeleton": context_skeleton,
                 "blast_radius_map": blast_radius_map,
                 "agents_md_context": agents_md_context,
+                "workflow_audit_trail": [make_audit_entry(
+                    "scout",
+                    "context_built",
+                    {
+                        "file_hints":           file_hints,
+                        "call_graph_nodes":     len(call_graph.nodes),
+                        "blast_risk":           (blast_radius_map or {}).get("risk_score", 0.0),
+                        "agents_md_loaded":     agents_md_context is not None,
+                    },
+                )],
             }
 
     return scout_node

@@ -25,6 +25,7 @@ import structlog
 from sacv.git.branch_manager import sanitize_branch_name
 from sacv.nodes._node_context import bind_node_context
 from sacv.nodes._node_timer import node_timer
+from sacv.nodes._audit import make_audit_entry
 from sacv.orchestration.state import WorkflowPhase, VerifierVerdict, DiagnosticVerdict, CRITIC_RESET
 
 if TYPE_CHECKING:
@@ -103,6 +104,11 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
                         actuator_snapshot=None,
                         blocked_by_critic=False,
                     ),
+                    "workflow_audit_trail": [make_audit_entry(
+                        "speculative_branch",
+                        "no_strategies_left",
+                        {"exhausted": len(exhausted)},
+                    )],
                 }
 
             # Evaluate at most max_parallel_branches strategies
@@ -161,6 +167,15 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
                     "exhausted_branches":     new_exhausted,
                     "speculative_stash_ref":  stash_ref,  # preserve for HITL
                     "verifier_verdict":       winning_verdict,
+                    "workflow_audit_trail": [make_audit_entry(
+                        "speculative_branch",
+                        f"winner={winning_branch}",
+                        {
+                            "winner_branch": winning_branch,
+                            "evaluated":   len(results),
+                            "exhausted":   new_exhausted,
+                        },
+                    )],
                 }
 
             # Queue remaining strategies for next speculative cycle (if any)
@@ -195,6 +210,15 @@ def make_speculative_branch_node(deps: "NodeDeps") -> "Callable[[WorkflowState],
                     blocked_by_critic=False,
                 ),
                 "critic_findings": CRITIC_RESET,
+                "workflow_audit_trail": [make_audit_entry(
+                    "speculative_branch",
+                    "all_branches_failed",
+                    {
+                        "winner_branch": None,
+                        "evaluated":   len(results),
+                        "exhausted":   new_exhausted,
+                    },
+                )],
             }
 
     return speculative_branch_node
