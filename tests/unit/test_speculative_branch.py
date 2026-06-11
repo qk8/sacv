@@ -364,6 +364,11 @@ class TestEvaluateBranchFailureReason:
 class TestSpeculativeBranchVerdictFields:
     """Verify VerifierVerdict constructions include blocked_by_critic (HIGH-07)."""
 
+    @staticmethod
+    def _make_node(deps):
+        from sacv.nodes.speculative_branch import make_speculative_branch_node
+        return make_speculative_branch_node(deps)
+
     async def test_all_strategies_exhausted_verdict_has_blocked_by_critic(self):
         """When all strategies exhausted, verdict includes blocked_by_critic=False."""
         from unittest.mock import AsyncMock, patch
@@ -456,7 +461,8 @@ class TestSpeculativeBranchVerdictFields:
         assert verdict is not None
         assert "blocked_by_critic" in verdict
 
- class TestSpeculativeBranchRemainingStrategies:
+
+class TestSpeculativeBranchRemainingStrategies:
     """Tests for remaining strategies queued when more exist than max_parallel_branches."""
 
     @staticmethod
@@ -471,9 +477,9 @@ class TestSpeculativeBranchVerdictFields:
         evaluated and the remaining 2 are returned in active_branches for the
         next cycle.
         """
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import AsyncMock, MagicMock as MockMag, patch
 
-        agent = MagicMock()
+        agent = MockMag()
         agent.call_async = AsyncMock(return_value={
             "strategies_evaluated": [
                 {"strategy_id": "s1", "composite_score": 0.9},
@@ -481,9 +487,23 @@ class TestSpeculativeBranchVerdictFields:
             ],
         })
 
-        deps = MagicMock()
+        deps = MockMag()
         deps.config.max_parallel_branches = 2
         deps.agent = agent
+
+        # Mock build_branch_subgraph to avoid real graph compilation
+        mock_subgraph = MockMag()
+        mock_compiled = AsyncMock()
+        mock_compiled.ainvoke.return_value = {
+            "verifier_verdict": {"test_result": "FAIL", "diagnostic": "FIX_IMPL",
+                                 "phase1_passed": False, "phase2_passed": False,
+                                 "test_failures": [], "performance_delta": None,
+                                 "visual_diff_result": None, "critic_findings": [],
+                                 "docker_exit_code": 1, "playwright_trace_path": None,
+                                 "otel_trace": None, "actuator_snapshot": None},
+            "preflight_result": {"passed": False},
+        }
+        mock_subgraph.compile.return_value = mock_compiled
 
         node = self._make_node(deps)
 
@@ -516,16 +536,18 @@ class TestSpeculativeBranchVerdictFields:
             "cumulative_cost_dollars": 1.0,
         }
 
-        result = await node(state)
+        with patch(
+            "sacv.orchestration.graph.build_branch_subgraph",
+            return_value=mock_subgraph,
+        ):
+            result = await node(state)
 
         # The remaining strategies (s3, s4) should be queued in active_branches
+        # active_branches contains branch names (strings), not dicts
         active = result.get("active_branches", [])
-        active_ids = [b.get("strategy_id") for b in active]
-        assert "s3" in active_ids
-        assert "s4" in active_ids
-        # s1 and s2 are not in active_branches (they were evaluated)
-        assert "s1" not in active_ids
-        assert "s2" not in active_ids
+        assert len(active) == 2
+        assert any("s3" in b for b in active)
+        assert any("s4" in b for b in active)
 
 
 class TestSpeculativeBranchExhaustedFiltering:
