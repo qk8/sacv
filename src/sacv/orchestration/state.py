@@ -336,6 +336,9 @@ class EscalationPayload(TypedDict):
     resolution_hints:    list[ResolutionHint]
     resume_instructions: ResumeInstructions
     audit_trail:         list[AuditEntry]   # HIGH-04: decision history for human reviewer
+    debug_observations:  DebugObservations | None   # AUD-003: last debug session for immediate inspection
+    last_preflight:      PreflightResult | None     # AUD-003: last preflight result for preflight loop diagnosis
+    last_test_failures:  list[TestFailure]          # AUD-003: raw test failures for immediate inspection
 
 class LessonLearned(TypedDict):
     task_id:              str

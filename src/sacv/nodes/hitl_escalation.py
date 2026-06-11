@@ -144,6 +144,11 @@ def make_hitl_escalation_node(deps: "NodeDeps") -> "Callable[[WorkflowState], Co
                     ),
                 },
                 audit_trail=state.get("workflow_audit_trail", []),
+                debug_observations=state.get("debug_observations"),
+                last_preflight=state.get("preflight_result"),
+                last_test_failures=(
+                    (verdict or {}).get("test_failures", []) if verdict else []
+                ),
             )
 
             # ── 4. Persist payload and esc_id marker (before interrupt) ────────
