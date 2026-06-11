@@ -477,6 +477,91 @@ class TestActorNode:
             for entry in audit
         ), "workflow_audit_trail must contain a parse_error audit entry"
 
+    async def test_outcome_stagnation_short_circuits(self):
+        """Outcome stagnation: same preflight/critic problem persists across attempts.
+
+        When the same preflight violation or critic finding keeps appearing
+        despite diff changes, the actor should detect outcome stagnation and
+        short-circuit to HITL escalation.
+        """
+        from sacv.nodes._stagnation import compute_outcome_signature
+
+        # Create a preflight result with a specific violation
+        preflight = {
+            "passed": False,
+            "lsp_errors": [{"file": "X.java", "line": 10, "code": "TS2345", "message": "error"}],
+            "arch_violations": [],
+            "cross_stack_errors": [],
+            "blast_errors": [],
+            "duration_ms": 100,
+        }
+        outcome_sig = compute_outcome_signature(preflight, [])
+        # Create a critic finding with the same rule_id
+        critic_findings = [
+            {"severity": "critical", "critic": "security", "message": "X",
+             "file": "X.java", "line": 10, "rule_id": "SEC-001", "resolution_hint": "fix"},
+        ]
+        critic_sig = compute_outcome_signature(None, critic_findings)
+
+        agent = StubAgentProvider([make_json_agent_result([{
+            "file_path": "src/main/java/X.java",
+            "diff_content": "@@ -10 +10 @@\n+method",
+            "operation": "modify", "language": "java",
+        }])])
+        deps = _deps(agent=agent, diff=StubDiffProvider())
+        node = make_actor_node(deps)
+
+        # Simulate state where outcome stagnation has been detected
+        # (stagnation_pattern set by prior check_outcome_stagnation call)
+        state = _state(
+            preflight_result=preflight,
+            critic_findings=critic_findings,
+            correction_state={
+                "attempt_count": 1,
+                "branch_name": "agent-task-task-act-a1",
+                "last_error_hash": None, "error_history": [],
+                "stagnation_pattern": "none",  # Will be set by outcome_stagnation check
+            },
+        )
+
+        # Patch check_outcome_stagnation to return True (simulate detected stagnation)
+        with patch(
+            "sacv.nodes.actor.check_outcome_stagnation",
+            return_value=True,
+        ):
+            out = await node(state)
+
+        # Should short-circuit to HITL without calling agent
+        assert out["verifier_verdict"]["test_result"] == "FAIL"
+        assert out["verifier_verdict"]["diagnostic"] == "STAGNATION"
+        assert out["diff_proposal"] is None
+        assert out["current_phase"] == WorkflowPhase.ACTOR.value
+
+    async def test_format_debug_observations_non_dict_variable_values(self):
+        """_format_debug_observations handles variable values that are not dicts.
+
+        When breakpoint hit variables have non-dict values (e.g., plain strings
+        or integers), the formatter should convert them via str().
+        """
+        obs = {
+            "error_type": "NPE",
+            "breakpoint_hits": [{
+                "file": "X.java", "line": 42,
+                "variables": {
+                    "repo": {"value": "null"},       # dict value (normal)
+                    "id": "123",                      # plain string
+                    "count": 42,                      # plain int
+                },
+                "call_stack": ["findById"],
+            }],
+        }
+        result = _format_debug_observations(obs)
+        # Dict value should be formatted as key = value
+        assert "repo = null" in result
+        # Non-dict values should be converted via str()
+        assert "id = 123" in result
+        assert "count = 42" in result
+
 
 @pytest.mark.unit
 class TestFormatDebugObservations:

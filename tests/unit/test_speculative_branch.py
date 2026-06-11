@@ -456,7 +456,133 @@ class TestSpeculativeBranchVerdictFields:
         assert verdict is not None
         assert "blocked_by_critic" in verdict
 
+ class TestSpeculativeBranchRemainingStrategies:
+    """Tests for remaining strategies queued when more exist than max_parallel_branches."""
+
     @staticmethod
     def _make_node(deps):
         from sacv.nodes.speculative_branch import make_speculative_branch_node
         return make_speculative_branch_node(deps)
+
+    async def test_remaining_strategies_queued_in_active_branches(self):
+        """When more strategies exist than max_parallel_branches, remaining are queued.
+
+        If we have 4 strategies and max_parallel_branches=2, the first 2 are
+        evaluated and the remaining 2 are returned in active_branches for the
+        next cycle.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        agent = MagicMock()
+        agent.call_async = AsyncMock(return_value={
+            "strategies_evaluated": [
+                {"strategy_id": "s1", "composite_score": 0.9},
+                {"strategy_id": "s2", "composite_score": 0.8},
+            ],
+        })
+
+        deps = MagicMock()
+        deps.config.max_parallel_branches = 2
+        deps.agent = agent
+
+        node = self._make_node(deps)
+
+        state = {
+            "session_id": "t", "task_id": "T1", "task_description": "",
+            "project_mode": "brownfield", "module_type": "backend-domain",
+            "current_phase": "speculative_branch",
+            "context_skeleton": None, "blast_radius_map": None,
+            "agents_md_context": None,
+            "strategy_candidates": [
+                {"strategy_id": "s1", "composite_score": 0.9, "affected_files": []},
+                {"strategy_id": "s2", "composite_score": 0.8, "affected_files": []},
+                {"strategy_id": "s3", "composite_score": 0.7, "affected_files": []},
+                {"strategy_id": "s4", "composite_score": 0.6, "affected_files": []},
+            ],
+            "selected_strategy": None, "pruned_strategies": [],
+            "red_phase_evidence_path": None, "test_inventory_paths": [],
+            "diff_proposal": None, "preflight_result": None,
+            "critic_findings": [], "verifier_verdict": None,
+            "correction_state": {
+                "attempt_count": 2, "branch_name": "main",
+                "last_error_hash": None, "error_history": [],
+                "stagnation_pattern": "none",
+            },
+            "confidence_score": 0.5, "replan_count": 0,
+            "active_branches": [], "exhausted_branches": [],
+            "speculative_stash_ref": None, "escalation_payload": None,
+            "procedural_constraints": [], "lesson_learned": None,
+            "arch_rules_updated": False, "debug_observations": None,
+            "cumulative_cost_dollars": 1.0,
+        }
+
+        result = await node(state)
+
+        # The remaining strategies (s3, s4) should be queued in active_branches
+        active = result.get("active_branches", [])
+        active_ids = [b.get("strategy_id") for b in active]
+        assert "s3" in active_ids
+        assert "s4" in active_ids
+        # s1 and s2 are not in active_branches (they were evaluated)
+        assert "s1" not in active_ids
+        assert "s2" not in active_ids
+
+
+class TestSpeculativeBranchExhaustedFiltering:
+    """Tests for strategy filtering when already in exhausted_branches."""
+
+    @staticmethod
+    def _make_node(deps):
+        from sacv.nodes.speculative_branch import make_speculative_branch_node
+        return make_speculative_branch_node(deps)
+
+    async def test_exhausted_strategies_filtered_out(self):
+        """Strategies already in exhausted_branches are filtered out before evaluation."""
+        from unittest.mock import AsyncMock, patch
+
+        agent = MagicMock()
+        agent.call_async = AsyncMock(return_value={
+            "strategies_evaluated": [],
+        })
+
+        deps = MagicMock()
+        deps.config.max_parallel_branches = 3
+        deps.agent = agent
+
+        node = self._make_node(deps)
+
+        state = {
+            "session_id": "t", "task_id": "T1", "task_description": "",
+            "project_mode": "brownfield", "module_type": "backend-domain",
+            "current_phase": "speculative_branch",
+            "context_skeleton": None, "blast_radius_map": None,
+            "agents_md_context": None,
+            "strategy_candidates": [
+                {"strategy_id": "s1", "composite_score": 0.9, "affected_files": []},
+                {"strategy_id": "s2", "composite_score": 0.8, "affected_files": []},
+            ],
+            "selected_strategy": None, "pruned_strategies": [],
+            "red_phase_evidence_path": None, "test_inventory_paths": [],
+            "diff_proposal": None, "preflight_result": None,
+            "critic_findings": [], "verifier_verdict": None,
+            "correction_state": {
+                "attempt_count": 2, "branch_name": "main",
+                "last_error_hash": None, "error_history": [],
+                "stagnation_pattern": "none",
+            },
+            "confidence_score": 0.5, "replan_count": 0,
+            "active_branches": [],
+            "exhausted_branches": ["agent-task-T1-s1"],  # s1 already exhausted
+            "speculative_stash_ref": None, "escalation_payload": None,
+            "procedural_constraints": [], "lesson_learned": None,
+            "arch_rules_updated": False, "debug_observations": None,
+            "cumulative_cost_dollars": 1.0,
+        }
+
+        result = await node(state)
+
+        # s1 should be in exhausted_branches (was already there + re-added)
+        # s2 should have been evaluated and added to exhausted
+        exhausted = result.get("exhausted_branches", [])
+        assert "agent-task-T1-s1" in exhausted
+        assert "agent-task-T1-s2" in exhausted

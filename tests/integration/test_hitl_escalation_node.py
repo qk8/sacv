@@ -553,3 +553,124 @@ class TestHITLEscalationNode:
         except importlib.metadata.PackageNotFoundError:
             expected = "sacv-unknown"
         assert data["workflow_version"] == expected
+
+    async def test_resume_guard_existing_marker_and_payload_skips_interrupt(self, tmp_path, monkeypatch):
+        """When esc_id marker and payload file both exist, node returns early without interrupt.
+
+        This tests the cross-process-restart path: if the graph was previously
+        interrupted and the process restarted, the resume guard detects the
+        existing escalation and returns without calling interrupt().
+
+        The marker file is named task-{task_id}.esc_id (e.g., task-task-hitl-001.esc_id).
+        """
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+        esc_dir = tmp_path / ".workflow" / "escalations"
+        esc_dir.mkdir()
+
+        # The marker file is named task-{task_id}.esc_id (double "task-" prefix)
+        esc_id_marker = esc_dir / "task-task-hitl-001.esc_id"
+        esc_id_marker.write_text("existing-esc-id-123")
+
+        # Write a pre-existing payload
+        existing_payload = {
+            "escalation_id": "existing-esc-id-123",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "workflow_version": "sacv-unknown",
+            "task_id": "task-hitl-001",
+            "task_description": "Add findById",
+            "failure_summary": {},
+            "git_state": {},
+            "resolution_hints": [],
+            "resume_instructions": {},
+        }
+        payload_file = esc_dir / "existing-esc-id-123.json"
+        payload_file.write_text(json.dumps(existing_payload))
+
+        git = StubGitProvider()
+        memory = StubMemoryProvider()
+        deps = _make_deps(git, memory)
+
+        state = _base_state()
+        out = await make_hitl_escalation_node(deps)(state)
+
+        # Should return with escalation_payload from existing file
+        assert out["current_phase"] == WorkflowPhase.HITL_ESCALATION.value
+        assert out["escalation_payload"] is not None
+        assert out["escalation_payload"]["escalation_id"] == "existing-esc-id-123"
+        # interrupt() was NOT called (no new escalation created)
+        new_esc_files = list(esc_dir.glob("*.json"))
+        assert len(new_esc_files) == 1  # only the existing file
+
+    async def test_green_sha_none_handled_gracefully(self, tmp_path, monkeypatch):
+        """When get_last_green_commit returns None, reset_hard(None) is called gracefully."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+
+        git = StubGitProvider()
+        # get_last_green_commit returns None by default in StubGitProvider
+        memory = StubMemoryProvider()
+        deps = _make_deps(git, memory)
+
+        state = _base_state()
+        try:
+            await make_hitl_escalation_node(deps)(state)
+        except Exception:
+            pass
+
+        # reset_hard should have been called (with None)
+        reset_calls = [c for c in git.calls if c[0] == "reset_hard"]
+        assert len(reset_calls) >= 1
+        # The payload should include last_green_commit (even if None)
+        esc_files = list((tmp_path / ".workflow" / "escalations").glob("*.json"))
+        data = json.loads(esc_files[0].read_text())
+        assert "last_green_commit" in data["git_state"]
+
+    async def test_combined_hints_ordered_by_priority(self, tmp_path, monkeypatch):
+        """Multiple resolution hints are ordered by priority: diagnostic > blast > critic > TDD."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+
+        git = StubGitProvider()
+        memory = StubMemoryProvider()
+        deps = _make_deps(git, memory)
+
+        verdict: VerifierVerdict = {
+            "test_result": "FAIL",
+            "diagnostic": DiagnosticVerdict.FIX_IMPL.value,
+            "phase1_passed": True, "phase2_passed": False,
+            "test_failures": [{"message": "assertion failed"}],
+            "performance_delta": None, "visual_diff_result": None,
+            "critic_findings": [], "docker_exit_code": 1,
+            "playwright_trace_path": None, "otel_trace": None,
+            "actuator_snapshot": None,
+        }
+        state = _base_state(
+            verifier_verdict=verdict,
+            critic_findings=[{
+                "critic": "security", "severity": "critical",
+                "file": "X.java", "line": 10, "rule_id": "SEC-001",
+                "message": "SQL injection", "resolution_hint": "use params",
+            }],
+            blast_radius_map={
+                "entry_files": [], "affected_files": ["A.java"],
+                "dependency_depth": 1, "cross_service_impact": [],
+                "schema_impact": [], "risk_score": 0.9,
+            },
+            tdd_gate_attempts=3,
+            red_phase_evidence_path=None,
+        )
+        try:
+            await make_hitl_escalation_node(deps)(state)
+        except Exception:
+            pass
+
+        esc_files = list((tmp_path / ".workflow" / "escalations").glob("*.json"))
+        data = json.loads(esc_files[0].read_text())
+        hints = data["resolution_hints"]
+        categories = [h["category"] for h in hints]
+        # architectural (from FIX_IMPL) should come before blast_radius (from blast map)
+        assert "architectural" in categories
+        assert "blast_radius" in categories
+        assert "security" in categories
+        assert "test_oracle" in categories

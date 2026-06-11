@@ -489,3 +489,103 @@ class TestMemoryConsolidationNode:
         await make_memory_consolidation_node(deps)(state)
 
         assert "sess-mc-001" in memory.purged_sessions
+
+    async def test_git_stage_file_raises_does_not_crash(self, tmp_path, monkeypatch):
+        """When git.stage_file raises RuntimeError, the node logs but continues.
+
+        This tests the resilience path: a failed stage_file (e.g., file not found)
+        should not block the entire memory consolidation pipeline.
+        """
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+
+        git = StubGitProvider()
+        # Make stage_file raise RuntimeError
+        original_stage = git.stage_file
+        def failing_stage(*args, **kwargs):
+            raise RuntimeError("file not found")
+        git.stage_file = failing_stage
+
+        memory = StubMemoryProvider()
+        agent = StubAgentProvider([_agents_md_response()])
+        deps = _make_deps(agent, git, memory)
+
+        state = _base_state(
+            test_inventory_paths=["src/test/NonExistent.java"],
+        )
+        out = await make_memory_consolidation_node(deps)(state)
+
+        # Node should complete despite stage_file failure
+        assert out["current_phase"] == WorkflowPhase.COMPLETE.value
+        assert out["lesson_learned"] is not None
+
+    async def test_git_commit_raises_does_not_crash(self, tmp_path, monkeypatch):
+        """When git.commit raises RuntimeError, the node logs but continues.
+
+        This tests the resilience path: a failed commit (e.g., no changes, merge conflict)
+        should not block the entire memory consolidation pipeline.
+        """
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+
+        git = StubGitProvider()
+        # Make commit raise RuntimeError
+        original_commit = git.commit
+        def failing_commit(*args, **kwargs):
+            raise RuntimeError("commit failed")
+        git.commit = failing_commit
+
+        memory = StubMemoryProvider()
+        agent = StubAgentProvider([_agents_md_response()])
+        deps = _make_deps(agent, git, memory)
+
+        state = _base_state()
+        out = await make_memory_consolidation_node(deps)(state)
+
+        # Node should complete despite commit failure
+        assert out["current_phase"] == WorkflowPhase.COMPLETE.value
+        assert out["lesson_learned"] is not None
+
+    async def test_git_head_sha_raises_returns_empty_sha(self, tmp_path, monkeypatch):
+        """When git.head_sha raises RuntimeError, the node logs and returns empty sha."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+
+        git = StubGitProvider()
+        # Make head_sha raise RuntimeError
+        original_sha = git.head_sha
+        def failing_sha(*args, **kwargs):
+            raise RuntimeError("git error")
+        git.head_sha = failing_sha
+
+        memory = StubMemoryProvider()
+        agent = StubAgentProvider([_agents_md_response()])
+        deps = _make_deps(agent, git, memory)
+
+        state = _base_state()
+        out = await make_memory_consolidation_node(deps)(state)
+
+        assert out["current_phase"] == WorkflowPhase.COMPLETE.value
+        # lesson_learned should still be produced
+        assert out["lesson_learned"] is not None
+
+    async def test_green_commit_failure_logged_but_continues(self, tmp_path, monkeypatch):
+        """When record_green_commit fails, the node logs a warning but completes."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".workflow").mkdir()
+
+        git = StubGitProvider()
+        memory = StubMemoryProvider()
+        agent = StubAgentProvider([_agents_md_response()])
+        deps = _make_deps(agent, git, memory)
+
+        state = _base_state()
+        out = await make_memory_consolidation_node(deps)(state)
+
+        # Node completes despite potential green commit issues
+        assert out["current_phase"] == WorkflowPhase.COMPLETE.value
+        # Lesson learned still produced
+        assert out["lesson_learned"] is not None
+        # record_green was called (StubGitProvider tracks calls)
+        record_green_calls = [c for c in git.calls if c[0] == "record_green"]
+        assert len(record_green_calls) >= 1

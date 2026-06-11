@@ -852,3 +852,43 @@ class TestClassifyWithLlm:
             overall_pass=False, deps=deps,
         )
         assert result == "AMBIGUOUS"
+
+    async def test_llm_returns_ambiguous_for_phase1_failure(self):
+        """LLM can return AMBIGUOUS even when p1 fails — the LLM output is trusted.
+
+        This is a design characteristic: the LLM classifier is called regardless
+        of phase results. If the LLM decides the failure is ambiguous (e.g.,
+        the error message is unparseable), that decision is accepted without
+        validation against the known phase results. The fallback _classify()
+        is only used when the LLM raises an exception or returns invalid text.
+        """
+        from sacv.nodes.verifier import _classify_with_llm
+        deps = self._deps_with_response("AMBIGUOUS")
+        result = await _classify_with_llm(
+            p1_passed=False, p2_passed=True,
+            failures=[{"message": "Some unparseable error"}],
+            findings=[], state={}, overall_pass=False, deps=deps,
+        )
+        # LLM output is trusted — AMBIGUOUS is returned even though p1 failed
+        assert result == "AMBIGUOUS"
+
+    async def test_llm_returns_mixed_case_output(self):
+        """LLM returns mixed-case text like 'fix_impl' → uppercased to valid classification."""
+        from sacv.nodes.verifier import _classify_with_llm
+        deps = self._deps_with_response("fix_impl")
+        result = await _classify_with_llm(
+            p1_passed=False, p2_passed=True,
+            failures=[], findings=[], state={}, overall_pass=False, deps=deps,
+        )
+        assert result == "FIX_IMPL"
+
+    async def test_llm_returns_mixed_case_with_underscore(self):
+        """LLM returns 'Fix_Test' → uppercased to FIX_TEST."""
+        from sacv.nodes.verifier import _classify_with_llm
+        deps = self._deps_with_response("Fix_Test")
+        result = await _classify_with_llm(
+            p1_passed=True, p2_passed=False,
+            failures=[{"message": "AssertionError"}],
+            findings=[], state={}, overall_pass=False, deps=deps,
+        )
+        assert result == "FIX_TEST"

@@ -307,3 +307,77 @@ class TestValueNode:
         assert len(agent.calls) == 1
         role, _ = agent.calls[0]
         assert role == "structured_output"
+
+    async def test_all_strategies_pruned_by_scoring(self):
+        """When ALL strategies are pruned by scoring, selected_strategy is None and phase advances.
+
+        This tests the edge case where the LLM returns valid strategy objects
+        but the deterministic scoring/pruning eliminates all of them (e.g.,
+        all have composite_score below min_strategy_score).
+        """
+        # Create strategies that will all be pruned: high collision + high blast impact
+        blast = {
+            "entry_files": ["UserService.java", "UserRepo.java", "UserEntity.java",
+                            "UserDTO.java", "UserMapper.java", "UserValidator.java"],
+            "affected_files": ["UserService.java", "UserRepo.java", "UserEntity.java",
+                               "UserDTO.java", "UserMapper.java", "UserValidator.java"],
+            "dependency_depth": 6, "cross_service_impact": [],
+            "schema_impact": [], "risk_score": 1.0,
+        }
+        # All strategies touch the same files → 100% collision → low scores
+        strategies = [
+            {"strategy_id": "s1", "description": "colliding 1",
+             "affected_files": ["UserService.java", "UserRepo.java", "UserEntity.java",
+                                "UserDTO.java", "UserMapper.java", "UserValidator.java"]},
+            {"strategy_id": "s2", "description": "colliding 2",
+             "affected_files": ["UserService.java", "UserRepo.java", "UserEntity.java",
+                                "UserDTO.java", "UserMapper.java", "UserValidator.java"]},
+        ]
+        agent = StubAgentProvider([
+            AgentResult(content=json.dumps(strategies),
+                        tool_calls=[], finish_reason="stop",
+                        input_tokens=20, output_tokens=50),
+        ])
+        # Use a high min_strategy_score so the strategies (scored ~0.35) are pruned
+        cfg = WorkflowConfig(min_strategy_score=0.5)
+        from sacv.orchestration.deps import NodeDeps
+        node = make_value_node(NodeDeps(
+            agent=agent,
+            memory=StubMemoryProvider(),
+            code_graph=StubCodeGraphProvider(),
+            cross_domain=StubCrossDomainProvider(),
+            git=StubGitProvider(),
+            sandbox=StubSandboxProvider(),
+            diff=StubDiffProvider(),
+            config=cfg,
+        ))
+        out = await node(_state(blast_radius_map=blast))
+
+        # All strategies pruned → selected_strategy is None
+        assert out["selected_strategy"] is None
+        # No strategies pass pruning
+        assert out["strategy_candidates"] == []
+        # Phase still advances to TDD_GATE
+        assert out["current_phase"] == WorkflowPhase.TDD_GATE.value
+        # Pruned strategies recorded
+        assert len(out["pruned_strategies"]) == 2
+        # Audit trail entry has selected_id=None
+        audit = out.get("workflow_audit_trail", [])
+        assert any(
+            entry.get("node") == "value_node" and entry.get("selected_id") is None
+            for entry in audit
+        ), "audit trail must record selected_id=None when all strategies pruned"
+
+    async def test_selected_strategy_none_when_empty_candidates(self):
+        """When LLM returns valid but empty array, selected_strategy is None (not error)."""
+        agent = StubAgentProvider([
+            AgentResult(content="[]",
+                        tool_calls=[], finish_reason="stop",
+                        input_tokens=5, output_tokens=2),
+        ])
+        node = make_value_node(_deps(agent))
+        out = await node(_state())
+
+        assert out["selected_strategy"] is None
+        assert out["strategy_candidates"] == []
+        assert out["current_phase"] == WorkflowPhase.TDD_GATE.value

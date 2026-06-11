@@ -185,6 +185,71 @@ class TestComputeConfidenceScore:
         # attempt=1.0 + stagnation=0.4 + blast=0.27 + critic=0.10 + cost=1.0 = 2.77
         assert compute_confidence_score(s, cfg) == pytest.approx(0.0, abs=1e-9)
 
+    def test_partial_verifier_penalty_p1_pass_p2_fail(self):
+        """Phase 1 pass, phase 2 fail → partial penalty (not full fail penalty)."""
+        cfg = WorkflowConfig(
+            max_self_correction_cycles=10,
+            token_budget=WorkflowConfig().token_budget,
+        )
+        s = _s(
+            correction_state={"attempt_count": 0, "stagnation_pattern": "none"},
+            blast_radius_map=None, critic_findings=[],
+            cumulative_cost_dollars=0.0,
+            verifier_verdict={
+                "test_result": "FAIL", "diagnostic": "FIX_TEST",
+                "phase1_passed": True, "phase2_passed": False,
+                "test_failures": [{"message": "AssertionError"}],
+                "performance_delta": None, "visual_diff_result": None,
+                "docker_exit_code": 1, "playwright_trace_path": None,
+                "otel_trace": None, "actuator_snapshot": None,
+                "blocked_by_critic": False,
+            },
+        )
+        # verifier_partial_penalty (0.15) instead of verifier_fail_penalty (0.30)
+        score = compute_confidence_score(s, cfg)
+        # No other penalties, only verifier_partial_penalty
+        assert score == pytest.approx(1.0 - cfg.confidence_weights.verifier_partial_penalty, abs=1e-9)
+
+    def test_non_critical_findings_not_counted_in_penalty(self):
+        """Warning and info severity findings do NOT contribute to critic_penalty."""
+        cfg = WorkflowConfig(max_self_correction_cycles=10)
+        findings = [
+            {"severity": "warning", "critic": "style", "message": "naming",
+             "file": "a.java", "line": 1, "rule_id": "r1", "resolution_hint": "fix"},
+            {"severity": "info", "critic": "style", "message": "formatting",
+             "file": "b.java", "line": 1, "rule_id": "r2", "resolution_hint": "fix"},
+            {"severity": "critical", "critic": "security", "message": "injection",
+             "file": "c.java", "line": 1, "rule_id": "r3", "resolution_hint": "fix"},
+        ]
+        s = _s(
+            correction_state={"attempt_count": 0, "stagnation_pattern": "none"},
+            blast_radius_map=None, critic_findings=findings,
+            cumulative_cost_dollars=0.0,
+        )
+        # Only 1 critical finding → critic_penalty = 0.10
+        assert compute_confidence_score(s, cfg) == pytest.approx(0.90, abs=1e-9)
+
+    def test_blast_radius_none_not_crashed(self):
+        """blast_radius_map=None → no blast penalty (uses {} fallback)."""
+        cfg = WorkflowConfig(max_self_correction_cycles=10)
+        s = _s(
+            correction_state={"attempt_count": 0, "stagnation_pattern": "none"},
+            blast_radius_map=None, critic_findings=[],
+            cumulative_cost_dollars=0.0,
+        )
+        assert compute_confidence_score(s, cfg) == pytest.approx(1.0, abs=1e-9)
+
+    def test_no_verdict_no_verifier_penalty(self):
+        """No verifier verdict → no verifier penalty."""
+        cfg = WorkflowConfig(max_self_correction_cycles=10)
+        s = _s(
+            correction_state={"attempt_count": 0, "stagnation_pattern": "none"},
+            blast_radius_map=None, critic_findings=[],
+            cumulative_cost_dollars=0.0,
+            verifier_verdict=None,
+        )
+        assert compute_confidence_score(s, cfg) == pytest.approx(1.0, abs=1e-9)
+
 
 # ── route_after_preflight ─────────────────────────────────────────────────────
 
@@ -547,3 +612,82 @@ class TestRouteAfterReplan:
         """Replan produced no strategies → HITL escalation."""
         s = _s(strategy_candidates=[])
         assert route_after_replan(s) == "hitl_escalation"
+
+
+# ── route_after_verifier — FIX_TEST and blocked_by_critic ──────────────────────
+
+
+class TestRouteAfterVerifierFixTestAndBlocked:
+
+    def _verdict(self, test_result="FAIL", diagnostic="FIX_IMPL", **kw):
+        base = {
+            "test_result": test_result, "diagnostic": diagnostic,
+            "phase1_passed": False, "phase2_passed": True,
+            "test_failures": [], "performance_delta": None,
+            "visual_diff_result": None, "docker_exit_code": 1,
+            "playwright_trace_path": None, "otel_trace": None,
+            "actuator_snapshot": None, "blocked_by_critic": False,
+        }
+        base.update(kw)
+        return base
+
+    def test_fix_test_first_attempt_routes_to_actor(self):
+        """FIX_TEST + attempt 0 → actor (retry with critic feedback)."""
+        cfg = WorkflowConfig()
+        s = _s(
+            correction_state={"attempt_count": 0, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(diagnostic="FIX_TEST",
+                                            phase1_passed=True, phase2_passed=False),
+        )
+        assert route_after_verifier(s, cfg) == "actor"
+
+    def test_fix_test_second_attempt_routes_to_actor(self):
+        """FIX_TEST + attempt 1 → actor."""
+        cfg = WorkflowConfig()
+        s = _s(
+            correction_state={"attempt_count": 1, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(diagnostic="FIX_TEST",
+                                            phase1_passed=True, phase2_passed=False),
+        )
+        assert route_after_verifier(s, cfg) == "actor"
+
+    def test_fix_test_attempt_2_routes_to_speculative(self):
+        """FIX_TEST + attempt >= 2 → speculative_branch."""
+        cfg = WorkflowConfig()
+        s = _s(
+            correction_state={"attempt_count": 2, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(diagnostic="FIX_TEST",
+                                            phase1_passed=True, phase2_passed=False),
+        )
+        assert route_after_verifier(s, cfg) == "speculative_branch"
+
+    def test_blocked_by_critic_routes_to_actor_bypasses_speculative(self):
+        """blocked_by_critic=True → actor (bypasses speculative branch, M-02)."""
+        cfg = WorkflowConfig()
+        s = _s(
+            correction_state={"attempt_count": 2, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(diagnostic="FIX_IMPL",
+                                            blocked_by_critic=True),
+        )
+        # Should go to actor, NOT speculative_branch (even though attempt >= 2)
+        assert route_after_verifier(s, cfg) == "actor"
+
+    def test_blocked_by_critic_takes_priority_over_max_attempts(self):
+        """blocked_by_critic=True takes priority even at max attempts."""
+        cfg = WorkflowConfig(max_self_correction_cycles=3)
+        s = _s(
+            correction_state={"attempt_count": 3, "branch_name": None,
+                              "last_error_hash": None, "error_history": [],
+                              "stagnation_pattern": "none"},
+            verifier_verdict=self._verdict(blocked_by_critic=True),
+        )
+        # blocked_by_critic is checked before max_attempts → actor
+        assert route_after_verifier(s, cfg) == "actor"
